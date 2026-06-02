@@ -1,0 +1,278 @@
+# Bug.md — รายงานบั๊กที่อาจทำให้ระบบ "ค้าง" หรือ "ดับ"
+
+> ## สถานะการแก้ไขใน Version 2.0.0 (2026-06-02)
+> branch: `fix/v2.0.0-stability` — แก้ไขบน working tree แล้ว (ยังไม่ได้ build/test เพราะเครื่องนี้ไม่มี Mono)
+>
+> | Bug | สถานะ | ไฟล์ที่แก้ |
+> |-----|-------|-----------|
+> | A1 Thread.Sleep ใน Application.Invoke (ALB) | ✅ แก้แล้ว (ใช้ GLib.Timeout) | LaneEventControl.cs |
+> | A2 Thread.Sleep ใน event handler | ⏳ รอ test env (เสี่ยงสูง) | - |
+> | A3 HTTP sync ตอน login | ⏳ รอ test env (เสี่ยงสูง) | - |
+> | A4 LSD blocking read | ⏳ รอ test env (เสี่ยงสูง) | - |
+> | B1/B2 race xListLoopCar + index guard | ✅ แก้จุดอันตราย (lock + LoopCarFirst) | TCT_Lib.cs, LaneEventControl.cs |
+> | B3 GTK cross-thread | 🔶 บางส่วน (reconnect ย้ายขึ้น main loop) | LaneWebSocket.cs |
+> | B4 bCancel volatile | ✅ แก้แล้ว | EdcPaymentDlg_V1.cs |
+> | B5 counter race | ✅ แก้แล้ว (Interlocked) | LaneDB.cs |
+> | C1 ThreadEndTransaction stub | ✅ แก้แล้ว | LaneEventControl.cs |
+> | C2 async void loop | 🔶 บางส่วน (guard interval) | MocRabbitMQ.cs |
+> | C3 Thread.Abort | ✅ แก้ MOC import staff | MocRabbitMQ.cs |
+> | D1 StreamWriter leak | ✅ แก้แล้ว (using + lock) | TCT_Log.cs |
+> | D2 RabbitMQ conn ไม่ dispose | ✅ แก้แล้ว | EtcRabbitMQ.cs |
+> | D3 SqliteCommand leak + try-catch | ✅ แก้แล้ว | LaneDB.cs |
+> | E1 Substring EDC ไม่เช็คความยาว | ✅ แก้แล้ว (V0+V1, pay+QR) | EMV/* |
+> | F1 WebSocket reconnect backoff | ✅ แก้แล้ว | LaneWebSocket.cs |
+> | F2 RabbitMQ ack ก่อนประมวลผล | ✅ แก้แล้ว (ETC+MOC) | EtcRabbitMQ.cs, MocRabbitMQ.cs |
+> | F4 NVR timeout infinite | ✅ แก้แล้ว (min 10s) | TCT_NVR.cs |
+> | F5 SQLite WAL/busy timeout | ✅ แก้แล้ว | LaneDB.cs |
+> | G3 ไฟล์ LSD ซ้ำ | ✅ ลบแล้ว | LSD/ |
+> | E2, E3, G1, G2 ฯลฯ | ⏳ ยังไม่แก้ | - |
+>
+> **หมายเหตุสำคัญ:** git repository ของโปรเจกต์นี้เสียหาย (corrupt loose objects + index) — ต้องกู้ git ก่อนจึงจะ commit ได้
+> ⏳ = เป็นการแก้เชิงสถาปัตยกรรมที่เสี่ยงสูง ควรมี environment ที่ build/test ได้ก่อนทำ
+> ---
+
+
+> วิเคราะห์จาก source code ของ TCT_App (C#/GTK#/Mono — ระบบเก็บเงินค่าผ่านทาง)
+> เน้นเฉพาะบั๊กที่ทำให้ระบบ **ค้าง (hang/freeze)**, **ดับ (crash)**, หรือ **เสื่อมสภาพจนล่ม (resource leak → OOM/handle exhaustion)**
+> เลขบรรทัดได้รับการ verify กับโค้ดจริงในจุดสำคัญแล้ว (อาจคลาดเคลื่อน ±2–3 บรรทัดในบางจุด)
+
+## วิธีจัดลำดับความรุนแรง
+- 🔴 **Critical** — ทำให้ระบบค้าง/ดับได้โดยตรงในการใช้งานจริง
+- 🟠 **High** — ค้าง/ดับภายใต้เงื่อนไข error/network/อุปกรณ์มีปัญหา หรือ leak สะสมจนล่ม
+- 🟡 **Medium** — เสี่ยง, ทำให้ข้อมูลเพี้ยน/เสื่อมสภาพช้าๆ
+
+---
+
+## หมวด A — บล็อก UI Thread (จอค้าง / ระบบเหมือนแฮงค์)
+
+GTK เป็น single-thread การบล็อก main thread = ทั้งจอหยุดวาด, รับปุ่มไม่ได้ ดูเหมือนแอปค้าง
+
+### A1. 🔴 `Thread.Sleep()` ภายใน `Application.Invoke` (รันบน GTK main thread)
+- **ไฟล์:** `LaneController/LaneEventControl.cs` ~บรรทัด 5375–5381 (และจุดคล้ายกัน 5388, 5459, 5482)
+- **โค้ด (verify แล้ว):**
+  ```csharp
+  private bool Thread_CmdControlOffALB_Open() {
+      Application.Invoke(delegate {
+          TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Open, OFF);
+          Thread.Sleep(100);   // ← บล็อก GTK main thread!
+          TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Open, ON);
+          ...
+      });
+  }
+  ```
+- **ผล:** ทุกครั้งที่ควบคุมไม้กั้น ALB จอจะค้าง 100 ms (สะสมหลายจุดได้นานกว่า) → กดปุ่มไม่ติด, จอกระตุก
+- **แก้:** ใช้ `GLib.Timeout.Add` แทน `Thread.Sleep` (ทำงานแบบ non-blocking) — โค้ดบางส่วนทำถูกแล้ว ให้ทำให้สม่ำเสมอ
+
+### A2. 🔴 `Thread.Sleep(1000/500)` + DB write ใน event handler
+- **ไฟล์:** `LaneController/LaneEventControl.cs` ~บรรทัด 713–717 (และอีก 30+ จุด เช่น 1063, 1494, 1598, 6997, 7151)
+- **โค้ด:**
+  ```csharp
+  TCT_Lib.LaneDB.WriteLaneEventHQ(EventTypeHQ.JOB, 1);
+  Thread.Sleep(1000);     // ← จอค้าง 1 วินาที
+  TCT_Lib.LaneDB.WriteLaneEventHQ(EventTypeHQ.JOB, 1);
+  Thread.Sleep(500);
+  ```
+- **ผล:** ทุกครั้งที่กดปุ่มสำคัญ (เปิด OTL ฯลฯ) จอค้าง 1–1.5 วิ
+- **แก้:** ย้ายงานหน่วงเวลาไป background หรือใช้ async timer
+
+### A3. 🔴 HTTP web service แบบ synchronous บน UI thread ตอน Login
+- **ไฟล์:** `WebServiceAPI/WebService_BeginEndJob.cs` บรรทัด ~266 (`request.GetResponse()`), เรียกจาก `LoginWnd.cs` ~707 บน UI thread
+- **โค้ด:** `using (WebResponse webResponse = request.GetResponse())` — timeout 3 วิ
+- **ผล:** ถ้า TA server ช้า/ล่ม จอ Login ค้าง 3+ วิ ไม่มี feedback → ดูเหมือนแอปตาย
+- **แก้:** เปลี่ยนเป็น `HttpClient.GetAsync()` + แสดง spinner
+
+### A4. 🔴 `networkStream.Read()` (blocking) ในเส้นทาง LSD keep-alive
+- **ไฟล์:** `LSD/LaneSocketControl_LSD.cs` บรรทัด ~737 (`int iLen = networkStream.Read(...)`)
+- **โค้ด (verify แล้ว):** ตั้ง `ReadTimeout = 1000/3000` ก่อน แต่ `Read()` ยังบล็อกได้จนครบ timeout ถ้าอุปกรณ์เงียบ
+- **ผล:** ถ้า LSD ไม่ตอบ keep-alive thread บล็อก 1–3 วิ/รอบ, งานที่ขึ้นกับ LSD หยุด
+- **แก้:** ใช้ `ReadAsync` + `CancellationToken`
+
+### A5. 🟠 LSD init retry loop หน่วง 3 วิ × 3 ครั้ง = 9 วิ ตอนเริ่มแอป
+- **ไฟล์:** `LSD/LaneSocketControl_LSD.cs` ~บรรทัด 272–284 (`while(client==null)` + `await Task.Delay(3000)`)
+- **ผล:** ถ้า LSD offline ตอนเปิดแอป → หน่วง 9 วิก่อนพร้อมใช้งาน
+- **แก้:** init แบบ background ไม่บล็อกการเปิดหน้าจอ
+
+---
+
+## หมวด B — Threading / Race Condition (crash สุ่ม, ข้อมูลเพี้ยน)
+
+### B1. 🔴 เข้าถึง `TCT_Lib.xListLoopCar` จากหลาย thread โดยไม่มี lock
+- **ไฟล์:** `LaneController/LaneEventControl.cs` หลายจุด (3221–3224, 3268–3284, 1411, 2451 ฯลฯ)
+- **โค้ด:**
+  ```csharp
+  int iTotalLoop = TCT_Lib.xListLoopCar == null ? 0 : TCT_Lib.xListLoopCar.Count;
+  int iTC_Class  = iTotalLoop == 0 ? ... : TCT_Lib.xListLoopCar[0].iTC_Class;  // ← race
+  ```
+- **ผล:** ช่วงระหว่างเช็ค `Count` กับเข้าถึง `[0]` thread อื่นอาจ `.Clear()` → `IndexOutOfRangeException` → crash, transaction ที่กำลังทำหาย
+- **list ถูกเข้าถึงจาก:** UI thread, AVC event, key event, convoy mode — ไม่มี lock เลย
+- **แก้:** ครอบด้วย `lock` ตัวเดียวกันทุกจุด หรือใช้ snapshot/`ConcurrentQueue`
+
+### B2. 🟠 เข้าถึง `xListLoopCar[0]` โดยไม่เช็ค Count ก่อน
+- **ไฟล์:** `LaneController/LaneEventControl.cs` บรรทัด ~1411 `if (TCT_Lib.xListLoopCar[0].iTC_Class == 9) ...`
+- **ผล:** ถ้า list ว่าง → crash ทันที
+
+### B3. 🟠 GTK widget ถูกเข้าถึง/อัปเดตจาก background thread
+- **ไฟล์:** หลายจุด — `LaneEventControl.cs` (network status thread ~6614–6644), `MocRabbitMQ.cs` (callback thread), `EdcPaymentDlg_V1.cs` (483, 929, 954, 982 เรียก `Dispose()/Destroy()` ตรงๆ), `LoginWnd.cs` (~1685 constructor LSD)
+- **ผล:** ผิดกฎ GTK single-thread → `Gdk-CRITICAL` / segfault / crash สุ่ม
+- **แก้:** ครอบทุกการแตะ widget ด้วย `Application.Invoke(...)`
+
+### B4. 🟠 `bCancel` flag ใช้ร่วมหลาย thread โดยไม่ sync (payment)
+- **ไฟล์:** `EMV/EMV_V1/EdcPaymentDlg_V1.cs` บรรทัด 19, ~447, ~1095
+- **ผล:** การยกเลิกการชำระอาจส่ง ACK ผิด หรืออ่านค่าเก่า (ไม่ volatile/lock)
+- **แก้:** ใช้ `volatile bool` หรือ `lock`
+
+### B5. 🟡 ตัวนับ static `iEventID/iFareTransID` ฯลฯ `++` โดยไม่ lock
+- **ไฟล์:** `Database/LaneDB.cs` บรรทัด 22–25 (ประกาศ), เพิ่มที่ 276, 378, 537, 1070 ฯลฯ
+- **ผล:** ถ้า 2 thread เขียนพร้อมกัน → ได้ TransactionID ซ้ำ → ข้อมูลชน/ละเมิด PK
+- **แก้:** `Interlocked.Increment` หรือ lock
+
+---
+
+## หมวด C — Thread/Loop ที่ไม่มีทางออก & Async ผิดวิธี
+
+### C1. 🔴 `ThreadEndTransaction` — `while(true)` ว่างเปล่า (stub)
+- **ไฟล์:** `LaneController/LaneEventControl.cs` บรรทัด ~2991–3007 (verify แล้ว)
+- **โค้ด:** `while(true){ try {} catch{...} Thread.Sleep(100); }` — try ว่างเปล่า
+- **ผล:** เปลือง CPU/thread, ปิดแอปไม่ clean (thread ไม่ยอมจบ)
+- **แก้:** ลบทิ้ง หรือ implement จริง + ใช้ event/CancellationToken
+
+### C2. 🔴 `async void` thread loop ไม่มี cancellation + `.Abort()` ที่ unreachable
+- **ไฟล์:** `RabbitMQ/MocRabbitMQ.cs` (~487–516 `ThreadTimerImportStaffAsync`), `TCT_MTS.cs` (~730–854 `ThreadGetEtcStatus`), `LSD/LaneSocketControl_LSD.cs` (~75 `ThreadEventSendKeepAlive`)
+- **ปัญหา:** `async void` = exception ที่หลุดออกมาไม่มีใครจับ → thread ตายเงียบ; `while(true)` ไม่มีทางหยุด; บรรทัด `threadX.Abort()` หลัง loop เป็น dead code
+- **ผล:** ถ้า thread ตายเงียบ → keep-alive/monitoring/import staff หยุดทำงานโดยไม่มีสัญญาณเตือน
+- **แก้:** ใช้ `async Task` + `CancellationToken` + จัดการ exception ครบ
+
+### C3. 🟠 `Thread.Abort()` กลางคัน (อันตราย)
+- **ไฟล์:** `RabbitMQ/MocRabbitMQ.cs` (~445 `threadImportStaff.Abort()`), `EMV/EMV_V1/EdcPayQrDlg_V1.cs` (166, 432, 649)
+- **ผล:** `ThreadAbortException` แทรกกลาง DB transaction/socket cleanup → DB ค้างสถานะไม่สมบูรณ์, finally ไม่รัน, socket leak
+- **แก้:** เลิกใช้ `Abort()` ใช้ flag/CancellationToken ให้ thread จบเอง
+
+### C4. 🟡 `async void` ThreadCheckNetworkStatus — ยิง network check ซ้อนกัน
+- **ไฟล์:** `LaneController/LaneEventControl.cs` ~6597 (`async private void` + `while(true)` + `await IsPortReachable`)
+- **ผล:** ถ้า network ช้า อาจยิง check ซ้อนหลายอัน → thread pool ตึง
+
+---
+
+## หมวด D — Resource Leak (เสื่อมสภาพ → ค้าง/ดับหลังใช้ไปนานๆ)
+
+### D1. 🟠 `StreamWriter` ไม่ใช้ `using` ใน log methods (file handle leak)
+- **ไฟล์:** `TCT_Log.cs` — `WriteLog` (~95–98, verify แล้ว) และอีก 6 เมธอด (148, 176, 203, 231, 437, 463, 489)
+- **โค้ด:** `TextWriter tw = new StreamWriter(...); ...; tw.Close();` — ถ้า exception ก่อน `Close()` → handle รั่ว
+- **ผล:** เรียกถี่มาก (ทุก transaction) → file handle หมด → เขียน log/ไฟล์ไม่ได้ → ลามไปส่วนอื่น
+- **แก้:** ครอบด้วย `using (var tw = new StreamWriter(...)) {...}` (บางเมธอดทำถูกแล้ว เช่น `WriteLaneEventIO`)
+
+### D2. 🔴 RabbitMQ connection/channel ไม่ถูก dispose ตอน error + `Close()` บน null
+- **ไฟล์:** `RabbitMQ/EtcRabbitMQ.cs` (~104–105, 120–121 set null โดยไม่ dispose; ~136–137 `CloseEtcRabbitMQ` เรียก `channel.Close()`/`connection.Close()` ทั้งที่อาจ null)
+- **ผล:** socket handle ของ RabbitMQ รั่วสะสม → "too many open files"; และ `CloseEtcRabbitMQ()` หลัง connect ล้มเหลว → `NullReferenceException`
+- **แก้:** `Dispose()` ก่อน null + null-check ใน Close
+
+### D3. 🟠 SqliteCommand ไม่ dispose ใน `List()/Execute()` + ไม่มี try-catch
+- **ไฟล์:** `Database/LaneDB.cs` บรรทัด 74–89 (verify แล้ว)
+- **โค้ด:** `var cmd = new SqliteCommand(query, conn); ... dataAdapter.Fill(dt);` — ไม่มี `using`, ไม่มี try-catch
+- **ผล:** ถ้า `Fill()` throw ("database is locked") → exception หลุดออกไป crash; command ไม่ถูก dispose
+- **แก้:** ครอบ `using` + try-catch + คืน DataTable ว่างเมื่อ error
+
+### D4. 🟠 Socket ไม่ปิดในเส้นทาง error / ไม่มี finally (EMV)
+- **ไฟล์:** `EMV/EMV_V1/EdcPaymentDlg_V1.cs` (~240–248, 1001–1065), `EdcPayQrDlg_V1.cs` (~922–938 ไม่ตั้ง timeout เลย)
+- **ผล:** socket รั่ว → port หมด → ชำระเงินครั้งถัดไปเชื่อมต่อไม่ได้ / hang ไม่มี timeout
+- **แก้:** ใช้ `using`/`finally` ปิด socket เสมอ + ตั้ง Send/Receive timeout ทุก socket
+
+### D5. 🟠 Timer (GLib) ถูก leak — `RemoveAvcTimer` มี logic ผิด
+- **ไฟล์:** `LaneController/LaneEventControl.cs` ~2937–2977
+- **ผล:** timer ID ไม่ถูกถอดถูกต้อง → GLib timer สะสม → ระบบช้าลง/ครบ limit
+- **หมายเหตุ:** `LoginWnd.cs` ~788 ก็ reset timer id ไม่ครบ (ขาด `iTimerIdSendScpTFI`)
+
+### D6. 🟡 List ส่วนกลางโตไม่จำกัด (`xListLoopCar`, `xListQueues`, `szListReceiptNo`)
+- **ไฟล์:** `TCT_Lib.cs` บรรทัด ~840–842
+- **ผล:** ถ้า logic clear พลาดในเส้นทาง error → โตเรื่อยๆ → OutOfMemory หลังใช้งานหลายชั่วโมง
+
+### D7. 🟡 ไฟล์ log โตไม่จำกัด / ไม่มี rotation
+- **ไฟล์:** `TCT_Log.cs` (ทุกเมธอด เขียน append อย่างเดียว)
+- **ผล:** หลายสัปดาห์ → disk เต็ม → เขียนไฟล์ fail → ลามทั้งระบบ
+- **แก้:** เพิ่ม log rotation / cleanup เก่ากว่า N วัน
+
+---
+
+## หมวด E — การ parse input ภายนอกแบบไม่ป้องกัน (crash จากข้อมูลเพี้ยน)
+
+### E1. 🔴 `Substring()` บน EDC response โดยไม่เช็คความยาว
+- **ไฟล์:** `EMV/EMV_V1/EdcPaymentDlg_V1.cs` (~668 `Substring(17,2)`, ~721 `Substring(15,2)`), `EdcPayQrDlg_V1.cs` (381, 444)
+- **ผล:** ถ้า EDC ตอบสั้นกว่าที่คาด (เช่น "OK"/"ERROR") → `IndexOutOfRangeException` ใน background thread → crash, socket ค้าง, lane ติด
+- **แก้:** เช็ค `szResponse.Length` ก่อน Substring เสมอ
+
+### E2. 🟠 JSON parse / dynamic access ไม่ป้องกัน null (socket/MQ handlers)
+- **ไฟล์:** `LaneSocket/LaneWebSocket.cs` (~245–444 `ClassifyLaneMessage`), `RabbitMQ/EtcRabbitMQ.cs` (~150, 209), `LaneSocketServer.cs` (~459–491 WRDO)
+- **ผล:** ข้อความผิดรูป/field หาย → exception; ถ้า callback delegate เป็น null → `NullReferenceException` → thread รับข้อมูลตาย, หยุดรับ message
+- **แก้:** null-check ทุก field + null-check delegate ก่อนเรียก
+
+### E3. 🟠 อ่านค่า DB เป็น null/DBNull แล้ว parse ตรงๆ
+- **ไฟล์:** `Database/LaneDB.cs` (~157–158 `decimal.Parse(...FareClassType1...)`, 183, 212, 738 ฯลฯ) และ `dt.Rows[0]` โดยไม่เช็ค `Rows.Count`
+- **ผล:** ถ้าตาราง config/tariff ว่างหรือ column NULL → `FormatException`/`IndexOutOfRangeException` ตอน startup → แอปเปิดไม่ขึ้น
+- **แก้:** เช็ค `Rows.Count > 0` + `!= DBNull.Value` ก่อนใช้
+
+---
+
+## หมวด F — Network / Connection (ค้าง/storm เมื่อปลายทางมีปัญหา)
+
+### F1. 🔴 WebSocket reconnect ไม่มี backoff (reconnect storm)
+- **ไฟล์:** `LaneSocket/LaneWebSocket.cs` (~132–147 `Update_KeepALive`, 214 `Ws_OnError`, 235 `Ws_OnClosed`) — เรียก `StartLaneSocket()` ทันทีทุกครั้งที่ fail
+- **ผล:** ถ้า LCSD ล่ม → reconnect รัวๆ หลายครั้ง/วินาที → กิน CPU, log ท่วม, อาจบล็อก UI ถ้า `Open()` เป็น blocking
+- **แก้:** ใส่ exponential backoff (เช่น 1→2→4→8 วิ)
+
+### F2. 🔴 RabbitMQ: `BasicAck` ก่อนประมวลผล + exception ใน consumer ไม่ recover
+- **ไฟล์:** `RabbitMQ/EtcRabbitMQ.cs` (~727–746 `HandleBasicDeliver`)
+- **โค้ด:** `_channel.BasicAck(deliveryTag,false);` แล้วค่อยเรียก callback — ถ้า callback throw → message หายไปแล้ว (ack ไปแล้ว) และ consumer อาจตาย
+- **ผล:** ข้อความ ETC หาย, consumer หยุดทำงานเงียบๆ
+- **แก้:** ประมวลผลให้สำเร็จก่อนแล้วค่อย `BasicAck`; ครอบ callback ด้วย try-catch; auto-restart consumer
+
+### F3. 🟠 LaneSocketServer (RTO) restart โดยไม่มี lock/delay
+- **ไฟล์:** `LaneSocket/LaneSocketServer.cs` ~153–172 (`Stop()/Dispose()/new/Start()`)
+- **ผล:** หลาย thread เข้า error handler พร้อมกัน → restart ชนกัน; port ยังอยู่ TIME_WAIT → start ใหม่ fail → RTO เงียบ
+- **แก้:** lock รอบ restart + หน่วงก่อน start
+
+### F4. 🟡 NVR timeout = Infinite เมื่อ config = 0
+- **ไฟล์:** `TCT_NVR.cs` (~50, ~211 `if (iVideoNVR_TimeoutSec <= 0) request.Timeout = Timeout.Infinite;`)
+- **ผล:** ถ้า config พลาดเป็น 0 และ NVR ไม่ตอบ → thread บล็อกถาวร
+- **แก้:** บังคับ timeout ขั้นต่ำเสมอ
+
+### F5. 🟡 SQLite ไม่เปิด WAL / ไม่มี Busy Timeout (connection เดียว)
+- **ไฟล์:** `Database/LaneDB.cs` ~36–39 (verify แล้ว: `URI=file:...` ล้วน)
+- **ผล:** เขียนพร้อมกันจากหลาย thread → "database is locked" → ค้าง/throw
+- **แก้:** เพิ่ม `Journal Mode=WAL; Busy Timeout=5000;` และ serialize การเขียน
+
+---
+
+## หมวด G — ความปลอดภัย / คุณภาพโค้ด (ไม่ทำให้ดับโดยตรง แต่ควรแก้)
+
+### G1. 🟠 SQL Injection — ต่อ string เข้า query ตรงๆ
+- **ไฟล์:** `Database/LaneDB.cs` หลายจุด (93–95, 269–273, 534–535 ฯลฯ) — ค่าจาก network/config (PlazaID, method, alarmDetail) ต่อเข้า SQL โดยมีแค่ escape `'`→`''` บางจุด
+- **ผล:** ข้อมูลที่เพี้ยน/ประสงค์ร้ายอาจทำให้ query พังหรือลบข้อมูล → ทางอ้อมทำให้ระบบล่ม
+- **แก้:** ใช้ parameterized query (`SqliteParameter`) ทุกที่
+
+### G2. 🟡 ไม่ validate checksum/LRC ของ EDC response
+- **ไฟล์:** `EMV/EMV_V1/EdcPaymentDlg_V1.cs` ~635–670 — รับ response มา parse เลย
+- **ผล:** ข้อมูลชำระเงินที่ corrupt อาจถูกรับว่าถูกต้อง
+
+### G3. 🟡 ไฟล์ source ซ้ำซ้อนในโฟลเดอร์ `LSD/`
+- `LaneSocketControl_LSD (another copy).cs`, `LaneSocketControl_LSD (.5).cs` — เสี่ยง build/แก้ผิดไฟล์ ควรลบ (ตัวจริงคือ `LaneSocketControl_LSD.cs`)
+
+---
+
+## ตารางสรุปจัดลำดับการแก้ (แนะนำ)
+
+| ลำดับ | Bug | หมวด | เหตุผล |
+|------|-----|------|--------|
+| 1 | B1, B2 | race `xListLoopCar` | crash ระหว่างเก็บเงินจริง — กระทบเงิน |
+| 2 | A1–A4 | บล็อก UI thread | จอค้างบ่อยในงานปกติ |
+| 3 | E1, E2 | parse input | crash จากอุปกรณ์/network ตอบเพี้ยน |
+| 4 | F1, F2 | reconnect/MQ | ระบบเงียบ/ข้อมูลหายเมื่อ network สะดุด |
+| 5 | C2, C3 | async void/Abort | thread ตายเงียบ, DB ค้างสถานะ |
+| 6 | D1–D4 | resource leak | ค้าง/ดับหลังรันยาว |
+| 7 | B3 | GTK cross-thread | crash สุ่ม |
+| 8 | F5, G1 | DB lock / injection | "database is locked", data integrity |
+| 9 | C1, G3 | dead code/ไฟล์ซ้ำ | สุขอนามัยโค้ด |
+
+> **ข้อเสนอแนะภาพรวม:** ปัญหาเชิงระบบ 3 อย่างที่ควรแก้เป็น "หลักการ" ไม่ใช่ทีละจุด:
+> 1. **ห้ามบล็อก GTK main thread** — แทน `Thread.Sleep`/sync I/O ด้วย `GLib.Timeout` / `async`
+> 2. **ห้ามแตะ GTK จาก background thread** — ครอบ `Application.Invoke` เสมอ
+> 3. **ใส่ lock ให้ state ส่วนกลางที่ใช้ร่วมหลาย thread** (โดยเฉพาะ list ใน `TCT_Lib`)

@@ -1,0 +1,274 @@
+﻿using System;
+using System.Data;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using TCT_App.EMV.V0;
+
+namespace TCT_App.WebServiceAPI
+{
+    public class WebService_SalesCoupons
+    {
+        public class ObjGetCoupons
+        {
+            public string tsbId;
+            public string userId;
+            public string coupontype;
+        }
+
+        public class ObjCouponData
+        {
+            public int CouponPK;
+            public string CouponType;
+            public string SerialNo;
+            public decimal Price;
+        }
+
+        public class ObjSoldCoupon
+        {
+            public string tsbid;
+            public string plazaid;
+            public string laneid;
+            public string coupontype;
+            public string serialno;
+            public decimal price;
+            public string userid;
+            public string solddate;
+            public int paytypeid;
+            public string paytypename;
+            public string edcdatetime;
+            public string edcterminalid;
+            public string edccardno;
+            public decimal edcamount;
+            public string edcref1;
+            public string edcref2;
+            public string edcref3;
+        }
+
+        //-----------------------------------
+        public static bool CallWebService_GetCoupons(ref string szErrMsg)
+        {
+            if (!TCT_Lib.bEnableLaneWebService)
+                return false;
+
+            if (!TCT_Lib.laneController.TestNetworkConnection(TCT_Lib.szLaneWebService_ServerIPAddress, TCT_Lib.iLaneWebService_ServerPort))
+            {
+                Console.WriteLine($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
+                LogInfo.WriteLog($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
+                szErrMsg = $"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}";
+                return false;
+            }
+
+            try
+            {
+                //--- Clear old coupons data
+                LogInfo.WriteLog("+ Clear old coupons data in SalesCouponList");
+                string szQuery = "DELETE FROM SalesCouponList";
+                TCT_Lib.LaneDB.Execute(szQuery);
+
+                //-----------------------------------------------------------------------
+                var xCoupons        = new ObjGetCoupons();
+                xCoupons.userId     = TCT_Lib.szStaffID;
+                xCoupons.tsbId      = TCT_Lib.szTSBId;
+
+                string msg          = JsonConvert.SerializeObject(xCoupons, Formatting.Indented);
+                byte[] byteData     = Encoding.UTF8.GetBytes(msg);
+                LogInfo.WriteLog("+ Parameter : " + msg);
+                //--------------------------------------------------------------------
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var client = new WebClient())
+                {
+                    client.Encoding     = new UTF8Encoding();
+                    string szFmt        = "{0}/api/users/coupons/search";
+                    string szWebUrl     = string.Format(szFmt, TCT_Lib.szLaneWebService_BaseURL);
+                    LogInfo.WriteLog("+ CallWebService_GetCoupons URL : " + szWebUrl);
+
+                    var request                 = (HttpWebRequest)WebRequest.Create(szWebUrl);
+                    request.Method              = "POST";
+                    request.ContentType         = "application/json";
+                    request.ContentLength       = byteData.Length;
+                    request.Timeout             = 2 * 1000;
+                    using (Stream webStream = request.GetRequestStream())
+                    {
+                        webStream.Write(byteData, 0, byteData.Length);
+                        webStream.Flush();
+                        webStream.Close();
+                    }
+
+                    using (WebResponse webResponse = request.GetResponse())
+                    {
+                        if (((HttpWebResponse)webResponse).StatusCode != HttpStatusCode.OK)
+                        {
+                            szErrMsg = ((HttpWebResponse)webResponse).StatusDescription;
+                            LogInfo.WriteLog("- Error Response CallWebService_GetCoupons : " + szErrMsg);
+
+                            return false;
+                        }
+
+                        Stream webStream = webResponse.GetResponseStream();
+                        if (webStream != null)
+                        {
+                            using (var responseReader = new StreamReader(webStream))
+                            {
+                                string response     = responseReader.ReadToEnd();
+                                LogInfo.WriteLog("+ Response CallWebService_GetCoupons : " + response);
+
+                                dynamic xResponse   = JsonConvert.DeserializeObject(response);
+                                if ((bool)xResponse["errors"]["hasError"] == true)
+                                {
+                                    szErrMsg = (string)xResponse["errors"]["errMsg"];
+                                    LogInfo.WriteLog("- Fail CallWebService_GetCoupons : " + (string)xResponse["errors"]["errMsg"]);
+                                    return false;
+                                }
+                                else
+                                {
+                                    LogInfo.WriteLog("+ Success CallWebService_GetCoupons");
+
+                                    LogInfo.WriteLog("+ Insert new coupons data.");
+                                    JArray xCouponData          = xResponse["data"];
+                                    ObjCouponData[] objCoupons  = xCouponData.ToObject<ObjCouponData[]>();
+                                    foreach (ObjCouponData xCoupon in objCoupons.ToList())
+                                    {
+                                        szQuery = "SELECT * FROM SalesCouponList " +
+                                                    $"WHERE SerialNo='{xCoupon.SerialNo}'";
+                                        DataTable dt = TCT_Lib.LaneDB.List(szQuery);
+                                        if (dt.Rows.Count == 0)
+                                        {
+                                            szQuery = "INSERT INTO SalesCouponList (CouponPK, CouponType, SerialNo, CouponPrice, " +
+                                                        "CouponStatus, ReqCouponDateTime) VALUES " +
+                                                        $"({xCoupon.CouponPK}, '{xCoupon.CouponType}', '{xCoupon.SerialNo}', {xCoupon.Price}, " +
+                                                        $"0, '{DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB)}')";
+                                            TCT_Lib.LaneDB.Execute(szQuery);
+                                        }
+                                    }
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+            catch (Exception err)
+            {
+                szErrMsg = err.Message;
+                Console.WriteLine($"- Error CallWebService_GetCoupons : {err.Message}");
+                LogInfo.WriteLog($"- Error CallWebService_GetCoupons : {err.Message}");
+                return false;
+            }           
+        }
+
+        public static bool CallWebService_SoldCoupon(string szCouponType, string szSerialNo, decimal fCouponPrice, DateTime dtSoldDate,
+                                                    int iPayTypeID, string szPayTypeName, objCreditCardInfo xCreditCard, ref string szErrMsg)
+        {
+            if (!TCT_Lib.bEnableLaneWebService)
+                return false;
+
+            if (!TCT_Lib.laneController.TestNetworkConnection(TCT_Lib.szLaneWebService_ServerIPAddress, TCT_Lib.iLaneWebService_ServerPort))
+            {
+                Console.WriteLine($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
+                LogInfo.WriteLog($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
+                return false;
+            }
+
+            try
+            {
+                var xCoupon         = new ObjSoldCoupon();
+                xCoupon.tsbid       = TCT_Lib.szTSBId;
+                xCoupon.plazaid     = TCT_Lib.szPlazaID;
+                xCoupon.laneid      = TCT_Lib.szLaneName;
+                xCoupon.coupontype  = szCouponType;
+                xCoupon.serialno    = szSerialNo;
+                xCoupon.price       = fCouponPrice;
+                xCoupon.userid      = TCT_Lib.szStaffID;
+                xCoupon.solddate    = dtSoldDate.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+                xCoupon.paytypeid   = iPayTypeID;
+                xCoupon.paytypename = szPayTypeName;
+
+                if ((iPayTypeID > 0) && (xCreditCard != null))
+                {
+                    string szEdcDate        = "20" + xCreditCard.szTransactionDate.Substring(0, 2) + "-" + xCreditCard.szTransactionDate.Substring(2, 2) + "-" + xCreditCard.szTransactionDate.Substring(4, 2);
+                    string szEdcTime        = xCreditCard.szTransactionTime.Substring(0, 2) + ":" + xCreditCard.szTransactionTime.Substring(2, 2) + ":" + xCreditCard.szTransactionTime.Substring(4, 2)
+;                    xCoupon.edcdatetime    = szEdcDate + " " + szEdcTime;
+                    xCoupon.edcterminalid   = xCreditCard.szTerminalID;
+                    xCoupon.edccardno       = xCreditCard.szCardNo;
+                    xCoupon.edcamount       = decimal.Parse(xCreditCard.szAmount)/100;
+                    xCoupon.edcref1         = xCreditCard.szRef1;
+                    xCoupon.edcref2         = xCreditCard.szRef2;
+                    xCoupon.edcref3         = xCreditCard.szRef3;
+                }
+
+                string msg          = JsonConvert.SerializeObject(xCoupon, Formatting.Indented);
+                byte[] byteData     = Encoding.UTF8.GetBytes(msg);
+                LogInfo.WriteLog("+ Parameter : " + msg);
+                //--------------------------------------------------------------------
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                using (var client = new WebClient())
+                {
+                    client.Encoding     = new UTF8Encoding();
+                    string szFmt        = "{0}/api/TCT/coupons/sold";
+                    string szWebUrl     = string.Format(szFmt, TCT_Lib.szLaneWebService_BaseURL);
+                    LogInfo.WriteLog("+ CallWebService_SoldCoupons URL : " + szWebUrl);
+
+                    var request                 = (HttpWebRequest)WebRequest.Create(szWebUrl);
+                    request.Method              = "POST";
+                    request.ContentType         = "application/json";
+                    request.ContentLength       = byteData.Length;
+                    request.Timeout             = 2 * 1000;
+                    using (Stream webStream = request.GetRequestStream())
+                    {
+                        webStream.Write(byteData, 0, byteData.Length);
+                        webStream.Flush();
+                        webStream.Close();
+                    }
+
+                    using (WebResponse webResponse = request.GetResponse())
+                    {
+                        if (((HttpWebResponse)webResponse).StatusCode != HttpStatusCode.OK)
+                        {
+                            szErrMsg = ((HttpWebResponse)webResponse).StatusDescription;
+                            LogInfo.WriteLog("- Error Response CallWebService_SoldCoupons : " + szErrMsg);
+
+                            return false;
+                        }
+
+                        Stream webStream = webResponse.GetResponseStream();
+                        if (webStream != null)
+                        {
+                            using (var responseReader = new StreamReader(webStream))
+                            {
+                                string response     = responseReader.ReadToEnd();
+                                LogInfo.WriteLog("+ Response CallWebService_SoldCoupons : " + response);
+
+                                dynamic xResponse   = JsonConvert.DeserializeObject(response);
+                                if ((bool)xResponse["errors"]["hasError"] == true)
+                                {
+                                    szErrMsg        = (string)xResponse["errors"]["errMsg"];
+                                    LogInfo.WriteLog("- Fail CallWebService_SoldCoupons : " + (string)xResponse["errors"]["errMsg"]);
+                                    return false;
+                                }
+                                else
+                                {
+                                    LogInfo.WriteLog("+ Success CallWebService_SoldCoupons");
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                return false;
+            }
+            catch (Exception err)
+            {
+                szErrMsg = err.Message;
+                Console.WriteLine($"- Error CallWebService_SoldCoupons : {err.Message}");
+                LogInfo.WriteLog($"- Error CallWebService_SoldCoupons : {err.Message}");
+                return false;
+            }
+        }
+
+    }
+}

@@ -1,0 +1,26 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio / IDE
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Mono / build
+*.pidb
+*.userprefs
+mono_crash.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup of the previous corrupt git repository (do not track)
+.git.corrupt.bak/
+
+# NOTE: packages/ is intentionally committed so the project builds without a NuGet restore
+# (old-style packages.config with HintPath references). Remove this note and add `packages/`
+# below if you switch to NuGet restore on build.

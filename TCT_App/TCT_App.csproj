@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="..\packages\SQLite.3.13.0\build\net45\SQLite.props" Condition="Exists('..\packages\SQLite.3.13.0\build\net45\SQLite.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x86</Platform>
+    <ProjectGuid>{0C4F5252-1D3D-4655-B92D-599856760CEE}</ProjectGuid>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>TCT_App</RootNamespace>
+    <AssemblyName>TCT_App</AssemblyName>
+    <TargetFrameworkVersion>v4.7</TargetFrameworkVersion>
+    <ReleaseVersion>1.0.6.1</ReleaseVersion>
+    <ApplicationIcon>..\Logo.ico</ApplicationIcon>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug</OutputPath>
+    <DefineConstants>DEBUG;</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x86</PlatformTarget>
+    <CustomCommands>
+      <CustomCommands>
+        <Command>
+          <type>Custom</type>
+          <command>sudo chmod uog+rw /var/log/qfree/TCT</command>
+        </Command>
+      </CustomCommands>
+    </CustomCommands>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x86' ">
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release</OutputPath>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <PlatformTarget>x86</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="gtk-sharp, Version=2.4.0.0, Culture=neutral, PublicKeyToken=35e10195dab3c99f">
+      <Package>gtk-sharp-2.0</Package>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="gdk-sharp, Version=2.4.0.0, Culture=neutral, PublicKeyToken=35e10195dab3c99f">
+      <Package>gtk-sharp-2.0</Package>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="glib-sharp, Version=2.4.0.0, Culture=neutral, PublicKeyToken=35e10195dab3c99f">
+      <Package>glib-sharp-2.0</Package>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="pango-sharp, Version=2.4.0.0, Culture=neutral, PublicKeyToken=35e10195dab3c99f">
+      <Package>gtk-sharp-2.0</Package>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="atk-sharp, Version=2.4.0.0, Culture=neutral, PublicKeyToken=35e10195dab3c99f">
+      <Package>gtk-sharp-2.0</Package>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="Mono.Posix" />
+    <Reference Include="Mono.Data.Sqlite" />
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\packages\Newtonsoft.Json.13.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Collections.Specialized">
+      <HintPath>..\packages\System.Collections.Specialized.4.3.0\lib\net46\System.Collections.Specialized.dll</HintPath>
+    </Reference>
+    <Reference Include="mscorlib" />
+    <Reference Include="System.IO">
+      <HintPath>..\packages\System.IO.4.3.0\lib\net462\System.IO.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Linq">
+      <HintPath>..\packages\System.Linq.4.3.0\lib\net463\System.Linq.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Core" />
+    <Reference Include="System.Net.NameResolution">
+      <HintPath>..\packages\System.Net.NameResolution.4.3.0\lib\net46\System.Net.NameResolution.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Net.Sockets">
+      <HintPath>..\packages\System.Net.Sockets.4.3.0\lib\net46\System.Net.Sockets.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Runtime">
+      <HintPath>..\packages\System.Runtime.4.3.1\lib\net462\System.Runtime.dll</HintPath>
+    </Reference>
+    <Reference Include="System.ComponentModel.Composition" />
+    <Reference Include="System.Runtime.Extensions">
+      <HintPath>..\packages\System.Runtime.Extensions.4.3.1\lib\net462\System.Runtime.Extensions.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Runtime.InteropServices">
+      <HintPath>..\packages\System.Runtime.InteropServices.4.3.0\lib\net463\System.Runtime.InteropServices.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Encoding">
+      <HintPath>..\packages\System.Security.Cryptography.Encoding.4.3.0\lib\net46\System.Security.Cryptography.Encoding.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Primitives">
+      <HintPath>..\packages\System.Security.Cryptography.Primitives.4.3.0\lib\net46\System.Security.Cryptography.Primitives.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.Algorithms">
+      <HintPath>..\packages\System.Security.Cryptography.Algorithms.4.3.1\lib\net463\System.Security.Cryptography.Algorithms.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.X509Certificates">
+      <HintPath>..\packages\System.Security.Cryptography.X509Certificates.4.3.2\lib\net461\System.Security.Cryptography.X509Certificates.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Net.Security">
+      <HintPath>..\packages\System.Net.Security.4.3.2\lib\net46\System.Net.Security.dll</HintPath>
+    </Reference>
+    <Reference Include="SuperSocket.ClientEngine">
+      <HintPath>..\packages\SuperSocket.ClientEngine.Core.0.10.0\lib\net45\SuperSocket.ClientEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Text.RegularExpressions">
+      <HintPath>..\packages\System.Text.RegularExpressions.4.3.1\lib\net463\System.Text.RegularExpressions.dll</HintPath>
+    </Reference>
+    <Reference Include="WebSocket4Net">
+      <HintPath>..\packages\WebSocket4Net.0.15.2\lib\net45\WebSocket4Net.dll</HintPath>
+    </Reference>
+    <Reference Include="log4net">
+      <HintPath>..\packages\log4net.2.0.15\lib\net45\log4net.dll</HintPath>
+    </Reference>
+    <Reference Include="SuperSocket.Common">
+      <HintPath>..\packages\SuperSocket.1.6.6.1\lib\net45\SuperSocket.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="SuperSocket.Facility">
+      <HintPath>..\packages\SuperSocket.1.6.6.1\lib\net45\SuperSocket.Facility.dll</HintPath>
+    </Reference>
+    <Reference Include="SuperSocket.SocketBase">
+      <HintPath>..\packages\SuperSocket.1.6.6.1\lib\net45\SuperSocket.SocketBase.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Configuration" />
+    <Reference Include="SuperSocket.WebSocket">
+      <HintPath>..\packages\SuperSocket.WebSocket.1.6.6.1\lib\net45\SuperSocket.WebSocket.dll</HintPath>
+    </Reference>
+    <Reference Include="SuperSocket.SocketEngine">
+      <HintPath>..\packages\SuperSocket.Engine.1.6.6.1\lib\net45\SuperSocket.SocketEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="SuperSocket.SocketService">
+      <HintPath>..\packages\SuperSocket.Engine.1.6.6.1\lib\net45\SuperSocket.SocketService.exe</HintPath>
+    </Reference>
+    <Reference Include="System.Data" />
+    <Reference Include="System.Buffers">
+      <HintPath>..\packages\System.Buffers.4.5.1\lib\net461\System.Buffers.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Numerics.Vectors">
+      <HintPath>..\packages\System.Numerics.Vectors.4.5.0\lib\net46\System.Numerics.Vectors.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.Runtime.CompilerServices.Unsafe">
+      <HintPath>..\packages\System.Runtime.CompilerServices.Unsafe.6.0.0\lib\net461\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Memory">
+      <HintPath>..\packages\System.Memory.4.5.5\lib\net461\System.Memory.dll</HintPath>
+    </Reference>
+    <Reference Include="RabbitMQ.Client">
+      <HintPath>..\packages\RabbitMQ.Client.6.8.1\lib\net462\RabbitMQ.Client.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Threading.Tasks.Extensions">
+      <HintPath>..\packages\System.Threading.Tasks.Extensions.4.5.4\lib\net461\System.Threading.Tasks.Extensions.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Threading.Channels">
+      <HintPath>..\packages\System.Threading.Channels.7.0.0\lib\net462\System.Threading.Channels.dll</HintPath>
+    </Reference>
+    <Reference Include="ESCPOS">
+      <HintPath>..\packages\ESCPOS.1.2.2\lib\netstandard2.0\ESCPOS.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Web" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="QRCoder">
+      <HintPath>..\packages\QRCoder.1.4.3\lib\net40\QRCoder.dll</HintPath>
+    </Reference>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="Renci.SshNet">
+      <HintPath>..\packages\SSH.NET.2020.0.2\lib\net40\Renci.SshNet.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="gtk-gui\gui.stetic">
+      <LogicalName>gui.stetic</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Images\GateOpen.png" />
+    <EmbeddedResource Include="Images\Light.png" />
+    <EmbeddedResource Include="Images\Logo.png" />
+    <EmbeddedResource Include="Images\Toll.png" />
+    <EmbeddedResource Include="Images\VehicleType1.png" />
+    <EmbeddedResource Include="Images\VehicleType2.png" />
+    <EmbeddedResource Include="Images\MIS.png" />
+    <EmbeddedResource Include="Images\Suspend.png" />
+    <EmbeddedResource Include="Images\LightRed.png" />
+    <EmbeddedResource Include="Images\LightGreen.png" />
+    <EmbeddedResource Include="Images\Mode_Auto.png" />
+    <EmbeddedResource Include="Images\Mode_Manual.png" />
+    <EmbeddedResource Include="Images\TAG_EasyPass.png" />
+    <EmbeddedResource Include="Images\GateClose.png" />
+    <EmbeddedResource Include="Images\MLB_Close.png" />
+    <EmbeddedResource Include="Images\MLB_Open.png" />
+    <EmbeddedResource Include="Images\ALB_Close.png" />
+    <EmbeddedResource Include="Images\ALB_Open.png" />
+    <EmbeddedResource Include="Images\VehicleEmergency.png" />
+    <EmbeddedResource Include="Images\VehicleExcept.png" />
+    <EmbeddedResource Include="Images\VehicleTowing.png" />
+    <EmbeddedResource Include="Images\VehicleHPMC.png" />
+    <EmbeddedResource Include="Images\OK-48.png" />
+    <EmbeddedResource Include="Images\Fail-48.png" />
+    <EmbeddedResource Include="Images\TAG_MPass.png" />
+    <EmbeddedResource Include="Images\Emv.png" />
+    <EmbeddedResource Include="Images\CreditCard.png" />
+    <EmbeddedResource Include="Images\Dummy-Towing.png" />
+    <EmbeddedResource Include="Images\Dummy-Towing2.png" />
+    <EmbeddedResource Include="Images\PayQR.png" />
+    <EmbeddedResource Include="Images\PayQrCode.png" />
+    <EmbeddedResource Include="Images\PayQR2.png" />
+    <EmbeddedResource Include="Images\MobileQR.png" />
+    <EmbeddedResource Include="Images\Dummy-Towing1Pass.png" />
+    <EmbeddedResource Include="Images\Dmt_Card.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="gtk-gui\generated.cs" />
+    <Compile Include="MainWindow.cs" />
+    <Compile Include="gtk-gui\MainWindow.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="LoginWnd.cs" />
+    <Compile Include="LaneView\MaintenanceWnd\DigitalInputDlg.cs" />
+    <Compile Include="LaneView\MaintenanceWnd\MainMaintenance.cs" />
+    <Compile Include="LaneSocket\LaneWebSocket.cs" />
+    <Compile Include="LaneView\MaintenanceWnd\DigitalOutputDlg.cs" />
+    <Compile Include="LaneController\LaneEventControl.cs" />
+    <Compile Include="TCT_Lib.cs" />
+    <Compile Include="LaneSocket\LaneSocketServer.cs" />
+    <Compile Include="TCT_Log.cs" />
+    <Compile Include="Database\LaneDB.cs" />
+    <Compile Include="gtk-gui\TCT_App.LoginWnd.cs" />
+    <Compile Include="gtk-gui\TCT_App.MaintenanceWnd.MainMaintenance.cs" />
+    <Compile Include="gtk-gui\TCT_App.MaintenanceWnd.DigitalInputDlg.cs" />
+    <Compile Include="gtk-gui\TCT_App.LaneView.MaintenanceWnd.DigitalOutputDlg.cs" />
+    <Compile Include="TCT_Obj.cs" />
+    <Compile Include="RabbitMQ\MocRabbitMQ.cs" />
+    <Compile Include="LaneView\MiscDlg\SalesCouponDlg_V0.cs" />
+    <Compile Include="gtk-gui\TCT_App.LaneView.MiscDlg.SalesCouponDlg.cs" />
+    <Compile Include="LaneView\MiscDlg\PrintConvoyPaymentDlg.cs" />
+    <Compile Include="gtk-gui\TCT_App.LaneView.MiscDlg.PrintConvoyPaymentDlg.cs" />
+    <Compile Include="PrintUtils\PrintReceiptLib.cs" />
+    <Compile Include="PrintUtils\ClassLibEscPOS.cs" />
+    <Compile Include="gtk-gui\TCT_App.EMV.EdcPaymentDlg.cs" />
+    <Compile Include="PrintUtils\PrintSalesCouponLib.cs" />
+    <Compile Include="LaneView\MiscDlg\Sales_CouponDlg.cs" />
+    <Compile Include="gtk-gui\TCT_App.LaneView.MiscDlg.Sales_CouponDlg.cs" />
+    <Compile Include="LaneSocket\LaneSocket_SupAdjust.cs" />
+    <Compile Include="WebServiceAPI\WebService_SalesCoupons.cs" />
+    <Compile Include="WebServiceAPI\WebService_BeginEndJob.cs" />
+    <Compile Include="RabbitMQ\EtcRabbitMQ.cs" />
+    <Compile Include="LSD\LaneSocketControl_LSD.cs" />
+    <Compile Include="SetLaneTypeMode.cs" />
+    <Compile Include="gtk-gui\TCT_App.SetLaneTypeMode.cs" />
+    <Compile Include="gtk-gui\TCT_App.EMV.EdcPayQrDlg.cs" />
+    <Compile Include="TCT_NVR.cs" />
+    <Compile Include="LaneView\MaintenanceWnd\TreadleStatusDlg.cs" />
+    <Compile Include="gtk-gui\TCT_App.LaneView.MaintenanceWnd.TreadleStatusDlg.cs" />
+    <Compile Include="PrintUtils\ClassLibAES.cs" />
+    <Compile Include="TCT_MTS.cs" />
+    <Compile Include="RabbitMQ\MtsRabbitMQ.cs" />
+    <Compile Include="WebServiceAPI\WebService_ImageCamera.cs" />
+    <Compile Include="TCT_MTS_Alarm.cs" />
+    <Compile Include="PrintUtils\PrintGraphicLib.cs" />
+    <Compile Include="LaneView\MiscDlg\DMT_PaymentDlg.cs" />
+    <Compile Include="gtk-gui\TCT_App.LaneView.MiscDlg.DMT_PaymentDlg.cs" />
+    <Compile Include="EMV\EMV_V0\EdcPaymentDlg.cs" />
+    <Compile Include="EMV\EMV_V0\EdcPayQrDlg.cs" />
+    <Compile Include="EMV\EMV_V0\EdcSumReportLib.cs" />
+    <Compile Include="EMV\EMV_V0\EmvLib.cs" />
+    <Compile Include="EMV\EMV_V1\EmvLib_V10.cs" />
+    <Compile Include="EMV\EMV_V1\EdcPaymentDlg_V1.cs" />
+    <Compile Include="gtk-gui\TCT_App.EMV.EMV_V1.EdcPaymentDlg_V1.cs" />
+    <Compile Include="EMV\EMV_V1\EdcPayQrDlg_V1.cs" />
+    <Compile Include="gtk-gui\TCT_App.EMV.EMV_V1.EdcPayQrDlg_V1.cs" />
+    <Compile Include="EMV\EMV_V1\EmvLib_V1.cs" />
+    <Compile Include="EMV\EMV_V1\EdcSumReportLib_V1.cs" />
+    <Compile Include="EMV\EMV_V1\EdcHandShaking_V1.cs" />
+    <Compile Include="EMV\EMV_V1\EdcChkHandShaking_V1.cs" />
+    <Compile Include="TCT_Version.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Images\" />
+    <Folder Include="LaneSocket\" />
+    <Folder Include="LaneController\" />
+    <Folder Include="LaneView\" />
+    <Folder Include="LaneView\MaintenanceWnd\" />
+    <Folder Include="Database\" />
+    <Folder Include="RabbitMQ\" />
+    <Folder Include="LaneView\MiscDlg\" />
+    <Folder Include="PrintUtils\" />
+    <Folder Include="EMV\" />
+    <Folder Include="WebServiceAPI\" />
+    <Folder Include="LSD\" />
+    <Folder Include="EMV\EMV_V0\" />
+    <Folder Include="EMV\EMV_V1\" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+    <None Include="supersocket.sh" />
+    <None Include="supersocket.cmd" />
+    <None Include="Config\log4net.unix.config" />
+    <None Include="Config\log4net.config" />
+  </ItemGroup>
+  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+</Project>
