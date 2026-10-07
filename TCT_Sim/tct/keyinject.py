@@ -34,6 +34,12 @@ class H(BaseHTTPRequestHandler):
                 return self._send(400, b"bad key")
             r = subprocess.run(["xdotool", "key", "--clearmodifiers", k], env=ENV, capture_output=True)
             return self._send(200 if r.returncode == 0 else 500, b"ok" if r.returncode == 0 else r.stderr)
+        if u.path == "/click":            # จำลองการแตะจอ (touch) ที่พิกัด x,y
+            x, y = (q.get("x") or ["0"])[0], (q.get("y") or ["0"])[0]
+            if not (x.isdigit() and y.isdigit()):
+                return self._send(400, b"bad xy")
+            r = subprocess.run(["xdotool", "mousemove", x, y, "click", "1"], env=ENV, capture_output=True)
+            return self._send(200 if r.returncode == 0 else 500, b"ok")
         if u.path == "/shot":
             r = subprocess.run("xwd -root -silent | convert xwd:- png:-",
                                shell=True, env=ENV, capture_output=True)

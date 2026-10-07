@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDC Simulator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: transparent; color: #e9ecef; font: 13px/1.35 system-ui, "Sarabun", sans-serif; }
+  .wrap { display: flex; gap: 18px; padding: 10px; flex-wrap: wrap; align-items: flex-start; }
+  /* ตัวเครื่อง EDC */
+  .device { width: 300px; padding: 16px 16px 20px; border-radius: 28px;
+            background: linear-gradient(160deg, #3a3f47, #1e2126); box-shadow: 0 10px 26px rgba(0,0,0,.5), inset 0 2px 0 #50565f; }
+  .brand { text-align: center; color: #aeb5bf; font-size: 11px; letter-spacing: 2px; margin-bottom: 8px; }
+  .screen { height: 210px; border-radius: 10px; background: #0d1f14; border: 3px solid #0a0c0e;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+            padding: 10px; color: #b9f5c7; box-shadow: inset 0 0 18px rgba(0,0,0,.6); }
+  .screen .l1 { font-size: 22px; font-weight: 700; }
+  .screen .l2 { font-size: 14px; margin-top: 6px; color: #8fe0a3; min-height: 18px; }
+  .screen .tid { font-size: 10px; color: #4f8a5d; margin-top: 10px; }
+  .screen.ok   { background: #0c2a17; } .screen.bad { background: #2a0f12; color: #ffb4b4; }
+  .screen.bad .l2 { color: #ff8a8a; }
+  #qrbox { background: #fff; padding: 6px; border-radius: 6px; display: none; margin-bottom: 6px; }
+  .slot { height: 8px; margin: 12px 40px; border-radius: 4px; background: #0a0b0d; box-shadow: inset 0 2px 3px #000; }
+  .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 10px; }
+  .pad button { all: unset; text-align: center; padding: 9px 0; border-radius: 8px; background: #2b2f35; color: #dfe3e8;
+                font-weight: 700; box-shadow: 0 3px 0 #0b0c0e; cursor: default; }
+  .pad .x { background: #c0392b; color: #fff; } .pad .c { background: #e0b726; color: #222; } .pad .o { background: #1e9a4c; color: #fff; }
+  /* แผงควบคุม (สิ่งที่ลูกค้าทำ) */
+  .ctl { flex: 1; min-width: 260px; }
+  .card { background: #1d222a; border: 1px solid #2c333d; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  .card h3 { margin: 0 0 8px; font-size: 13px; color: #8b95a3; font-weight: 600; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .btn { all: unset; cursor: pointer; padding: 8px 12px; border-radius: 7px; background: #2a313b; border: 1px solid #3a424e; font-weight: 600; }
+  .btn:hover { border-color: #4da3ff; } .btn:disabled, .btn[disabled] { opacity: .35; cursor: not-allowed; }
+  .btn.go { background: #1f7a43; border-color: #2ea05a; } .btn.no { background: #7a2323; border-color: #a33; }
+  .btn.sel { outline: 2px solid #4da3ff; }
+  .hint { color: #8b95a3; font-size: 12px; margin-top: 6px; }
+  .pill { padding: 2px 8px; border-radius: 10px; background: #2a2f37; color: #8b95a3; font-size: 12px; }
+  .pill.on { background: rgba(227,179,65,.18); color: #e3b341; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="device">
+    <div class="brand">EDC · TCT SIMULATOR</div>
+    <div class="screen" id="screen">
+      <div id="qrbox"></div>
+      <div class="l1" id="l1">พร้อมใช้งาน</div>
+      <div class="l2" id="l2"></div>
+      <div class="tid">TID 12345678</div>
+    </div>
+    <div class="slot" title="ช่องเสียบบัตร"></div>
+    <div class="pad">
+      <button>1</button><button>2</button><button>3</button>
+      <button>4</button><button>5</button><button>6</button>
+      <button>7</button><button>8</button><button>9</button>
+      <button class="x">✕</button><button>0</button><button class="o">✓</button>
+    </div>
+  </div>
+
+  <div class="ctl">
+    <div class="card">
+      <h3>ลูกค้า (บัตร) <span class="pill" id="cardwait">ไม่มีรายการรอ</span></h3>
+      <div class="row">
+        <button class="btn go" id="b-tap" onclick="card('approve')">💳 แตะบัตร → อนุมัติ</button>
+        <button class="btn no" id="b-dec" onclick="card('decline')">✘ บัตรถูกปฏิเสธ</button>
+        <button class="btn" id="b-to" onclick="card('timeout')">⏱ ไม่ตอบ</button>
+      </div>
+      <div class="hint">ใช้ได้เมื่อเลือก "รอคนกด" และ TCT กด [EMV] แล้ว</div>
+    </div>
+    <div class="card">
+      <h3>ลูกค้า (QR) <span class="pill" id="qrwait">ไม่มี QR</span></h3>
+      <div class="row">
+        <button class="btn go" id="b-qr" onclick="qrPay()">📱 สแกนจ่ายแล้ว</button>
+      </div>
+      <div class="hint">จากนั้นกด [ENTER] ที่ TCT (ตรวจสอบการจ่าย QR)</div>
+    </div>
+    <div class="card">
+      <h3>การตอบของเครื่อง EDC</h3>
+      <div class="row" style="margin-bottom:6px">
+        <button class="btn" id="m-auto" onclick="set({auto:true})">อัตโนมัติ</button>
+        <button class="btn" id="m-manual" onclick="set({auto:false})">รอคนกด (เหมือนลูกค้าจริง)</button>
+      </div>
+      <div class="row">
+        <span>อัตโนมัติ =</span>
+        <button class="btn" id="r-approve" onclick="set({mode:'approve'})">อนุมัติ</button>
+        <button class="btn" id="r-decline" onclick="set({mode:'decline'})">ปฏิเสธ</button>
+        <button class="btn" id="r-timeout" onclick="set({mode:'timeout'})">ไม่ตอบ</button>
+        <button class="btn" id="r-busy" onclick="set({mode:'busy'})">ไม่ว่าง</button>
+        <button class="btn" id="r-offline" onclick="set({mode:'offline'})">ออฟไลน์</button>
+      </div>
+      <div class="hint">ออฟไลน์ = ไม่ตอบการเชื่อมต่อ (TCT จะแสดง "อุปกรณ์ไม่พร้อมทำงาน")</div>
+    </div>
+  </div>
+</div>
+<script>
+if (window.top === window) document.body.style.background = '#14171c';   // เปิดหน้าเดี่ยว = พื้นเข้ม
+function post(o) { return fetch('/api', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(o)}); }
+function card(result) { post({action:'edc_card', result}); }
+function qrPay() { post({action:'edc_qr_pay'}); }
+function set(o) { post(Object.assign({action:'edc'}, o)); }
+
+let lastQr = '';
+function render(e) {
+  document.getElementById('l1').textContent = e.screen || '';
+  document.getElementById('l2').textContent = e.screen2 || '';
+  const sc = document.getElementById('screen');
+  sc.className = 'screen' + (e.last === 'อนุมัติ' || e.last === 'QR สำเร็จ' ? ' ok' :
+                             (e.last === 'ปฏิเสธ' || e.last === 'timeout' ? ' bad' : ''));
+  // QR
+  const box = document.getElementById('qrbox');
+  if (e.qr_wait && e.qr_text) {
+    box.style.display = 'block';
+    if (e.qr_text !== lastQr) {
+      box.innerHTML = '';
+      try { new QRCode(box, {text: e.qr_text, width: 110, height: 110}); }
+      catch (_) { box.textContent = 'QR'; }
+      lastQr = e.qr_text;
+    }
+  } else { box.style.display = 'none'; lastQr = ''; }
+  // ปุ่ม/สถานะ
+  const cw = document.getElementById('cardwait');
+  cw.textContent = e.card_wait ? 'รอลูกค้าแตะบัตร' : 'ไม่มีรายการรอ'; cw.classList.toggle('on', e.card_wait);
+  for (const id of ['b-tap','b-dec','b-to']) document.getElementById(id).toggleAttribute('disabled', !e.card_wait);
+  const qw = document.getElementById('qrwait');
+  qw.textContent = e.qr_wait ? (e.qr === 'paid' ? 'จ่ายแล้ว รอ TCT ตรวจสอบ' : 'รอลูกค้าสแกน') : 'ไม่มี QR';
+  qw.classList.toggle('on', e.qr_wait);
+  document.getElementById('b-qr').toggleAttribute('disabled', !e.qr_wait);
+  document.getElementById('m-auto').classList.toggle('sel', e.auto);
+  document.getElementById('m-manual').classList.toggle('sel', !e.auto);
+  for (const m of ['approve','decline','timeout','busy','offline'])
+    document.getElementById('r-' + m).classList.toggle('sel', e.mode === m);
+}
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.type === 'state' && m.edc) render(m.edc); };
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+connect();
+</script>
+</body>
+</html>

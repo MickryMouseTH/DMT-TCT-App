@@ -59,6 +59,8 @@
     <iframe id="screen"></iframe>
     <h2 style="margin-top:10px">คีย์บอร์ด TCT (จำลองของจริง — ส่งแป้นเข้า TCT ทางเดียวกับคีย์บอร์ด USB) · <a href="/keyboard" target="_blank" style="color:#4da3ff">เปิดแยกหน้าต่าง</a></h2>
     <iframe src="/keyboard" style="width:100%;height:560px;border:0"></iframe>
+    <h2 style="margin-top:10px">เครื่อง EDC (จำลอง) · <a href="/edc" target="_blank" style="color:#4da3ff">เปิดแยกหน้าต่าง</a></h2>
+    <iframe src="/edc" style="width:100%;height:360px;border:0"></iframe>
   </div>
 
   <div class="right">
@@ -89,6 +91,22 @@
         <button class="primary" onclick="post({action:'scr', card: document.getElementById('card').value})">แตะบัตรพนักงาน (Login)</button>
       </div>
       <div class="note">พนักงานเก็บเงิน 99001 / ช่าง 99050 (รหัสผ่าน 123456 ถ้า Manual Login)</div>
+    </div>
+
+    <div class="card">
+      <h2>EDC จำลอง (บัตร / QR) — ผลของรายการถัดไป: <span id="edc-now" style="color:#e3b341"></span></h2>
+      <div class="grid" id="edc-modes">
+        <button onclick="edc('approve')">✔ อนุมัติ</button>
+        <button onclick="edc('decline')">✘ ปฏิเสธบัตร</button>
+        <button onclick="edc('timeout')">⏱ ไม่ตอบ (timeout)</button>
+        <button onclick="edc('busy')">⧗ EDC ไม่ว่าง</button>
+        <button onclick="edc('offline')">⏻ EDC ออฟไลน์</button>
+      </div>
+      <div class="row" style="margin-top:6px">QR:
+        <button onclick="edc(null,'paid')">ลูกค้าสแกนจ่ายแล้ว</button>
+        <button onclick="edc(null,'unpaid')">ยังไม่จ่าย</button>
+      </div>
+      <div class="note">บัตร: กด [EMV] ที่ TCT · QR: กด [QR CODE] แล้วกด [ENTER] เพื่อตรวจสอบการจ่าย</div>
     </div>
 
     <div class="card">
@@ -148,6 +166,7 @@ for (const [id, name] of KEYS) {
 
 function post(o) { return fetch('/api', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(o)}); }
 function key(id, name) { post({action:'key', id, name}); }
+function edc(mode, qr) { post({action:'edc', mode, qr}); }
 function scn(name) { post({action:'scenario', name}); }
 function avc(cls) {
   post({action:'avc', cls: cls ?? +document.getElementById('avc-cls').value, axle: +document.getElementById('avc-axle').value,
@@ -178,6 +197,7 @@ function cat(it) {
   if (['io','key','avc','scn'].includes(it.level)) return 'io';
   if (it.src === 'TCT→SIM') return 'tct';
   if (it.src === 'KB') return 'io';
+  if (it.src === 'EDC') return 'trans';
   return 'other';
 }
 function addLog(it) {
@@ -211,6 +231,7 @@ function connect() {
     else if (m.type === 'clear') document.getElementById('log').innerHTML = '';
     else if (m.type === 'state') {
       diVals = m.di; renderDI(); renderDO(m.do);
+      if (m.edc) document.getElementById('edc-now').textContent = `${m.edc.mode} / QR ${m.edc.qr}`;
       for (const k of ['tct','supadj','rto','dc']) document.getElementById('st-'+k).classList.toggle('on', !!m.status[k]);
       document.getElementById('c-supadj').textContent = m.counters.supadj_trans;
       document.getElementById('c-rto').textContent = m.counters.rto_trans;

@@ -413,16 +413,15 @@ def t_coupon_cancel(c):
 
 @case("k_emv_popup", "[รถประเภท 1] → [EMV] (Popup) → [แก้ไข] ยกเลิก")
 def t_emv(c):
+    edc_mode("timeout")                                # ให้ EDC ไม่ตอบ เพื่อทดสอบปุ่มยกเลิก
     press("รถประเภท1", "EMV")
     time.sleep(3)
     c.shot("emv_popup")
     press("แก้ไข")
     time.sleep(3)
     c.shot("after_cancel")
-    press("CANCEL", "ENTER")
-    time.sleep(1)
-    c.shot("after_enter")
-    c.info("ดูภาพว่า Popup EMV ปิดด้วยคีย์บอร์ดได้หรือไม่ (EDC ไม่มีใน Simulator)")
+    c.log_has("Response Cancel from EMV", "[แก้ไข] ยกเลิก Popup EMV ได้")
+    edc_mode("approve")
     press("FORCE_RESET")
 
 
@@ -431,12 +430,112 @@ def t_qr(c):
     press("รถประเภท1", "QR")
     time.sleep(3)
     c.shot("qr_popup")
-    press("แก้ไข")
+    press("CANCEL")
     time.sleep(3)
     c.shot("after_cancel")
-    press("CANCEL", "ENTER")
-    time.sleep(1)
-    c.shot("after_enter")
+    c.check(any(": ESC" in l and "Keyboard" in l for l in c.m.lines()), "[CANCEL] ถึง Popup QR")
+    c.log_has("Response Cancel from EMV QR Code", "Popup QR ปิดแล้ว (Cancel)")
+    press("FORCE_RESET")
+
+
+def edc_mode(mode=None, qr=None):
+    post(action="edc", mode=mode, qr=qr)
+    time.sleep(0.5)
+
+
+def edc_logs(c):
+    return [it["text"] for it in state(c.m.seq)["logs"] if it["src"] == "EDC"]
+
+
+@case("o_edc_card_approve", "EDC: [รถประเภท 1] → [EMV] → EDC อนุมัติ → รถผ่าน")
+def t_edc_ok(c):
+    edc_mode("approve")
+    press("รถประเภท1", "EMV")
+    time.sleep(5)
+    c.shot("after_approve")
+    c.log_has("Response OK from EMV", "TCT รับผลอนุมัติจาก EDC")
+    scn("normal", 3)
+    time.sleep(5)
+    c.expect_trans(1, cls=1, pay="EMV")
+    for t in edc_logs(c):
+        c.info(t)
+
+
+@case("o_edc_card_decline", "EDC: [EMV] → EDC ปฏิเสธบัตร → [แก้ไข] ปิด → [เงินสด]")
+def t_edc_decline(c):
+    edc_mode("decline")
+    press("รถประเภท1", "EMV")
+    time.sleep(4)
+    c.shot("declined")
+    press("แก้ไข")
+    time.sleep(3)
+    press("เงินสด")
+    scn("normal", 3)
+    time.sleep(5)
+    c.expect_trans(1, cls=1, pay="Cash")
+    edc_mode("approve")
+
+
+@case("o_edc_card_timeout", "EDC: [EMV] → EDC ไม่ตอบ → [CANCEL] ปิด Popup ได้ ไม่ค้าง")
+def t_edc_timeout(c):
+    edc_mode("timeout")
+    press("รถประเภท1", "EMV")
+    time.sleep(6)
+    c.shot("waiting")
+    press("CANCEL")
+    time.sleep(3)
+    c.shot("after_cancel")
+    c.log_has("Response Cancel from EMV", "ยกเลิกได้")
+    edc_mode("approve")
+    press("FORCE_RESET")
+
+
+@case("o_edc_qr_paid", "EDC: [รถประเภท 1] → [QR CODE] → ลูกค้าสแกน → [ENTER] ตรวจสอบ → รถผ่าน")
+def t_edc_qr(c):
+    edc_mode("approve", "paid")
+    press("รถประเภท1", "QR")
+    time.sleep(6)                                      # ปุ่มตรวจสอบเปิดหลัง 5 วินาที
+    c.shot("qr_popup")
+    press("ENTER")
+    time.sleep(4)
+    c.shot("after_inquiry")
+    c.log_has("Response OK from QR Code", "QR ชำระสำเร็จ")
+    scn("normal", 3)
+    time.sleep(5)
+    c.expect_trans(1, cls=1)
+
+
+@case("o_edc_qr_unpaid_cancel", "EDC: [QR CODE] → ยังไม่จ่าย → [ENTER] → แจ้งยังไม่สแกน → [QR CODE] → [CANCEL]")
+def t_edc_qr2(c):
+    edc_mode("approve", "unpaid")
+    press("รถประเภท1", "QR")
+    time.sleep(6)
+    press("ENTER")
+    time.sleep(4)
+    c.shot("not_paid")
+    c.log_has("Response Reject", "แจ้งลูกค้ายังไม่สแกน")
+    press("QR")
+    time.sleep(6)
+    press("CANCEL")
+    time.sleep(4)
+    c.shot("after_cancel")
+    c.log_has("Response Cancel from EMV QR Code", "ยกเลิก QR ได้")
+    edc_mode("approve", "paid")
+    press("FORCE_RESET")
+
+
+@case("o_edc_offline_qr_cancel", "[บั๊ก 2.0.2] EDC ออฟไลน์: [QR CODE] → [CANCEL] ต้องปิด Popup ได้ (เดิมค้าง)")
+def t_edc_off(c):
+    edc_mode("offline")
+    press("รถประเภท1", "QR")
+    time.sleep(6)
+    c.shot("offline_popup")
+    press("CANCEL")
+    time.sleep(7)                                      # fallback ปิดเองภายใน 5 วินาทีถ้า EDC ไม่ตอบ
+    c.shot("after_cancel")
+    c.log_has("Cancel QR Code", "Popup QR ปิดได้แม้ EDC ออฟไลน์")
+    c.log_has("Response Cancel from EMV QR Code", "TCT กลับหน้าหลัก (Cancel)")
+    edc_mode("approve")
     press("FORCE_RESET")
 
 
@@ -445,18 +544,31 @@ def t_dmt(c):
     press("รถประเภท1", "บัตรDMT")
     time.sleep(3)
     c.shot("dmt_popup")
-    press("แก้ไข")
+    press("CANCEL")
     time.sleep(2)
     c.shot("after_cancel")
+    c.log_has("Cancel DMT Payment Dialog", "[CANCEL] ยกเลิก Popup บัตร DMT ได้")
     press("FORCE_RESET")
 
 
-@case("l_unmapped_keys", "ปุ่มบนคีย์บอร์ดจริงที่ TCT ไม่ได้ map: [BACKSPACE] [END]")
+@case("k_enter_no_repress", "แตะปุ่ม [รถประเภท 1] บนจอ (touch) แล้วกด [ENTER] บนคีย์บอร์ด -> ต้องไม่กดปุ่มซ้ำ")
+def t_enter(c):
+    post(action="click", x=920, y=697)        # ปุ่ม "รถประเภท 1" บนจอ 1024x768
+    time.sleep(1.5)
+    press("ENTER", "ENTER")
+    time.sleep(1.5)
+    c.shot("after_enter")
+    n = sum("Press CLASS 1" in l for l in c.m.lines())
+    c.check(n == 1, f"กด CLASS 1 ไป {n} ครั้ง (คาด 1 = ENTER ไม่ไปกดปุ่มบนจอซ้ำ)")
+    press("FORCE_RESET")
+
+
+@case("l_backspace_end_keys", "[BACKSPACE] [END] บนหน้าหลัก -> TCT รับรู้แป้น แต่ไม่มีผลกับรายการ")
 def t_unmapped(c):
     press("BACKSPACE", "END")
     time.sleep(1)
-    keys = [l for l in c.m.lines() if "Keyboard (Key)" in l]
-    c.info(f"TCT รับแป้น: {len(keys)} ครั้ง (คาด 0 = ไม่มีผล)")
+    c.log_has("Keyboard (Key) : BACKSPACE", "[BACKSPACE] ถึง TCT")
+    c.expect_trans(0)
 
 
 @case("m_eoj_mode", "[OTL ปิด] → [BOJ/EOJ] → หน้า Login → [MODE] → [1] MTC → [CANCEL]")
@@ -465,9 +577,11 @@ def t_eoj(c):
     post(action="di", idx=7, value=0)
     time.sleep(1)
     press("BOJ/EOJ")
-    time.sleep(4)
+    time.sleep(6)
     c.shot("after_eoj")
     c.log_has("END_SHIFT", "[BOJ/EOJ] ส่ง END_SHIFT")
+    s1 = [t for t in edc_logs(c) if "S1" in t or "Clear Batch" in t]
+    c.info("EDC Clear Batch ตอน EOJ: " + (" | ".join(s1) if s1 else "ไม่มี (อาจติดเงื่อนไขช่วงเวลา/ช่วงห่าง)"))
     press("MODE")
     time.sleep(2)
     c.shot("mode_popup")

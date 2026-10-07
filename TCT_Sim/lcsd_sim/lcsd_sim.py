@@ -31,6 +31,8 @@ RABBIT_API      = os.environ.get("RABBIT_API", "http://rabbitmq:15672")
 RABBIT_AUTH     = aiohttp.BasicAuth(os.environ.get("RABBIT_USER", "guest"), os.environ.get("RABBIT_PASS", "guest"))
 DC_QUEUES       = [q for q in os.environ.get("DC_QUEUES", "").split(",") if q]
 TA_PORT         = int(os.environ.get("TA_PORT", "3000"))
+EDC_SEND_PORT   = int(os.environ.get("EDC_SEND_PORT", "2019"))   # TCT -> EDC (request)
+EDC_RECV_PORT   = int(os.environ.get("EDC_RECV_PORT", "2018"))   # EDC -> TCT (response, TCT listens)
 TCT_CONFIG      = Path(os.environ.get("TCT_CONFIG", "/tct-config/TCT.config"))
 
 
@@ -80,7 +82,8 @@ async def log(src, text, level="info", data=None):
 
 
 async def push_state():
-    await broadcast({"type": "state", "di": di_values, "do": do_values, "status": status, "counters": counters})
+    await broadcast({"type": "state", "di": di_values, "do": do_values, "status": status, "counters": counters,
+                     "edc": edc_public()})
 
 
 # ------------------------------------------------------------------ to TCT
@@ -357,6 +360,28 @@ async def api(request):
                 await log("KB", f"[{name}] → {k}" + ("" if ok else " (ส่งไม่สำเร็จ)"), "key" if ok else "warn")
             except Exception as e:
                 await log("KB", f"[{name}] ส่งไม่ได้: {e.__class__.__name__}", "warn")
+    elif act == "click":                      # แตะจอ TCT
+        async with aiohttp.ClientSession() as s:
+            async with s.get(f"http://{TCT_HOST}:6081/click", params={"x": int(body["x"]), "y": int(body["y"])}, timeout=5):
+                pass
+        await log("TOUCH", f"แตะจอที่ ({body['x']},{body['y']})", "key")
+    elif act == "edc":                        # ตั้งโหมด EDC จำลอง
+        if body.get("mode"):
+            edc["mode"] = body["mode"]
+        if body.get("qr"):
+            edc["qr"] = body["qr"]
+        if "auto" in body and body["auto"] is not None:
+            edc["auto"] = bool(body["auto"])
+        await log("EDC", f"⚙ โหมด EDC = {edc['mode']}, QR = {edc['qr']}, auto = {edc['auto']}", "scn")
+        await push_state()
+    elif act == "edc_card":                   # หน้า /edc: ลูกค้าแตะบัตร / ปฏิเสธ / ไม่ตอบ
+        pc = edc["pending_card"]
+        if pc:
+            await edc_card_result(body.get("result", "approve"), pc["peer"], pc["f"], pc["amt"])
+    elif act == "edc_qr_pay":                 # หน้า /edc: ลูกค้าสแกน QR จ่ายแล้ว
+        edc["qr"] = "paid"
+        await edc_show(edc["screen"], "ลูกค้าสแกนจ่ายแล้ว — กด [ENTER] ที่ TCT", None)
+        await log("EDC", "ลูกค้าสแกน QR จ่ายแล้ว (รอ TCT ตรวจสอบ)", "edc")
     elif act == "scr":                        # แตะบัตรพนักงาน (Smart Card Reader)
         await log("SIM→TCT", f"SCR บัตร {body['card']}", "key")
         await send_tct("SCR", {"id": str(body["card"])})
@@ -409,11 +434,192 @@ async def ta_handler(request):
     return ta_ok()
 
 
+# ------------------------------------------------------------------ EDC จำลอง (โปรโตคอล EDC V1 ของ TCT)
+# frame = STX | LEN(2B BCD) | DATA | ETX | LRC(XOR STX..ETX)
+# DATA  = "0000000000" + "1" + req/resp + code(2) + resp(2) + "0" + 0x1C + fields
+# field = ID(2) | LEN(2B BCD) | value | 0x1C
+# request: TCT ต่อ EDC:2019 ส่ง 1 frame -> EDC ตอบ ACK 1 byte แล้วปิด
+# response: EDC ต่อกลับไป TCT:2018 ส่ง 1 frame -> TCT ตอบ ACK 1 byte
+EDC_ACK = {"20": 0x06, "QR": 0x06, "IQ": 0x06, "CP": 0x05, "S1": 0x08, "H1": 0x09}
+edc = {"mode": "approve",       # approve | decline | timeout | busy | offline
+       "qr": "paid",            # paid | unpaid
+       "invoice": 100, "pending_qr": None, "tid": "12345678",
+       "auto": True,            # True = ตอบเอง | False = รอคนกดบนหน้า /edc
+       "pending_card": None,    # รายการบัตรที่รอคนกดบนหน้า /edc
+       "screen": "พร้อมใช้งาน", "screen2": "", "last": ""}
+
+
+async def edc_show(line1, line2="", last=None):
+    edc["screen"], edc["screen2"] = line1, line2
+    if last is not None:
+        edc["last"] = last
+    await push_state()
+
+
+def edc_public():
+    q = edc["pending_qr"]
+    return {"mode": edc["mode"], "qr": edc["qr"], "auto": edc["auto"],
+            "screen": edc["screen"], "screen2": edc["screen2"], "last": edc["last"],
+            "card_wait": bool(edc["pending_card"]),
+            "qr_wait": bool(q), "qr_text": (f"SIMQR|{q['A1']}|{q['amt']}" if q else "")}
+
+
+def bcd2(n):
+    s = f"{n:04d}"
+    return bytes([int(s[0:2], 16), int(s[2:4], 16)])
+
+
+def edc_frame(code, resp, fields):
+    data = b"0000000000" + b"1" + b"1" + code.encode() + resp.encode() + b"0" + b"\x1c"
+    for fid, val in fields:
+        v = str(val).encode("ascii", "replace")
+        data += fid.encode() + bcd2(len(v)) + v + b"\x1c"
+    frame = b"\x02" + bcd2(len(data)) + data + b"\x03"
+    lrc = 0
+    for b in frame:
+        lrc ^= b
+    return frame + bytes([lrc])
+
+
+def edc_parse(frame):
+    """คืน (code, fields dict) จาก request ของ TCT"""
+    if len(frame) < 20 or frame[0] != 0x02:
+        return None, {}
+    code = frame[15:17].decode("ascii", "replace")
+    body = frame[21:]
+    fields, i = {}, 0
+    while i + 4 <= len(body) and body[i] != 0x03:
+        fid = body[i:i + 2].decode("ascii", "replace")
+        ln = int(f"{body[i + 2]:02x}{body[i + 3]:02x}")
+        fields[fid] = body[i + 4:i + 4 + ln].decode("ascii", "replace")
+        i += 4 + ln + 1
+    return code, fields
+
+
+async def edc_send_back(host, frame, label, delay=0.4):
+    await asyncio.sleep(delay)
+    try:
+        r, w = await asyncio.wait_for(asyncio.open_connection(host, EDC_RECV_PORT), 3)
+        w.write(frame)
+        await w.drain()
+        try:
+            ack = await asyncio.wait_for(r.read(1), 3)
+            ack_s = f"0x{ack[0]:02X}" if ack else "ไม่มี"
+        except asyncio.TimeoutError:
+            ack_s = "timeout"
+        w.close()
+        await log("EDC", f"→ TCT:{EDC_RECV_PORT} {label} (TCT ACK {ack_s})", "edc")
+    except Exception as e:
+        await log("EDC", f"- ส่งผลกลับ TCT:{EDC_RECV_PORT} ไม่ได้ ({e.__class__.__name__}) — {label}", "warn")
+
+
+def edc_now():
+    t = time.localtime()
+    return time.strftime("%y%m%d", t), time.strftime("%H%M%S", t)
+
+
+async def edc_handle(reader, writer):
+    peer = writer.get_extra_info("peername")[0]
+    try:
+        frame = await asyncio.wait_for(reader.read(2048), 3)
+    except asyncio.TimeoutError:
+        frame = b""
+    if not frame:                                    # TCT ตรวจ port (probe) — เปิดแล้วปิด
+        writer.close()
+        return
+    if edc["mode"] == "offline":
+        writer.close()
+        await log("EDC", "✕ โหมด offline — ปิดการเชื่อมต่อโดยไม่ตอบ", "warn")
+        return
+    code, f = edc_parse(frame)
+    ack = 0x04 if edc["mode"] == "busy" else EDC_ACK.get(code, 0x06)
+    writer.write(bytes([ack]))
+    await writer.drain()
+    writer.close()
+    amt = f.get("40", "")
+    baht = f"{int(amt) / 100:.2f}" if amt.isdigit() else amt
+    await log("EDC", f"← TCT ขอ {code} amount={baht} ref1={f.get('A1', '')} → ACK 0x{ack:02X}", "edc", f)
+    if edc["mode"] == "busy":
+        return
+    d, t = edc_now()
+
+    if code == "20":                                 # ชำระด้วยบัตร
+        if not edc["auto"]:                          # รอคน "แตะบัตร" บนหน้า /edc
+            edc["pending_card"] = {"peer": peer, "f": f, "amt": amt}
+            await edc_show(f"ยอด {baht} บาท", "กรุณาแตะ / เสียบบัตร")
+            await log("EDC", f"รอลูกค้าแตะบัตรบนหน้า EDC ({baht} บาท)", "edc")
+            return
+        await edc_card_result(edc["mode"], peer, f, amt)
+
+    elif code == "QR":                               # เริ่มจ่าย QR — EDC แสดง QR เอง ยังไม่ส่งผล
+        edc["pending_qr"] = {"amt": amt, "A1": f.get("A1", ""), "A2": f.get("A2", ""), "peer": peer}
+        if not edc["auto"]:
+            edc["qr"] = "unpaid"
+        await edc_show(f"QR {baht} บาท", "สแกนเพื่อชำระ")
+        await log("EDC", f"แสดง QR {baht} บาท บนเครื่อง EDC (รอลูกค้าสแกน) — กด [ENTER] ที่ TCT เพื่อตรวจสอบ", "edc")
+
+    elif code == "IQ":                               # ตรวจสอบการจ่าย QR
+        q = edc["pending_qr"] or {"amt": "", "A1": "", "A2": ""}
+        if edc["mode"] == "timeout":
+            await log("EDC", "… โหมด timeout — ไม่ตอบผลตรวจสอบ QR", "warn")
+            return
+        if edc["qr"] == "unpaid" or edc["mode"] == "decline":
+            fr = edc_frame("IQ", "12", [("02", "NOT PAID")])
+            await edc_show(edc["screen"], "ยังไม่ได้รับชำระ", "QR ยังไม่ชำระ")
+            asyncio.create_task(edc_send_back(peer, fr, "QR ยังไม่ชำระ (12)"))
+            return
+        edc["invoice"] += 1
+        fr = edc_frame("IQ", "00", [
+            ("02", "QR APPROVED"), ("01", f"{edc['invoice'] % 1000000:06d}"), ("03", d), ("04", t),
+            ("16", edc["tid"]), ("40", q["amt"]), ("65", f"{edc['invoice'] % 1000000:06d}"),
+            ("A1", q["A1"]), ("A2", q["A2"]), ("A3", f"SIMQR{edc['invoice']:06d}")])
+        edc["pending_qr"] = None
+        await edc_show("ชำระสำเร็จ (QR)", f"{int(q['amt'] or 0) / 100:.2f} บาท", "QR สำเร็จ")
+        asyncio.create_task(edc_send_back(peer, fr, "QR ชำระแล้ว"))
+
+    elif code == "CP":                               # ยกเลิก — popup QR รอข้อความกลับก่อนปิด
+        edc["pending_card"] = None
+        await edc_show("ยกเลิกรายการ", "", "ยกเลิก")
+        if edc["pending_qr"]:
+            edc["pending_qr"] = None
+            asyncio.create_task(edc_send_back(peer, edc_frame("CP", "00", [("02", "CANCELLED")]), "ยืนยันยกเลิก QR"))
+
+    elif code == "S1":                               # Clear Batch / Summary ตอน EOJ
+        asyncio.create_task(edc_send_back(peer, edc_frame("S1", "00", [("02", "SETTLEMENT OK")]),
+                                          "Clear Batch สำเร็จ", 0.3))
+    # H1 (handshake) : ACK อย่างเดียวพอ
+
+
+async def edc_card_result(result, peer, f, amt):
+    """ส่งผลการชำระด้วยบัตรกลับ TCT : approve | decline | timeout"""
+    baht = f"{int(amt) / 100:.2f}" if str(amt).isdigit() else amt
+    edc["pending_card"] = None
+    if result == "timeout":
+        await edc_show("ไม่มีการตอบกลับ", "", "timeout")
+        await log("EDC", "… ไม่ตอบผลกลับ (timeout)", "warn")
+        return
+    d, t = edc_now()
+    if result == "decline":
+        fr = edc_frame("20", "51", [("02", "INSUFFICIENT FUNDS"), ("A1", f.get("A1", "")), ("A2", f.get("A2", ""))])
+        await edc_show("ปฏิเสธรายการ", "51 ยอดเงินไม่พอ", "ปฏิเสธ")
+        asyncio.create_task(edc_send_back(peer, fr, "ปฏิเสธบัตร (51)"))
+        return
+    edc["invoice"] += 1
+    fr = edc_frame("20", "00", [
+        ("02", "APPROVED"), ("01", f"{edc['invoice'] % 1000000:06d}"), ("03", d), ("04", t),
+        ("16", edc["tid"]), ("30", "4111XXXXXXXX1111"), ("31", "XXXX"), ("40", amt),
+        ("A1", f.get("A1", "")), ("A2", f.get("A2", "")), ("A3", f"SIMREF{edc['invoice']:06d}"),
+        ("D0", "SIM TOLLWAY"), ("D1", "000000000123"), ("D2", "VISA")])
+    await edc_show("อนุมัติ", f"{baht} บาท  APPR {edc['invoice'] % 1000000:06d}", "อนุมัติ")
+    asyncio.create_task(edc_send_back(peer, fr, f"อนุมัติบัตร {baht} บาท"))
+
+
 async def api_state(request):
     """สำหรับ script ทดสอบอัตโนมัติ: GET /api/state?since=<seq>"""
     since = int(request.query.get("since", "0"))
     items = [it for it in logs if it.get("seq", 0) > since]
     return web.json_response({"status": status, "counters": counters, "di": di_values, "do": do_values,
+                              "edc": edc_public(),
                               "seq": seq_no[0], "logs": items})
 
 
@@ -445,6 +651,10 @@ async def index(request):
     return web.FileResponse(Path(__file__).parent / "panel.html")
 
 
+async def edc_page(request):
+    return web.FileResponse(Path(__file__).parent / "edc.html")
+
+
 async def keyboard_page(request):
     return web.FileResponse(Path(__file__).parent / "keyboard.html")
 
@@ -464,6 +674,7 @@ def main():
     panel.router.add_get("/", index)
     panel.router.add_get("/ws", panel_ws)
     panel.router.add_get("/keyboard", keyboard_page)
+    panel.router.add_get("/edc", edc_page)
     panel.router.add_post("/api", api)
     panel.router.add_get("/api/state", api_state)
     panel.router.add_get("/api/shot", api_shot)
@@ -477,6 +688,8 @@ def main():
         await web.TCPSite(r1, "0.0.0.0", LCSD_PORT).start()
         await web.TCPSite(r2, "0.0.0.0", PANEL_PORT).start()
         await asyncio.start_server(rto_check_listener, "0.0.0.0", RTO_PORT - 1)
+        await asyncio.start_server(edc_handle, "0.0.0.0", EDC_SEND_PORT)
+        print(f"+ EDC sim  tcp://0.0.0.0:{EDC_SEND_PORT} (ตอบกลับ TCT:{EDC_RECV_PORT})", flush=True)
         ta = web.Application()
         ta.router.add_route("*", "/{tail:.*}", ta_handler)
         r3 = web.AppRunner(ta)

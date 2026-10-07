@@ -47,7 +47,10 @@ OVERRIDES = {
     "LCIO":   {"SocketIPAddress": SIM_IP, "SocketPort": 18084},
     "RTO":    {"IPAddress": SIM_IP, "SocketPort": 9094},
     "SupAdjust": {"Enable": 1, "IPAddress": SIM_IP, "SocketPort": 9095},
-    "EMV":    {"Enable": 0},
+    # EDC จำลองอยู่ใน lcsd-sim (TCT -> 2019, EDC -> TCT:2018) โปรโตคอล V1
+    "EMV":    {"Enable": 1, "EdcIPAddress": SIM_IP, "EdcSendPort": 2019, "EdcRecvPort": 2018,
+               "EdcTID": "12345678", "EdcVersionType": 1, "EdcCheckNetworkType": 1,
+               "EdcCheckKeepAliveIntervalMin": 1, "EdcStartHourClearBatch": 0, "EdcEndHourClearBatch": 0},
     "Printer": {"PrinterPort": "/tmp/printer.out"},
     "LSD":    {"Enable": 0},
     "DSRC_Antenna": {"Enable": 0},
@@ -70,8 +73,10 @@ def copy_runtime():
     # โครงเหมือนเครื่องจริง (build แบบ __FULL_SCREEN__): <root>/app/TCT_App.exe , <root>/config/TCT.config , <root>/log
     if not (SRC_DIR / "TCT_App.exe").exists():
         sys.exit(f"ไม่พบ {SRC_DIR/'TCT_App.exe'} — build ก่อน")
-    if RUN_DIR.exists():
-        shutil.rmtree(RUN_DIR)
+    # ล้างเฉพาะข้างใน runtime/ (ไม่ลบตัวโฟลเดอร์) — container ที่ mount ไว้จะยังเห็นไฟล์ใหม่
+    RUN_DIR.mkdir(exist_ok=True)
+    for child in RUN_DIR.iterdir():
+        shutil.rmtree(child) if child.is_dir() else child.unlink()
     for d in ("app", "config", "log", "Manual-Import"):
         (RUN_DIR / d).mkdir(parents=True)
     for f in SRC_DIR.iterdir():
