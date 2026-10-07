@@ -1,0 +1,56 @@
+# จำลองระบบ TCT ทั้งช่อง  — ใช้ ./sim.sh start  แล้วเปิด http://localhost:8090
+#   tct       : TCT_App.exe (Mono + GTK#) บนจอเสมือน -> ดูผ่าน noVNC  http://localhost:6080/vnc.html
+#   lcsd-sim  : Lane Controller จำลอง + Control Panel + ดักข้อมูล Sup Adjust / RTO / DC
+#   rabbitmq  : DC (DataCenter) จำลอง  -> http://localhost:15672  (guest/guest)
+# IP คงที่ต้องตรงกับ SIM_IP / RABBIT_IP ใน prepare.py
+name: tct-sim
+
+networks:
+  lane:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    networks:
+      lane: { ipv4_address: 172.28.0.20 }
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  lcsd-sim:
+    build: ./lcsd_sim
+    networks:
+      lane: { ipv4_address: 172.28.0.10 }
+    environment:
+      TCT_HOST: 172.28.0.30
+      RABBIT_API: http://172.28.0.20:15672
+      # อ่านชื่อ exchange/queue ของ DC จาก TCT.config แล้วสร้างให้อัตโนมัติ
+    volumes:
+      - ./runtime/config:/tct-config:ro
+    ports:
+      - "8090:8090"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  tct:
+    build: ./tct
+    networks:
+      lane: { ipv4_address: 172.28.0.30 }
+    volumes:
+      - ./runtime:/tct                      # สร้างด้วย  python3 prepare.py  (app/ config/ log/)
+    environment:
+      SCREEN: 1024x768x24      # 4:3 เหมือนจอที่ช่องทางจริง (ล็อกไว้)
+      TZ: Asia/Bangkok
+    ports:
+      - "6080:6080"
+    depends_on:
+      - lcsd-sim
+      - rabbitmq

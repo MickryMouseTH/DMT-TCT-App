@@ -1,0 +1,4 @@
+# สร้างขึ้นตอนรัน (prepare.py / sim_test.py / sim.sh shot)
+runtime/
+results/
+shots/

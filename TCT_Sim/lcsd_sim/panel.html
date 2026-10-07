@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TCT Simulator</title>
+<style>
+  :root { --bg:#14171c; --panel:#1d222a; --line:#2c333d; --fg:#e6e9ee; --dim:#8b95a3; --acc:#4da3ff;
+          --ok:#3fb950; --warn:#e3b341; --bad:#f85149; --trans:#d2a8ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.4 system-ui, "Sarabun", sans-serif; }
+  header { display:flex; gap:16px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0; }
+  .pill { padding:2px 8px; border-radius:10px; background:#2a2f37; color:var(--dim); font-size:12px; }
+  .pill.on { background:rgba(63,185,80,.18); color:var(--ok); }
+  .count { color:var(--trans); font-weight:600; }
+  main { display:grid; grid-template-columns: minmax(0,1.35fr) minmax(360px,1fr); gap:10px; padding:10px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .card h2 { font-size:13px; margin:0 0 8px; color:var(--dim); font-weight:600; }
+  #screen { width:100%; aspect-ratio: 4/3; border:0; background:#000; border-radius:6px; }
+  .grid { display:flex; flex-wrap:wrap; gap:6px; }
+  button { background:#2a313b; color:var(--fg); border:1px solid #3a424e; border-radius:6px; padding:6px 10px;
+           cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:#1f4f86; border-color:#2f6db3; }
+  button.danger { background:#6b2323; border-color:#9b3333; }
+  button.di.on { background:rgba(63,185,80,.25); border-color:var(--ok); color:#b7f5c3; }
+  .do { display:inline-block; padding:2px 6px; margin:2px; border-radius:4px; background:#2a2f37; color:var(--dim); font-size:12px; }
+  .do.on { background:rgba(77,163,255,.2); color:#a9d2ff; }
+  input { background:#11151a; color:var(--fg); border:1px solid #3a424e; border-radius:6px; padding:5px 8px; font:inherit; width:90px; }
+  .right { display:flex; flex-direction:column; gap:10px; }
+  #logcard { grid-column: 1 / -1; }
+  .tabs button.sel { border-color:var(--acc); color:#a9d2ff; }
+  #log { height: 34vh; overflow:auto; font:12px/1.45 ui-monospace, Menlo, monospace; background:#0f1216; border-radius:6px; padding:6px; }
+  .l { white-space:pre-wrap; word-break:break-all; }
+  .l .t { color:#5c6672; } .l .s { display:inline-block; min-width:72px; color:var(--acc); }
+  .l.warn { color:var(--warn); } .l.ok { color:var(--ok); } .l.trans { color:var(--trans); font-weight:600; }
+  .l.dim { color:var(--dim); } .l.scn { color:#79c0ff; } .l.key { color:#ffa657; } .l.avc { color:#ff7b72; }
+  .note { color:var(--dim); font-size:12px; margin-top:6px; }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TCT Simulator</h1>
+  <span class="pill" id="st-tct">TCT↔LCSD</span>
+  <span class="pill" id="st-supadj">Sup Adjust</span>
+  <span class="pill" id="st-rto">RTO</span>
+  <span class="pill" id="st-dc">DC (RabbitMQ)</span>
+  <span>Sup Adj trans: <span class="count" id="c-supadj">0</span></span>
+  <span>DC msgs: <span class="count" id="c-dc">0</span></span>
+  <span>RTO trans: <span class="count" id="c-rto">0</span></span>
+</header>
+
+<main>
+  <div class="card">
+    <h2>จอ TCT (noVNC — คลิกที่จอแล้วพิมพ์คีย์บอร์ดได้)</h2>
+    <iframe id="screen"></iframe>
+    <h2 style="margin-top:10px">คีย์บอร์ด TCT (จำลองของจริง — ส่งแป้นเข้า TCT ทางเดียวกับคีย์บอร์ด USB) · <a href="/keyboard" target="_blank" style="color:#4da3ff">เปิดแยกหน้าต่าง</a></h2>
+    <iframe src="/keyboard" style="width:100%;height:560px;border:0"></iframe>
+  </div>
+
+  <div class="right">
+    <div class="card">
+      <h2>Scenario</h2>
+      <div class="grid">
+        <button class="primary" onclick="scn('ob_only')">รถผ่าน OB อย่างเดียว (ไม่มี Loop)</button>
+        <button onclick="scn('normal')">รถผ่านปกติ (Loop → OB)</button>
+        <button onclick="scn('loop_ob_stuck')">Loop+OB ค้าง</button>
+        <button onclick="scn('loop_only')">Loop อย่างเดียว</button>
+        <button onclick="scn('clear_io')">ล้าง Loop/OB</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>ปุ่มพนักงาน (KEY จาก LCSD)</h2>
+      <div class="grid" id="keys"></div>
+      <div class="row" style="margin-top:8px">
+        <input id="typed" placeholder="ตัวเลข" style="width:120px">
+        <button onclick="typeNum()">พิมพ์ตัวเลข</button>
+        <button onclick="key(44,'TAB')">TAB</button>
+        <button onclick="key(43,'ENTER')">ENTER</button>
+        <button onclick="key(45,'BACKSPACE')">⌫</button>
+        <button onclick="key(37,'ESC')">ESC</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="card" value="99001" style="width:120px">
+        <button class="primary" onclick="post({action:'scr', card: document.getElementById('card').value})">แตะบัตรพนักงาน (Login)</button>
+      </div>
+      <div class="note">พนักงานเก็บเงิน 99001 / ช่าง 99050 (รหัสผ่าน 123456 ถ้า Manual Login)</div>
+    </div>
+
+    <div class="card">
+      <h2>AVC</h2>
+      <div class="row">
+        class <input id="avc-cls" value="1" style="width:60px">
+        axle <input id="avc-axle" value="2" style="width:60px">
+        <button onclick="avc()">ส่ง AVC</button>
+        <button onclick="avc(255)">AVC 255 (Error)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Digital Input (คลิกเพื่อสลับ ON/OFF)</h2>
+      <div class="grid" id="di"></div>
+      <h2 style="margin-top:10px">Digital Output (จาก TCT)</h2>
+      <div id="do"></div>
+    </div>
+  </div>
+
+  <div class="card" id="logcard">
+    <div class="row tabs">
+      <h2 style="margin:0 8px 0 0">Log</h2>
+      <button class="sel" data-f="all">ทั้งหมด</button>
+      <button data-f="trans">★ Transaction (DC/SupAdj/RTO)</button>
+      <button data-f="io">IO / Key / AVC</button>
+      <button data-f="tct">TCT→LCSD</button>
+      <label style="margin-left:auto"><input type="checkbox" id="autoscroll" checked style="width:auto"> auto scroll</label>
+      <button onclick="post({action:'clear'})">ล้าง log</button>
+    </div>
+    <div id="log"></div>
+  </div>
+</main>
+
+<script>
+const KEYS = [
+  [1,'Class 1'],[2,'Class 2'],[6,'Towing'],[7,'Exempt (ยกเว้น)'],[8,'Left Exit'],[9,'HPMC'],
+  [10,'Cash'],[11,'Coupon'],[14,'Receipt'],[21,'FORCE RESET'],[62,'Edit'],
+  [23,'OTL Open'],[22,'OTL Close'],[24,'Start Shift'],[25,'End Shift'],[53,'BEOJ'],[51,'Mode'],[54,'Confirm'],
+  [59,'▲'],[60,'▼'],[57,'◀'],[58,'▶'],[47,'F1'],[48,'F2'],[49,'F3'],[50,'F4'],
+];
+const DI_ORDER = [4,3,2,5,6,7,8,0,1,10];
+let filter = 'all', diNames = {}, doNames = {}, diVals = [];
+
+document.getElementById('screen').src =
+  `http://${location.hostname}:6080/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=2000`;
+
+const keysEl = document.getElementById('keys');
+for (const [id, name] of KEYS) {
+  const b = document.createElement('button');
+  b.textContent = name;
+  if (id === 21) b.className = 'danger';
+  if (id === 7) b.className = 'primary';
+  b.onclick = () => key(id, name);
+  keysEl.appendChild(b);
+}
+
+function post(o) { return fetch('/api', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(o)}); }
+function key(id, name) { post({action:'key', id, name}); }
+function scn(name) { post({action:'scenario', name}); }
+function avc(cls) {
+  post({action:'avc', cls: cls ?? +document.getElementById('avc-cls').value, axle: +document.getElementById('avc-axle').value,
+        error: cls === 255 ? 1 : 0});
+}
+function typeNum() {
+  const s = document.getElementById('typed').value.replace(/\D/g, '');
+  post({action:'keys', ids: [...s].map(c => 27 + (+c))});   // NUM_0 = 27
+}
+
+function renderDI() {
+  const el = document.getElementById('di'); el.innerHTML = '';
+  for (const i of DI_ORDER) {
+    const b = document.createElement('button');
+    b.className = 'di' + (diVals[i] ? ' on' : '');
+    b.textContent = `${diNames[i] ?? i}: ${diVals[i] ? 'ON' : 'OFF'}`;
+    b.onclick = () => post({action:'di', idx:i, value: diVals[i] ? 0 : 1});
+    el.appendChild(b);
+  }
+}
+function renderDO(vals) {
+  document.getElementById('do').innerHTML = Object.entries(doNames)
+    .map(([i, n]) => `<span class="do ${vals[i] ? 'on' : ''}">${n}=${vals[i]}</span>`).join('');
+}
+
+function cat(it) {
+  if (it.level === 'trans') return 'trans';
+  if (['io','key','avc','scn'].includes(it.level)) return 'io';
+  if (it.src === 'TCT→SIM') return 'tct';
+  if (it.src === 'KB') return 'io';
+  return 'other';
+}
+function addLog(it) {
+  const d = document.createElement('div');
+  d.className = 'l ' + it.level;
+  d.dataset.cat = cat(it);
+  d.innerHTML = `<span class="t">${it.t}</span> <span class="s">${it.src}</span> `;
+  d.appendChild(document.createTextNode(it.text));
+  if (it.data) d.title = JSON.stringify(it.data, null, 2);
+  d.hidden = !(filter === 'all' || d.dataset.cat === filter);
+  const log = document.getElementById('log');
+  log.appendChild(d);
+  while (log.children.length > 2000) log.firstChild.remove();
+  if (document.getElementById('autoscroll').checked) log.scrollTop = log.scrollHeight;
+}
+document.querySelectorAll('.tabs button[data-f]').forEach(b => b.onclick = () => {
+  filter = b.dataset.f;
+  document.querySelectorAll('.tabs button[data-f]').forEach(x => x.classList.toggle('sel', x === b));
+  for (const d of document.getElementById('log').children) d.hidden = !(filter === 'all' || d.dataset.cat === filter);
+});
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'init') {
+      diNames = m.di_names; doNames = m.do_names;
+      document.getElementById('log').innerHTML = '';
+      m.logs.forEach(addLog);
+    } else if (m.type === 'log') addLog(m.item);
+    else if (m.type === 'clear') document.getElementById('log').innerHTML = '';
+    else if (m.type === 'state') {
+      diVals = m.di; renderDI(); renderDO(m.do);
+      for (const k of ['tct','supadj','rto','dc']) document.getElementById('st-'+k).classList.toggle('on', !!m.status[k]);
+      document.getElementById('c-supadj').textContent = m.counters.supadj_trans;
+      document.getElementById('c-rto').textContent = m.counters.rto_trans;
+      document.getElementById('c-dc').textContent = m.counters.dc_msgs;
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+connect();
+</script>
+</body>
+</html>
