@@ -687,5 +687,13 @@ TCT (V.2.0.0)   2026-06-02   *** Stability / Concurrency Hardening Release ***
     - Bump version 1.5.7 -> 2.0.0, AssemblyVersion 0.0.2 -> 2.0.0
     - ลบไฟล์ source ซ้ำในโฟลเดอร์ LSD/
 
+TCT (V.2.0.1)   2026-10-07
+    - Fix bug (H1) - รถยกเว้น/รถที่จ่ายเงินแล้ว ผ่าน OB อย่างเดียว (ไม่มี Loop) แล้วกด Force Reset
+                     รายการหาย ไม่ขึ้น DC และ Sup Adjust -> Force Reset จะ Force End รถที่จ่ายแล้วใน ListLoopCar ก่อนล้างคิว
+    - Fix bug (H2) - ผ่าน OB อย่างเดียว (ไม่มี Loop) ไม่มีการตั้ง Auto AVC -> ตั้ง Auto AVC ให้เมื่อมีรถจ่ายแล้วค้างในคิว
+                     (ข้ามถ้าพนักงานเริ่มรถคันถัดไปแล้ว เพื่อไม่ปิดไม้กั้นหน้ารถคันถัดไป)
+    - Fix bug (H3) - Force Reset ไม่เรียก ForceEnd ซ้ำ 2 ครั้ง (กันรายการ Violation/Class 0 เกิน)
+    - Bump version 2.0.0 -> 2.0.1, AssemblyVersion 2.0.0 -> 2.0.1
+
 
 =============================================================================================*/

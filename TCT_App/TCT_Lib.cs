@@ -474,8 +474,8 @@ namespace TCT_App
     //-------------------------------------------------------------
     public class TCT_Lib
     {
-        public static string szAppVersion               = "2.0.0";
-        public static string szAppBuild                 = "2026/06/02 00:00:00";         // 2.0.0 stability/concurrency hardening; 1.5.7 => "2025/09/23 01:05:06";
+        public static string szAppVersion               = "2.0.1";
+        public static string szAppBuild                 = "2026/10/07 00:00:00";         // 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
         public static string szSysUserName              = WindowsIdentity.GetCurrent().Name;
         public static string szSysUserName2             = Environment.UserName;
         //--- Configuration

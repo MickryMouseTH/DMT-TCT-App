@@ -309,6 +309,7 @@ GTK เป็น single-thread การบล็อก main thread = ทั้�
   - ตอน Exit OB ถ้า `bFoundOB && CanAutoAvcObOnly()` จะตั้ง timer `Perform_ChkEventAVC_ObOnly` ด้วยเวลาเท่ากับ Auto AVC ปกติ (`iTimerSecAutoAVC` วินาที + 700 ms)
   - ตอน timer ทำงานจะตรวจ `CanAutoAvcObOnly()` อีกรอบ ถ้าสถานะเปลี่ยนแล้ว (เช่น พนักงานเริ่มรถคันถัดไป หรือมีรถเข้า Loop) จะข้ามและเขียน log `- Skip Auto AVC (OB only)` ถ้าไม่เปลี่ยนก็เรียก `Perform_ChkEventAVC()` เพื่อเขียนรายการ
   - ถ้า AVC จริงเข้ามาก่อน หรือพนักงานกด Force Reset ก่อน timer จะถูกยกเลิกด้วย `RemoveAvcTimer()` ที่มีอยู่เดิม จึงไม่เกิดรายการซ้ำ
+- **ยืนยันด้วย Simulator (`TCT_Sim/`, 2026-10-07):** version เดิม (467348a) → รถยกเว้นผ่าน OB อย่างเดียว ทั้งรอ Auto AVC และกด Force Reset ได้ **0 รายการ** ที่ DC และ Sup Adjust (ตรงกับที่เจอหน้างาน). version ที่แก้ → ได้ 1 รายการ (class 7, EXEMPT, loop=0, ob=1) ครบทั้ง DC / Sup Adjust / RTO ไม่ซ้ำ
 - **ข้อจำกัด:** ถ้าพนักงานเริ่มรถคันถัดไปก่อน timer ทำงาน จะยังไม่เขียนรายการให้อัตโนมัติ เพราะ flow OB-only ของ AVC event จะสั่งปิด ALB ต่อหน้ารถคันที่จ่ายแล้ว กรณีนี้ใช้ Force Reset (H1) หรือ AVC ของรถคันถัดไปเป็นทางสำรอง
 - **log:** `+ Passage OB only (No Loop) : Add Auto AVC ...` → `+ Auto AVC (OB only, No Loop)` → `Write DB Trans : ... LoopCar=7`
 
@@ -317,6 +318,7 @@ GTK เป็น single-thread การบล็อก main thread = ทั้�
 - **เงื่อนไข:** `iCurTC_Class > 0 && bAfterPayment` เป็นจริง และในจังหวะเดียวกันมี Loop ON และ OB ON
 - **ผล:** ครั้งแรกเขียนรายการรถปัจจุบัน ครั้งที่สองไม่มีข้อมูลรถ จึงอาจเกิดรายการ violation หรือรายการ class 0 เกินมา
 - **แก้แล้ว (2026-10-07):** ใช้ flag `bForceEnded` ซึ่งจะเป็นจริงเมื่อ force end รถปัจจุบันหรือรถในคิว (H1) ไปแล้ว ถ้า flag เป็นจริงจะข้ามการ force end จากเงื่อนไข Loop ON/OB ON และเขียน log `+ Force Reset : Found Loop/OB ON but ForceEnd Transaction already done. Skip second ForceEnd.` ถ้ายังไม่ได้ force end อะไรเลย เช่นรถยังไม่จ่ายแต่ค้างบน Loop+OB จะทำงานแบบเดิม
+- **ผลจาก Simulator (2026-10-07):** ยังทำให้เงื่อนไขของ H3 เกิดขึ้นจริงไม่ได้ — ถ้าจ่ายเงินตอนรถอยู่บน Loop แล้ว รถจะถูกย้ายเข้า `xListLoopCar` ทันที (`iCurTC_Class` จึงเป็น 0) ทำให้ version เดิมก็ force end แค่ครั้งเดียวผ่านเงื่อนไข Loop/OB. การแก้ H3 จึงเป็นการป้องกันไว้ก่อน ไม่กระทบผล (ได้ 1 รายการเท่าเดิม)
 - **ไม่ได้แตะ Towing:** ใน path Towing ถ้า `bEnableWaitAVC=false` ระบบจะไม่สร้างรายการ จึงต้องพึ่ง Loop/OB เป็นทางสำรองเหมือนเดิม
 
 ---
