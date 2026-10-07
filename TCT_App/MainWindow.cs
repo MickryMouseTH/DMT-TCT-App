@@ -3057,6 +3057,7 @@ public partial class MainWindow : Gtk.Window
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                          //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
+                md.Decorated = false;     // v2.0.2: no title bar
                 md.Run();
                 md.Destroy();
 

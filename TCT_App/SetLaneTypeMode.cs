@@ -17,6 +17,7 @@ namespace TCT_App
             TCT_Lib.bActiveSetLaneTypeModeDlg = true;
 
             this.Build();
+            this.Decorated = false;     // v2.0.2: no title bar on popups
 
             TCT_Lib.eCurAppPage = AppPage.SetLaneTypeMode;
             this.Title          = "Set Lane Type";

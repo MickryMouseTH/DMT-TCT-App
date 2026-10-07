@@ -29,6 +29,7 @@ namespace TCT_App.LaneView.MiscDlg
             TCT_Lib.bActiveConvoyDlg = true;
 
             this.Build();
+            this.Decorated = false;     // v2.0.2: no title bar on popups
 
             this.Title      = "Print Payment Receipt Convoy";
             imgVehicleType1 = Gdk.Pixbuf.LoadFromResource("TCT_App.Images.VehicleType1.png");
@@ -672,6 +673,7 @@ namespace TCT_App.LaneView.MiscDlg
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                 //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
+                md.Decorated = false;     // v2.0.2: no title bar
                 md.Run();
                 md.Destroy();
                 return;
@@ -804,6 +806,7 @@ namespace TCT_App.LaneView.MiscDlg
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                 //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
+                md.Decorated = false;     // v2.0.2: no title bar
                 md.Run();
                 md.Destroy();
                 return;

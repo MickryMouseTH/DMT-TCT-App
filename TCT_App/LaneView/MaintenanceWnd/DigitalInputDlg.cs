@@ -12,6 +12,7 @@ namespace TCT_App.MaintenanceWnd
         public DigitalInputDlg()
         {
             this.Build();
+            this.Decorated = false;     // v2.0.2: no title bar on popups
 
             this.Title = "Test Digital Input";
             ClearDigitalInput();

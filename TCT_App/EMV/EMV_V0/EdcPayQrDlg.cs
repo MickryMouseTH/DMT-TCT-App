@@ -46,6 +46,7 @@ namespace TCT_App.EMV.V0
         {
             TCT_Lib.bActiveEMVDlg = true;
             this.Build();
+            this.Decorated = false;     // v2.0.2: no title bar on popups
             this.Activate();
 
             TCT_Lib.eCurAppPage     = AppPage.EMV;

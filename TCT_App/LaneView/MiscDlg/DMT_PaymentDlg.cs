@@ -22,6 +22,7 @@ namespace TCT_App.LaneView.MiscDlg
             TCT_Lib.bActiveDmtPaymentDlg = true;
 
             this.Build();
+            this.Decorated = false;     // v2.0.2: no title bar on popups
 
             TCT_Lib.eCurAppPage = AppPage.DmtPayment;
 
