@@ -2662,6 +2662,7 @@ namespace TCT_App
                 //------------------------------------------------------------------------------------------------
                 //--- If Towing Mode, First vehicle success transaction and system cannot detect second vehicle,
                 //--- then when use  press force reset, system will auto create transaction of second vehicle
+                bool bForceEnded = false;     // H3: Force End only once per Force Reset (non-towing)
                 if (TCT_Lib.eTowingState != TowingState.None)
                 {
                     //--- Check first vehicle success transaction
@@ -2679,7 +2680,8 @@ namespace TCT_App
                         Perform_ForceEventAVC();
                     }
                 }
-                else {
+                else
+                {
                     //--- None Towing, if Class and Payment already, then force end transaction
                     //if (((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.bAfterPayment)) ||
                     //    (TCT_Lib.xListLoopCar.Count > 0))
@@ -2688,12 +2690,36 @@ namespace TCT_App
                         //if (bDetectLoopBack)
                         LogInfo.WriteLaneEvent($"+ Force Reset : Found TC Class={TCT_Lib.iCurTC_Class} and Found Payment already (PayType={TCT_Lib.xCurPayment.payType}, {TCT_Lib.xCurPayment.payTypeName}). Then call ForceEnd Transaction.");
                         Perform_ForceEndTransaction();
+                        bForceEnded = true;
                         //return;
+                    }
+                    else
+                    {
+                        //--- Fix: car already paid (e.g. Exempt) was moved into ListLoopCar by Passage OB/Loop ON
+                        //--- (Process_RefreshPresenceLoop clears iCurTC_Class), but no AVC came (OB only, no Loop).
+                        //--- Without this, ListLoopCar.Clear() below drops it and no transaction goes to DC / SupAdjust.
+                        int iMaxLoopCar = TCT_Lib.LoopCarCount();
+                        for (int i = 0; i < iMaxLoopCar; i++)
+                        {
+                            var xLoopCar = TCT_Lib.LoopCarFirst();
+                            if ((xLoopCar == null) || (xLoopCar.iTC_Class <= 0) || (xLoopCar.xPayment == null) || (xLoopCar.xPayment.payType <= 0))
+                                break;
+
+                            LogInfo.WriteLaneEvent($"+ Force Reset : Found paid car in ListLoopCar (TC Class={xLoopCar.iTC_Class}, PayType={xLoopCar.xPayment.payType}, {xLoopCar.xPayment.payTypeName}). Then call ForceEnd Transaction.");
+                            Perform_ForceEndTransaction();
+                            bForceEnded = true;
+                        }
                     }
                 }
 
                 //--- Check if found Loop On and OB On, then staff must force reset first
-                if ((bInPassageLoop && bInPassageOB) || (bTrigDownLoop && bInPassageOB))
+                //--- H3: skip when car was force ended above, otherwise 2nd call creates an extra Violation/Class 0 transaction
+                if (bForceEnded)
+                {
+                    if ((bInPassageLoop && bInPassageOB) || (bTrigDownLoop && bInPassageOB))
+                        LogInfo.WriteLaneEvent("+ Force Reset : Found Loop/OB ON but ForceEnd Transaction already done. Skip second ForceEnd.");
+                }
+                else if ((bInPassageLoop && bInPassageOB) || (bTrigDownLoop && bInPassageOB))
                 {
                     LogInfo.WriteLaneEvent($"+ Force Reset from Loop On/OFF and OB ON Found : Then call ForceEnd Transaction. TC Class={TCT_Lib.iCurTC_Class}, PayType={TCT_Lib.xCurPayment.payType}, {TCT_Lib.xCurPayment.payTypeName}");
                     Perform_ForceEndTransaction();
@@ -3078,6 +3104,41 @@ namespace TCT_App
             RemoveAvcTimer();
 
             return false;
+        }
+
+        //--- H2 (2026-10-07): Auto AVC for Passage OB only (no Passage Loop)
+        //--- Allow only when the paid car is in ListLoopCar and staff not start next car yet,
+        //--- because AVC event of OB-only path will close ALB (not close ALB in front of next paid car).
+        protected bool CanAutoAvcObOnly()
+        {
+            if (TCT_Lib.eCurLaneType != LaneType.MTC)
+                return false;
+            if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
+                return false;
+            if (TCT_Lib.eTowingState != TowingState.None)
+                return false;
+            if (bHasViolation)
+                return false;
+            if (bDetectLoopBack || bFoundLoop || bInPassageLoop || bInPassageOB)
+                return false;
+            if (TCT_Lib.iCurTC_Class > 0)
+                return false;
+
+            var xLoopCar = TCT_Lib.LoopCarFirst();
+            return (xLoopCar != null) && (xLoopCar.iTC_Class > 0) && (xLoopCar.xPayment != null) && (xLoopCar.xPayment.payType > 0);
+        }
+
+        protected bool Perform_ChkEventAVC_ObOnly()
+        {
+            if (!CanAutoAvcObOnly())
+            {
+                LogInfo.WriteLaneEvent($"- Skip Auto AVC (OB only) : state changed (CurTC_Class={TCT_Lib.iCurTC_Class}, ListLoopCar={TCT_Lib.LoopCarCount()}, LoopIn={bInPassageLoop}, OBIn={bInPassageOB})");
+                RemoveAvcTimer();
+                return false;
+            }
+
+            LogInfo.WriteLaneEvent("+ Auto AVC (OB only, No Loop)");
+            return Perform_ChkEventAVC();
         }
 
         protected bool Perform_ChkEventAVC()
@@ -4772,6 +4833,17 @@ namespace TCT_App
                     //------------------------------------
                     TCT_Lib.iCounterLoopNoOB    = 0;    // Reset Loop No OB Counter
                     TCT_Lib.bSendLoopNoOB_MTS   = false;
+
+                    //------------------------------------
+                    //--- H2 (2026-10-07): Passage OB only (no Passage Loop) => Auto AVC is not armed (need Loop+OB),
+                    //--- then paid car stays in ListLoopCar until next car / Force Reset. Arm Auto AVC for this case.
+                    if (bFoundOB && CanAutoAvcObOnly())
+                    {
+                        var xObOnlyCar = TCT_Lib.LoopCarFirst();
+                        LogInfo.WriteLaneEvent($"+ Passage OB only (No Loop) : Add Auto AVC for paid car in ListLoopCar (TC Class={xObOnlyCar.iTC_Class}, PayType={xObOnlyCar.xPayment.payType})");
+                        uint iAvcTimerId = GLib.Timeout.Add((uint)((TCT_Lib.iTimerSecAutoAVC * 1000)+700), new GLib.TimeoutHandler(Perform_ChkEventAVC_ObOnly));
+                        AddAvcTimer(iAvcTimerId);
+                    }
                     //-----------------------------------------
                     //========================================
                     //if (TCT_Lib.iVideoNVR_CaptureImageMethod == 3)

@@ -26,6 +26,9 @@
 > | F5 SQLite WAL/busy timeout | ✅ แก้แล้ว | LaneDB.cs |
 > | G3 ไฟล์ LSD ซ้ำ | ✅ ลบแล้ว | LSD/ |
 > | E2, E3, G1, G2 ฯลฯ | ⏳ ยังไม่แก้ | - |
+> | H1 Force Reset ทิ้งรายการรถยกเว้น (OB อย่างเดียว ไม่มี Loop) → ไม่ขึ้น DC/Sup Adj | ✅ แก้แล้ว (2026-10-07, ยังไม่ได้ build/test) | LaneEventControl.cs |
+> | H2 OB อย่างเดียวไม่มี Loop → ไม่ตั้ง Auto AVC (รายการค้างคิว) | ✅ แก้แล้ว (2026-10-07, ยังไม่ได้ build/test) | LaneEventControl.cs |
+> | H3 Force Reset อาจเรียก ForceEnd ซ้ำ 2 ครั้ง | ✅ แก้แล้ว (2026-10-07, ยังไม่ได้ build/test) | LaneEventControl.cs |
 >
 > **หมายเหตุสำคัญ:** git repository ของโปรเจกต์นี้เสียหาย (corrupt loose objects + index) — ต้องกู้ git ก่อนจึงจะ commit ได้
 > ⏳ = เป็นการแก้เชิงสถาปัตยกรรมที่เสี่ยงสูง ควรมี environment ที่ build/test ได้ก่อนทำ
@@ -258,6 +261,66 @@ GTK เป็น single-thread การบล็อก main thread = ทั้�
 
 ---
 
+## หมวด H — Logic การเก็บเงิน / รายการหาย (ไม่ค้าง ไม่ดับ แต่กระทบเงินและรายงาน)
+
+### H1. 🔴 รถยกเว้นผ่าน OB อย่างเดียว (ไม่มี Loop) แล้วกด Force Reset → รายการหาย ไม่ขึ้น DC และ Sup Adjust
+- **พบจากหน้างานจริง:** รถยกเว้นผ่าน OB โดยไม่มี Loop พนักงานกด Force Reset แล้วรายการไม่ขึ้นที่ DC และ Sup Adj
+- **ไฟล์:** `LaneController/LaneEventControl.cs`
+  - ปุ่มรถยกเว้น CLASS_7 ~1153–1166
+  - Passage OB ON → `Process_RefreshPresenceLoop()` ~4732–4743
+  - `Process_RefreshPresenceLoop()` ~4280 (ล้าง `iCurTC_Class` เมื่อ `bPaid`)
+  - ตั้ง Auto AVC ตอน OB OFF ~5166 (ต้องมีทั้ง `bDetectObBack && bDetectLoopBack`)
+  - ตัวจัดการ FORCE_RESET ~2604–2800 (จุดที่แก้ ~2665–2727)
+- **ลำดับเหตุการณ์:**
+  1. กดรถยกเว้น → `iCurTC_Class=7`, `payType=EXEMPT`, `bAfterPayment=true`, เปิด ALB
+  2. Passage OB ON (ไม่มี Loop) → `Process_RefreshPresenceLoop()` **ย้ายรถเข้า `xListLoopCar`** แล้วล้าง `iCurTC_Class=0`, `xCurPayment`, `bAfterPayment=false`
+  3. Passage OB OFF → ไม่ตั้ง Auto AVC เพราะ `bDetectLoopBack=false` ถ้า AVC จริงไม่ส่งข้อมูลมา ก็ไม่มีอะไรมาสร้างรายการ รถจึงค้างในคิว
+  4. กด Force Reset → เงื่อนไข force end ไม่ผ่านทั้ง 2 ข้อ
+     ```csharp
+     if ((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.bAfterPayment))       // false: ถูกล้างไปแล้วในข้อ 2
+         Perform_ForceEndTransaction();
+     if ((bInPassageLoop && bInPassageOB) || (bTrigDownLoop && bInPassageOB))  // false: ไม่มี Loop
+         Perform_ForceEndTransaction();
+     ...
+     TCT_Lib.xListLoopCar.Clear();   // ← ทิ้งรายการรถยกเว้นที่ค้างอยู่
+     ```
+     เงื่อนไข `|| (TCT_Lib.xListLoopCar.Count > 0)` ที่ครอบเคสนี้เคยมีอยู่ แต่ถูก comment ทิ้งไว้
+- **ผล:** ไม่มีการเรียก `WriteLaneTransaction` จึงไม่มีแถวใน `TCT_DB.db` และไม่มีการเรียก `SendLaneTransObjToDC/RTO/SupAdjust` รายการหายถาวร นับรถไม่ครบ ยอด EOJ ไม่ตรงกับ DC
+- **ขอบเขต:** ไม่ได้เกิดเฉพาะรถยกเว้น รถที่จ่ายเงินแล้วทุกประเภท (เงินสด คูปอง รถออกซ้าย ฯลฯ) ที่ผ่าน OB อย่างเดียวโดยไม่มี Loop และไม่มี AVC แล้วกด Force Reset จะหายแบบเดียวกัน
+- **แก้แล้ว (2026-10-07):** ในกรณีที่ไม่ใช่ Towing ถ้าเงื่อนไขเดิมไม่ผ่าน ระบบจะวนเช็ค `xListLoopCar`
+  - ถ้ารถคันแรกมี class > 0 และ payType > 0 จะเรียก `Perform_ForceEndTransaction()` ทีละคัน (จำกัดรอบไม่เกินจำนวนรถในคิวตอนเริ่ม)
+  - ขั้นตอนนี้สร้างรายการจาก `xListLoopCar[0]` ติด SimuPassFlag แล้วส่ง RTO, DC และ Sup Adjust ตามปกติ
+  - ถ้า force end รถในคิวแล้ว จะข้ามเงื่อนไข Loop ON/OB ON เพื่อไม่ให้เกิดรายการ violation เปล่าเพิ่ม
+  - ยังไม่ได้ build เพราะเครื่องนี้ไม่มี Mono และยังไม่ได้ทดสอบที่ตู้
+- **ตรวจ log ของเคสเดิม:** ควรเห็น `Press CLASS 7 (EXEMPT)` → `IO - Passage OB : ON/OFF` (ไม่มี `IO - Passage Loop`) → `Press FORCE_RESET` โดย**ไม่มี** `Write DB Trans` ตามมา
+- **log หลังแก้:** `+ Force Reset : Found paid car in ListLoopCar (TC Class=7, ...)` ตามด้วย `Write DB Trans : ... LoopCar=7`
+- **ขั้นตอนทดสอบ:** กดรถยกเว้น → OB ON/OFF อย่างเดียว ไม่มี Loop และไม่มี AVC → กด Force Reset → ตรวจว่ามีแถวใน `TCT_DB.db` และขึ้นที่ DC และ Sup Adjust ทดสอบซ้ำด้วยรถเงินสดคลาส 1/2 และเคสปกติ (Loop+OB) ว่าไม่เกิดรายการซ้ำ
+
+### H2. 🟠 OB อย่างเดียวไม่มี Loop → ไม่ตั้ง Auto AVC รายการค้างอยู่ในคิว
+- **ไฟล์:** `LaneController/LaneEventControl.cs` ~5166–5172 ตั้ง `Perform_ChkEventAVC` เฉพาะเมื่อ `bDetectObBack && bDetectLoopBack`
+- **ผล:** ถ้า Loop เสียหรือรถไม่ทับ Loop และ AVC จริงไม่ส่งข้อมูลมา รถที่จ่ายแล้วจะค้างใน `xListLoopCar` จนกว่ารถคันถัดไปมาดันออก หรือพนักงานกด Force Reset (ก่อนแก้ H1 กด Force Reset แล้วรายการหาย) ลำดับรายการและภาพ NVR อาจเลื่อนไปผูกกับรถคันถัดไป
+- **แก้แล้ว (2026-10-07):**
+  - เพิ่ม `CanAutoAvcObOnly()` ตรวจว่าเป็นเคส "OB อย่างเดียว" ที่ปลอดภัยพอจะตั้ง Auto AVC ต้องผ่านทุกข้อ:
+    - เป็นช่อง MTC ไม่อยู่ในโหมด HPMC และไม่ใช่ Towing
+    - ไม่มี violation
+    - ไม่มี Loop ทั้งตอนนี้และในรอบนี้ (`bDetectLoopBack`, `bFoundLoop`, `bInPassageLoop` เป็นเท็จ) และ OB ออกไปแล้ว
+    - ยังไม่ได้เริ่มรถคันถัดไป (`iCurTC_Class == 0`)
+    - รถคันแรกใน `xListLoopCar` มี class และจ่ายเงินแล้ว
+  - ตอน Exit OB ถ้า `bFoundOB && CanAutoAvcObOnly()` จะตั้ง timer `Perform_ChkEventAVC_ObOnly` ด้วยเวลาเท่ากับ Auto AVC ปกติ (`iTimerSecAutoAVC` วินาที + 700 ms)
+  - ตอน timer ทำงานจะตรวจ `CanAutoAvcObOnly()` อีกรอบ ถ้าสถานะเปลี่ยนแล้ว (เช่น พนักงานเริ่มรถคันถัดไป หรือมีรถเข้า Loop) จะข้ามและเขียน log `- Skip Auto AVC (OB only)` ถ้าไม่เปลี่ยนก็เรียก `Perform_ChkEventAVC()` เพื่อเขียนรายการ
+  - ถ้า AVC จริงเข้ามาก่อน หรือพนักงานกด Force Reset ก่อน timer จะถูกยกเลิกด้วย `RemoveAvcTimer()` ที่มีอยู่เดิม จึงไม่เกิดรายการซ้ำ
+- **ข้อจำกัด:** ถ้าพนักงานเริ่มรถคันถัดไปก่อน timer ทำงาน จะยังไม่เขียนรายการให้อัตโนมัติ เพราะ flow OB-only ของ AVC event จะสั่งปิด ALB ต่อหน้ารถคันที่จ่ายแล้ว กรณีนี้ใช้ Force Reset (H1) หรือ AVC ของรถคันถัดไปเป็นทางสำรอง
+- **log:** `+ Passage OB only (No Loop) : Add Auto AVC ...` → `+ Auto AVC (OB only, No Loop)` → `Write DB Trans : ... LoopCar=7`
+
+### H3. 🟡 Force Reset อาจเรียก `Perform_ForceEndTransaction()` ซ้ำ 2 ครั้ง
+- **ไฟล์:** `LaneController/LaneEventControl.cs` ส่วน FORCE_RESET
+- **เงื่อนไข:** `iCurTC_Class > 0 && bAfterPayment` เป็นจริง และในจังหวะเดียวกันมี Loop ON และ OB ON
+- **ผล:** ครั้งแรกเขียนรายการรถปัจจุบัน ครั้งที่สองไม่มีข้อมูลรถ จึงอาจเกิดรายการ violation หรือรายการ class 0 เกินมา
+- **แก้แล้ว (2026-10-07):** ใช้ flag `bForceEnded` ซึ่งจะเป็นจริงเมื่อ force end รถปัจจุบันหรือรถในคิว (H1) ไปแล้ว ถ้า flag เป็นจริงจะข้ามการ force end จากเงื่อนไข Loop ON/OB ON และเขียน log `+ Force Reset : Found Loop/OB ON but ForceEnd Transaction already done. Skip second ForceEnd.` ถ้ายังไม่ได้ force end อะไรเลย เช่นรถยังไม่จ่ายแต่ค้างบน Loop+OB จะทำงานแบบเดิม
+- **ไม่ได้แตะ Towing:** ใน path Towing ถ้า `bEnableWaitAVC=false` ระบบจะไม่สร้างรายการ จึงต้องพึ่ง Loop/OB เป็นทางสำรองเหมือนเดิม
+
+---
+
 ## ตารางสรุปจัดลำดับการแก้ (แนะนำ)
 
 | ลำดับ | Bug | หมวด | เหตุผล |
@@ -271,6 +334,7 @@ GTK เป็น single-thread การบล็อก main thread = ทั้�
 | 7 | B3 | GTK cross-thread | crash สุ่ม |
 | 8 | F5, G1 | DB lock / injection | "database is locked", data integrity |
 | 9 | C1, G3 | dead code/ไฟล์ซ้ำ | สุขอนามัยโค้ด |
+| 1* | H1, H2 | รายการหาย / ค้างคิว | พบจริงหน้างาน กระทบยอดเงินและรายงาน DC/Sup Adj |
 
 > **ข้อเสนอแนะภาพรวม:** ปัญหาเชิงระบบ 3 อย่างที่ควรแก้เป็น "หลักการ" ไม่ใช่ทีละจุด:
 > 1. **ห้ามบล็อก GTK main thread** — แทน `Thread.Sleep`/sync I/O ด้วย `GLib.Timeout` / `async`
