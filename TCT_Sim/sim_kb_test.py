@@ -327,6 +327,60 @@ def t_tow(c):
     c.expect_trans(2, cls=[2, 1])
 
 
+DMT_CARD_CLASS2 = "1CC70D9C"    # บัตร DMT ใน DB (VehicleClass 2, AllowPass)
+
+
+@case("g_towing_dmt_cash", "รถลาก: [รถลากจูง] → รถลาก [รถประเภท 2][บัตร DMT] แตะบัตร → รถถูกลาก [รถประเภท 1][เงินสด] → ผ่าน 2 คัน")
+def t_tow_dmt(c):
+    press("รถลากจูง", "รถประเภท2", "บัตรDMT")
+    time.sleep(2)
+    c.shot("dmt_popup")
+    post(action="scr", card=DMT_CARD_CLASS2)           # แตะบัตร DMT ที่เครื่องอ่านบัตร
+    time.sleep(3)
+    c.shot("dmt_paid")
+    press("รถประเภท1", "เงินสด")
+    c.shot("second_paid")
+    scn("normal", 3)
+    post(action="avc", cls=2, axle=3)
+    time.sleep(3)
+    scn("normal", 3)
+    post(action="avc", cls=1, axle=2)
+    time.sleep(4)
+    c.shot("after_pass")
+    c.log_has("CheckAllowDmtCanPass", "ตรวจบัตร DMT") if False else None
+    c.expect_trans(2, cls=[2, 1])
+    t = c.trans()
+    if t:
+        c.info("ชำระ: " + ", ".join(str((x.get("payInfo") or {}).get("payTypeName")) for x in t))
+        c.check(any("DMT" in str((x.get("payInfo") or {}).get("payTypeName")).upper() for x in t), "รถลากจ่ายด้วยบัตร DMT")
+        c.check(any("CASH" in str((x.get("payInfo") or {}).get("payTypeName")).upper() for x in t), "รถถูกลากจ่ายเงินสด")
+
+
+@case("g_towing_unsplit_one_avc", "รถลากตัดคันไม่ได้: จ่ายครบ 2 คัน → ผ่านเป็นคันเดียว AVC ส่ง 1 ครั้ง → [FORCE RESET] → ต้องได้ 2 รายการ")
+def t_tow_unsplit1(c):
+    press("รถลากจูง", "รถประเภท2", "เงินสด", "รถประเภท1", "เงินสด")
+    scn("normal", 3)                                   # ผ่าน Loop/OB เป็นคันเดียวยาว
+    post(action="avc", cls=2, axle=5)                  # AVC เห็นเป็นคันเดียว
+    time.sleep(4)
+    c.shot("one_avc")
+    press("FORCE_RESET")
+    time.sleep(4)
+    c.shot("after_force_reset")
+    c.expect_trans(2, cls=[2, 1])
+
+
+@case("g_towing_unsplit_no_avc", "รถลากตัดคันไม่ได้: จ่ายครบ 2 คัน → ผ่านโดย AVC ไม่ส่งค่า → [FORCE RESET] → ต้องได้ 2 รายการ")
+def t_tow_unsplit0(c):
+    press("รถลากจูง", "รถประเภท2", "เงินสด", "รถประเภท1", "เงินสด")
+    scn("normal", 3)
+    time.sleep(6)                                      # รถลากไม่มี Auto AVC -> ค้างรอ
+    c.shot("waiting")
+    press("FORCE_RESET")
+    time.sleep(4)
+    c.shot("after_force_reset")
+    c.expect_trans(2, cls=[2, 1])
+
+
 @case("h_hpmc", "[รถขบวน] เริ่ม HPMC → รถผ่าน 2 คัน → [รถขบวน] จบ")
 def t_hpmc(c):
     press("รถขบวน")

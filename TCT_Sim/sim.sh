@@ -4,6 +4,8 @@
 #   ./sim.sh start      build (ถ้ายังไม่มี exe) + เตรียม runtime + เปิดระบบ + เปิด browser
 #   ./sim.sh test       รันชุดทดสอบอัตโนมัติ (Force Reset / รถยกเว้น / OB อย่างเดียว)  [ระบุ case ได้]
 #   ./sim.sh kbtest     ทดสอบทุกฟังก์ชันด้วยคีย์บอร์ด (รวม Popup / ขายคูปอง / โหมดช่าง)  [ระบุ case ได้]
+#   ./sim.sh soak [นาที]   ใช้งานต่อเนื่องเหมือนพนักงานจริง ไม่ restart TCT (ค่าเริ่มต้น 10 นาที)
+#   ./sim.sh acceptance [นาที]  ทดสอบรับระบบครบทุกชุด (H1–H3 + ทุก logic + soak) -> results/acceptance_*
 #   ./sim.sh build      build TCT_App.sln ใหม่ (Debug + Release) ด้วย Mono ใน Docker
 #   ./sim.sh stop       ปิดระบบ
 #   ./sim.sh restart    ปิด-เปิดใหม่ (เตรียม runtime ใหม่จาก bin/Debug)
@@ -89,6 +91,8 @@ case "${1:-}" in
     build)   do_build ;;
     test)    shift; ensure_docker; python3 sim_test.py "$@" ;;
     kbtest)  shift; ensure_docker; python3 sim_kb_test.py "$@" ;;
+    soak)    shift; ensure_docker; python3 soak_test.py "${1:-10}" ;;
+    acceptance) shift; ensure_docker; ./run_acceptance.sh "${1:-10}" ;;
     status)  docker compose ps; curl -s localhost:8090/api/state | python3 -c "import json,sys;d=json.load(sys.stdin);print('connections:',d['status']);print('counters   :',d['counters'])" || true ;;
     logs)    shift; docker compose logs -f --tail=100 "${@:-tct}" ;;
     shot)    mkdir -p shots; f="shots/tct_$(date +%H%M%S).png"
