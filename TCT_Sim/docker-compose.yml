@@ -30,6 +30,7 @@ services:
       lane: { ipv4_address: 172.28.0.10 }
     environment:
       TCT_HOST: 172.28.0.30
+      TZ: Asia/Bangkok          # เวลาบนภาพกล้องจำลอง
       RABBIT_API: http://172.28.0.20:15672
       # อ่านชื่อ exchange/queue ของ DC จาก TCT.config แล้วสร้างให้อัตโนมัติ
     volumes:

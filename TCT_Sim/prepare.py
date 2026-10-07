@@ -57,8 +57,16 @@ OVERRIDES = {
     # TA Web Service จำลองอยู่ใน lcsd-sim port 3000 (คูปอง / LaneAttendance / ภาพ)
     "LaneWebService": {"Enable": 1, "WebServiceBaseUrl": f"http://{SIM_IP}:3000",
                        "ServerIPAddress": SIM_IP, "ServerPort": 3000, "CheckStartJobTOD": 0},
-    "VideoNVR": {"Enable": 0, "WebApiBaseUrl": f"http://{SIM_IP}:3000/saveImages"},
-    "VideoLaneCapture": {"CaptureImagePath": "/tct/log/Capture"},
+    # กล้องจำลองอยู่ใน lcsd-sim port 3000: GET /cam/{1,2,3}.jpg (1920x1080) , POST /saveImages (รับภาพ + โชว์ที่ Panel)
+    # Method 1 = ถ่ายตอนรับชำระ, ThirdCaptureUrl ต้องไม่ว่าง (TCT เช็คค่านี้ก่อนถ่ายภาพที่ 3)
+    "VideoNVR": {"Enable": 1, "CaptureImageMethod": 1, "WebApiBaseUrl": f"http://{SIM_IP}:3000/saveImages",
+                 "ThirdCaptureUrl": "sim", "Image3TimeLapseMilliSec": 500, "TimeoutSec": 5,
+                 "ResizeImage": 1, "ResizeWidth": 1280, "ResizeHeight": 720, "JpegQuality": 85,
+                 "AutoKeepDayImageFile": 1},
+    "VideoLaneCapture": {"CaptureImagePath": "/tct/log/Capture",
+                         "FrontCameraUrl": f"http://{SIM_IP}:3000/cam/1.jpg",
+                         "RearCameraUrl":  f"http://{SIM_IP}:3000/cam/2.jpg",
+                         "ThirdCameraUrl": f"http://{SIM_IP}:3000/cam/3.jpg"},
     "DC_RabbitMQ": {"Enable": 1, "ServerHostName": RABBIT_IP, "VirtualHost": "/", "Port": 5672,
                     "User": "guest", "Password": "guest",
                     "ServerIPAddress": RABBIT_IP, "ServerPort": 5672},

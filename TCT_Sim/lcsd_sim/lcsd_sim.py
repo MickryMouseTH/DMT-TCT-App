@@ -110,6 +110,7 @@ async def set_di(name_or_idx, value, quiet=False):
 
 async def send_key(key_id, name=""):
     await log("SIM→TCT", f"KEY {name or key_id} (id={key_id})", "key")
+    vehicle_from_key(name)
     await send_tct("KEY", {"id": int(key_id)})
 
 
@@ -350,6 +351,7 @@ async def api(request):
         asyncio.create_task(scenario(body["name"]))
     elif act == "kb":                         # คีย์บอร์ดจำลอง -> xdotool ในเครื่อง TCT (เส้นทาง USB จริง)
         k, name = body.get("k"), body.get("name", "")
+        vehicle_from_key(name)
         if not k:
             await log("KB", f"[{name}] — ไม่มีใน keyMapping ของ TCT (ไม่ส่ง)", "warn")
         else:
@@ -432,6 +434,154 @@ async def ta_handler(request):
         return ta_ok()
     await log("TA", f"{request.method} {path} ({len(json.dumps(body))} bytes)", "dim")
     return ta_ok()
+
+
+# ------------------------------------------------------------------ กล้องจำลอง (IP camera) + Web API รับภาพ
+# TCT (CaptureImageMethod 1) GET http://<sim>:3000/cam/{1,2,3}.jpg ตอนรับชำระ -> ย่อ/บันทึก JPEG
+# หลังเขียนรายการผ่านทาง TCT POST /saveImages (JSON + base64) -> เก็บไว้ใน CAP_DIR แล้วโชว์ที่หน้า Panel
+CAM_W, CAM_H    = int(os.environ.get("CAM_W", "1920")), int(os.environ.get("CAM_H", "1080"))
+CAP_DIR         = Path(os.environ.get("CAP_DIR", "/tmp/captures"))
+CAM_NAMES       = {1: "CAM1 FRONT", 2: "CAM2 REAR", 3: "CAM3 OVERVIEW"}
+THAI_CHARS      = "กขคงจฉชซฌญฎฐฒณดตถทธนบปผพฟภมยรลวศษสหฬอฮ"
+FONT_FILES      = ["/usr/share/fonts/truetype/tlwg/Loma-Bold.ttf", "/usr/share/fonts/truetype/tlwg/Garuda-Bold.ttf",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
+cam_vehicle     = {"plate": "1กข 2345", "province": "กรุงเทพมหานคร", "kind": 1, "color": (200, 40, 40), "seq": 0}
+captures        = deque(maxlen=12)        # รายการที่ TCT อัปโหลดล่าสุด
+
+
+def new_vehicle(kind=None):
+    import random
+    cam_vehicle["seq"] += 1
+    cam_vehicle["kind"] = kind or cam_vehicle["kind"]
+    cam_vehicle["plate"] = f"{random.randint(1, 9)}{random.choice(THAI_CHARS)}{random.choice(THAI_CHARS)} {random.randint(1000, 9999)}"
+    cam_vehicle["province"] = random.choice(["กรุงเทพมหานคร", "นนทบุรี", "ปทุมธานี", "ชลบุรี", "เชียงใหม่"])
+    cam_vehicle["color"] = random.choice([(200, 40, 40), (30, 70, 160), (230, 230, 230), (40, 40, 45), (150, 150, 155)])
+
+
+def vehicle_from_key(name):
+    """ปุ่มประเภทรถ / ยกเว้น / ลากจูง = รถคันใหม่มาหน้ากล้อง (ทะเบียน/สีใหม่)"""
+    n = str(name)
+    if any(w in n for w in ("ประเภท", "Class", "ยกเว้น", "Exempt", "ลากจูง", "Towing")):
+        new_vehicle(2 if ("2" in n or "ลากจูง" in n or "Towing" in n) else 1)
+
+
+def _font(size):
+    from PIL import ImageFont
+    for f in FONT_FILES:
+        if Path(f).exists():
+            return ImageFont.truetype(f, size)
+    return ImageFont.load_default()
+
+
+def render_camera(idx):
+    """ภาพเหมือนกล้องหน้าช่อง 1920x1080: ถนน ช่องทาง รถ ป้ายทะเบียน + แถบเวลา (ขนาดเท่ากล้องจริง เพื่อทดสอบการย่อภาพ)"""
+    from io import BytesIO
+    from PIL import Image, ImageDraw
+    W, H = CAM_W, CAM_H
+    im = Image.new("RGB", (W, H), (88, 92, 98))
+    d = ImageDraw.Draw(im)
+    for y in range(0, int(H * 0.38)):                                   # ฟ้า / ตัวอาคารด่าน
+        c = 150 + int(70 * y / (H * 0.38))
+        d.line((0, y, W, y), fill=(c - 40, c - 20, c))
+    d.rectangle((0, int(H * 0.2), W, int(H * 0.38)), fill=(120, 110, 100))
+    d.rectangle((0, int(H * 0.16), W, int(H * 0.21)), fill=(30, 90, 160))
+    d.text((40, int(H * 0.185)), "ด่านเก็บเงิน DM1-T  ช่องทาง SIM01", font=_font(int(H * 0.024)), fill=(255, 255, 255), anchor="lm")
+    for x in (0.18, 0.82):                                              # เส้นแบ่งช่องทาง
+        d.polygon([(W * x - 8, H * 0.38), (W * x + 8, H * 0.38), (W * (x * 1.6 - 0.3) + 30, H),
+                   (W * (x * 1.6 - 0.3) - 30, H)], fill=(235, 235, 220))
+    kind, col = cam_vehicle["kind"], cam_vehicle["color"]
+    dark = tuple(max(0, v - 60) for v in col)
+    cx, base = W // 2, int(H * 0.86)
+    bw = int(W * (0.46 if kind == 2 else 0.38))
+    bh = int(H * (0.50 if kind == 2 else 0.30))
+    if idx == 3:                                                        # มุมกว้าง: รถเล็กลง เยื้องขวา
+        bw, bh, cx, base = int(bw * 0.55), int(bh * 0.55), int(W * 0.62), int(H * 0.78)
+    x0, x1, y1 = cx - bw // 2, cx + bw // 2, base
+    y0 = y1 - bh
+    d.ellipse((x0 - 30, y1 - 25, x1 + 30, y1 + 35), fill=(50, 52, 55))  # เงา
+    if kind == 2:
+        d.rectangle((x0, y0, x1, y1 - int(bh * 0.12)), fill=col, outline=dark, width=6)          # ตัวรถบรรทุก
+        d.rectangle((x0 + bw * 0.1, y0 + bh * 0.08, x1 - bw * 0.1, y0 + bh * 0.42), fill=(150, 190, 215), outline=dark, width=5)
+    else:
+        d.rounded_rectangle((x0, y0 + bh * 0.38, x1, y1 - bh * 0.1), 40, fill=col, outline=dark, width=6)
+        d.polygon([(x0 + bw * 0.16, y0 + bh * 0.40), (x0 + bw * 0.27, y0), (x1 - bw * 0.27, y0), (x1 - bw * 0.16, y0 + bh * 0.40)],
+                  fill=dark)
+        d.polygon([(x0 + bw * 0.21, y0 + bh * 0.37), (x0 + bw * 0.30, y0 + bh * 0.07), (x1 - bw * 0.30, y0 + bh * 0.07),
+                   (x1 - bw * 0.21, y0 + bh * 0.37)], fill=(140, 180, 205) if idx != 2 else (60, 70, 80))
+    lamp = (255, 245, 200) if idx in (1, 3) else (230, 30, 30)          # หน้า = ไฟหน้า, หลัง = ไฟท้าย
+    ly = y1 - bh * 0.30
+    d.ellipse((x0 + bw * 0.04, ly - bh * 0.07, x0 + bw * 0.17, ly + bh * 0.05), fill=lamp, outline=dark, width=4)
+    d.ellipse((x1 - bw * 0.17, ly - bh * 0.07, x1 - bw * 0.04, ly + bh * 0.05), fill=lamp, outline=dark, width=4)
+    for wx in (x0 + bw * 0.06, x1 - bw * 0.20):                          # ล้อ
+        d.rectangle((wx, y1 - bh * 0.12, wx + bw * 0.14, y1 + 10), fill=(20, 20, 22))
+    pw, ph = int(bw * 0.34), int(bw * 0.34 * 0.42)                        # ป้ายทะเบียน
+    px, py = cx - pw // 2, int(y1 - bh * 0.27)
+    d.rounded_rectangle((px, py, px + pw, py + ph), 10, fill=(250, 250, 250), outline=(10, 10, 10), width=max(3, pw // 90))
+    f1, f2 = _font(int(ph * 0.48)), _font(int(ph * 0.22))
+    d.text((cx, py + ph * 0.36), cam_vehicle["plate"], font=f1, fill=(10, 10, 10), anchor="mm")
+    d.text((cx, py + ph * 0.80), cam_vehicle["province"], font=f2, fill=(10, 10, 10), anchor="mm")
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S") + f".{int(time.time() * 1000) % 1000:03d}"     # แถบข้อมูลกล้อง
+    fs = _font(int(H * 0.03))
+    d.rectangle((0, 0, W, int(H * 0.06)), fill=(0, 0, 0))
+    d.text((24, int(H * 0.012)), f"{CAM_NAMES[idx]}   {stamp}   #{cam_vehicle['seq']}", font=fs, fill=(255, 255, 0))
+    d.text((W - 24, int(H * 0.012)), f"SIM {W}x{H}", font=fs, fill=(180, 180, 180), anchor="ra")
+    buf = BytesIO()
+    im.save(buf, "JPEG", quality=92)
+    return buf.getvalue()
+
+
+async def cam_handler(request):
+    idx = int(request.match_info["idx"])
+    if idx not in CAM_NAMES:
+        raise web.HTTPNotFound()
+    data = await asyncio.get_running_loop().run_in_executor(None, render_camera, idx)
+    counters["cam_shots"] = counters.get("cam_shots", 0) + 1
+    await log("CAM", f"📷 {CAM_NAMES[idx]} ถ่ายภาพ {CAM_W}x{CAM_H} ({len(data) // 1024} KB) ทะเบียน {cam_vehicle['plate']}", "dim")
+    return web.Response(body=data, content_type="image/jpeg")
+
+
+async def save_images_handler(request):
+    """Web API รับภาพของรายการผ่านทาง (เหมือน server จริง: ตอบ respCode 0000)"""
+    from io import BytesIO
+    from PIL import Image
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"respCode": "9001", "respMesg": "invalid json"})
+    tr, imgs = body.get("transaction") or {}, []
+    CAP_DIR.mkdir(parents=True, exist_ok=True)
+    for c in body.get("captureImages") or []:
+        b64 = c.get("imageData") or ""
+        if not b64:
+            imgs.append({"cameraIndex": c.get("cameraIndex"), "fileName": c.get("fileName") or "", "missing": True})
+            continue
+        raw = base64.b64decode(b64)
+        name = f"{body.get('requestId', 'IMG')}_{c.get('cameraIndex')}.jpg"
+        (CAP_DIR / name).write_bytes(raw)
+        try:
+            w, h = Image.open(BytesIO(raw)).size
+        except Exception:
+            w = h = 0
+        imgs.append({"cameraIndex": c.get("cameraIndex"), "fileName": c.get("fileName"), "url": f"/cap/{name}",
+                     "w": w, "h": h, "kb": round(len(raw) / 1024, 1)})
+    item = {"requestId": body.get("requestId"), "jobNo": tr.get("jobNo"), "nTrx": tr.get("nTrx"),
+            "time": tr.get("transactionDateTime") or body.get("requestDateTime"), "plate": cam_vehicle["plate"],
+            "auth": request.headers.get("Authorization", "")[:6], "images": imgs}
+    captures.appendleft(item)
+    counters["cap_upload"] = counters.get("cap_upload", 0) + 1
+    got = [i for i in imgs if not i.get("missing")]
+    desc = ", ".join(f"#{i['cameraIndex']} {i['w']}x{i['h']} {i['kb']}KB" for i in got) or "ไม่มีภาพ"
+    await log("NVR", f"★ รับภาพรายการ Job {item['jobNo']} nTrx {item['nTrx']}: {len(got)}/{len(imgs)} ภาพ ({desc})", "trans", item)
+    await broadcast({"type": "captures", "items": list(captures)})
+    await push_state()
+    return web.json_response({"respCode": "0000", "respMesg": "Success"})
+
+
+async def cap_file(request):
+    f = CAP_DIR / Path(request.match_info["name"]).name
+    if not f.exists():
+        raise web.HTTPNotFound()
+    return web.FileResponse(f)
 
 
 # ------------------------------------------------------------------ EDC จำลอง (โปรโตคอล EDC V1 ของ TCT)
@@ -619,7 +769,7 @@ async def api_state(request):
     since = int(request.query.get("since", "0"))
     items = [it for it in logs if it.get("seq", 0) > since]
     return web.json_response({"status": status, "counters": counters, "di": di_values, "do": do_values,
-                              "edc": edc_public(),
+                              "edc": edc_public(), "captures": list(captures),
                               "seq": seq_no[0], "logs": items})
 
 
@@ -639,6 +789,7 @@ async def panel_ws(request):
     panel_clients.add(ws)
     await ws.send_str(json.dumps({"type": "init", "logs": list(logs), "di_names": DI_NAMES, "do_names": DO_NAMES}))
     await ws.send_str(json.dumps({"type": "state", "di": di_values, "do": do_values, "status": status, "counters": counters}))
+    await ws.send_str(json.dumps({"type": "captures", "items": list(captures)}))
     try:
         async for _ in ws:
             pass
@@ -678,6 +829,7 @@ def main():
     panel.router.add_post("/api", api)
     panel.router.add_get("/api/state", api_state)
     panel.router.add_get("/api/shot", api_shot)
+    panel.router.add_get("/cap/{name}", cap_file)
     panel.on_startup.append(start_bg)
 
     async def run():
@@ -690,7 +842,9 @@ def main():
         await asyncio.start_server(rto_check_listener, "0.0.0.0", RTO_PORT - 1)
         await asyncio.start_server(edc_handle, "0.0.0.0", EDC_SEND_PORT)
         print(f"+ EDC sim  tcp://0.0.0.0:{EDC_SEND_PORT} (ตอบกลับ TCT:{EDC_RECV_PORT})", flush=True)
-        ta = web.Application()
+        ta = web.Application(client_max_size=32 * 1024 * 1024)       # /saveImages ส่ง base64 3 ภาพ
+        ta.router.add_get("/cam/{idx}.jpg", cam_handler)              # ต้องมาก่อน catch-all
+        ta.router.add_post("/saveImages", save_images_handler)
         ta.router.add_route("*", "/{tail:.*}", ta_handler)
         r3 = web.AppRunner(ta)
         await r3.setup()

@@ -38,6 +38,13 @@
   .l.warn { color:var(--warn); } .l.ok { color:var(--ok); } .l.trans { color:var(--trans); font-weight:600; }
   .l.dim { color:var(--dim); } .l.scn { color:#79c0ff; } .l.key { color:#ffa657; } .l.avc { color:#ff7b72; }
   .note { color:var(--dim); font-size:12px; margin-top:6px; }
+  .caps { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .caps figure { margin:0; background:#11151a; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .caps img { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; cursor:zoom-in; background:#0b0d10; }
+  .caps figcaption { padding:3px 6px; font-size:11px; color:var(--dim); }
+  .caps .miss { aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; color:var(--bad); font-size:12px; }
+  #capzoom { position:fixed; inset:0; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; z-index:9; cursor:zoom-out; }
+  #capzoom img { max-width:96vw; max-height:92vh; border-radius:6px; }
   .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
 </style>
 </head>
@@ -120,6 +127,12 @@
     </div>
 
     <div class="card">
+      <h2>ภาพผ่านทาง (กล้องจำลอง 1920x1080 → TCT ย่อแล้วส่งมา) <span id="cap-info" style="color:#d2a8ff"></span></h2>
+      <div class="caps" id="caps"><div class="note">ยังไม่มีภาพ — กดประเภทรถ + ชำระเงิน แล้วให้รถผ่าน (Scenario รถผ่านปกติ)</div></div>
+      <div class="note" id="cap-hist"></div>
+    </div>
+
+    <div class="card">
       <h2>Digital Input (คลิกเพื่อสลับ ON/OFF)</h2>
       <div class="grid" id="di"></div>
       <h2 style="margin-top:10px">Digital Output (จาก TCT)</h2>
@@ -141,6 +154,7 @@
   </div>
 </main>
 
+<div id="capzoom" onclick="this.style.display='none'"><img></div>
 <script>
 const KEYS = [
   [1,'Class 1'],[2,'Class 2'],[6,'Towing'],[7,'Exempt (ยกเว้น)'],[8,'Left Exit'],[9,'HPMC'],
@@ -229,6 +243,7 @@ function connect() {
       m.logs.forEach(addLog);
     } else if (m.type === 'log') addLog(m.item);
     else if (m.type === 'clear') document.getElementById('log').innerHTML = '';
+    else if (m.type === 'captures') renderCaps(m.items);
     else if (m.type === 'state') {
       diVals = m.di; renderDI(); renderDO(m.do);
       if (m.edc) document.getElementById('edc-now').textContent = `${m.edc.mode} / QR ${m.edc.qr}`;
@@ -239,6 +254,18 @@ function connect() {
     }
   };
   ws.onclose = () => setTimeout(connect, 2000);
+}
+function zoomCap(u) { const z = document.getElementById('capzoom'); z.querySelector('img').src = u; z.style.display = 'flex'; }
+function renderCaps(items) {
+  const box = document.getElementById('caps');
+  if (!items || !items.length) return;
+  const it = items[0];
+  document.getElementById('cap-info').textContent = `Job ${it.jobNo} · nTrx ${it.nTrx} · ${it.plate}`;
+  const names = {1: 'กล้องหน้า', 2: 'กล้องหลัง', 3: 'มุมกว้าง'};
+  box.innerHTML = it.images.map(i => i.missing
+    ? `<figure><div class="miss">ไม่มีภาพ #${i.cameraIndex}</div><figcaption>${names[i.cameraIndex] || i.cameraIndex}</figcaption></figure>`
+    : `<figure><img src="${i.url}" onclick="zoomCap('${i.url}')"><figcaption>${names[i.cameraIndex] || i.cameraIndex} · ${i.w}x${i.h} · ${i.kb} KB</figcaption></figure>`).join('');
+  document.getElementById('cap-hist').textContent = 'ก่อนหน้า: ' + items.slice(1, 6).map(x => `nTrx ${x.nTrx} (${x.images.filter(i => !i.missing).length} ภาพ)`).join(' · ');
 }
 connect();
 </script>

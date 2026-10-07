@@ -645,6 +645,23 @@ def t_eoj(c):
     c.log_has("MODE", "[MODE] ถึง TCT")
 
 
+@case("p_camera_capture", "กล้องจำลอง: [รถประเภท 1] → [เงินสด] → รถผ่าน → TCT ถ่าย 3 ภาพ ย่อ 1280x720 แล้วอัปโหลด")
+def t_cam(c):
+    press("รถประเภท1", "เงินสด")
+    time.sleep(2.5)                           # ภาพที่ 3 ถ่ายหลัง Image3TimeLapseMilliSec
+    scn("normal", 3)
+    time.sleep(5)
+    c.expect_trans(1, cls=1, pay="Cash")
+    ups = [it.get("data") or {} for it in state(c.m.seq)["logs"] if it["src"] == "NVR" and it["level"] == "trans"]
+    c.check(len(ups) == 1, f"Web API ได้รับภาพ {len(ups)} รายการ (คาด 1)")
+    if ups:
+        imgs = [i for i in ups[0].get("images", []) if not i.get("missing")]
+        c.check(len(imgs) == 3, f"ได้ภาพ {len(imgs)}/3 กล้อง")
+        for i in imgs:
+            c.check((i["w"], i["h"]) == (1280, 720), f"กล้อง #{i['cameraIndex']}: {i['w']}x{i['h']} {i['kb']} KB (คาด 1280x720)")
+    c.shot("after_capture")
+
+
 @case("n_maintenance", "โหมดช่าง: Login 99050 ด้วยคีย์บอร์ด → เมนู → ทดสอบอุปกรณ์ → ออก", setup=False)
 def t_mt(c):
     restart_tct()
