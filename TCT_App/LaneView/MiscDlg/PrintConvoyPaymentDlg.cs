@@ -29,7 +29,7 @@ namespace TCT_App.LaneView.MiscDlg
             TCT_Lib.bActiveConvoyDlg = true;
 
             this.Build();
-            this.Decorated = false;     // v2.0.2: no title bar on popups
+            UiTheme.StylePopup(this);     // v2.0.2: no title bar + visible frame
 
             this.Title      = "Print Payment Receipt Convoy";
             imgVehicleType1 = Gdk.Pixbuf.LoadFromResource("TCT_App.Images.VehicleType1.png");
@@ -116,6 +116,13 @@ namespace TCT_App.LaneView.MiscDlg
             btnPrintReceipt.Child.ModifyFont(FontDescription.FromString("Arial 14"));
             edtTotalClass1.ModifyFont(FontDescription.FromString("Arial 16"));
             edtTotalClass2.ModifyFont(FontDescription.FromString("Arial 16"));
+            //--- v2.0.3: keypad = same dark keys as the login screen, Enter green, delete orange
+            foreach (Button k in new[] { btnKey_1, btnKey_2, btnKey_3, btnKey_4, btnKey_5, btnKey_6, btnKey_7, btnKey_8, btnKey_9, btnKey_Zero })
+                UiTheme.StyleKey(k, UiTheme.KeyDark, "Sans Bold 16");
+            UiTheme.StyleKey(btn_BackSpace, UiTheme.Orange, "Sans Bold 14");
+            UiTheme.StyleKey(btn_Enter,     UiTheme.Green,  "Sans Bold 14");
+            UiTheme.SetButtonText(btn_BackSpace, "ลบ");
+            UiTheme.SetButtonText(btn_Enter, "ตกลง");
         }
 
         protected void OnAreaHeaderExposeEvent(object o, ExposeEventArgs args)
@@ -673,7 +680,7 @@ namespace TCT_App.LaneView.MiscDlg
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                 //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                md.Decorated = false;     // v2.0.2: no title bar
+                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
                 return;
@@ -806,7 +813,7 @@ namespace TCT_App.LaneView.MiscDlg
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                 //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                md.Decorated = false;     // v2.0.2: no title bar
+                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
                 return;

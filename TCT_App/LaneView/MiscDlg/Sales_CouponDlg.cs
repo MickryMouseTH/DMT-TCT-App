@@ -52,7 +52,11 @@ namespace TCT_App.LaneView.MiscDlg
             TCT_Lib.bActiveSalesCouponDlg = true;
 
             this.Build();
-            this.Decorated = false;     // v2.0.2: no title bar on popups
+            UiTheme.StylePopup(this);     // v2.0.2: no title bar + visible frame
+            //--- v2.0.2: popup buttons = same colour as the Cherry key, readable size
+            UiTheme.StyleKey(btnConfirmPayment, UiTheme.Green,  UiTheme.PopupBtnFont);
+            UiTheme.StyleKey(btnPrintReceipt,   UiTheme.Purple, UiTheme.PopupBtnFont);
+            UiTheme.StyleKey(btnCancel,         UiTheme.Red,    UiTheme.PopupBtnFont);
 
             TCT_Lib.eCurAppPage     = AppPage.SalesCoupon;
             iSelHeaderCouponType    = 1; 
@@ -563,13 +567,34 @@ namespace TCT_App.LaneView.MiscDlg
                 layout.SetText((iSelHeaderCouponType == 1 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type1[idx]);
             }
             drawArea.ModifyBg(StateType.Normal, iSelCouponList_Type1[idx] == 0 ? clBkCoupon1_UnSelect : clBkCoupon1_Selected);
-            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 20, layout, iSelCouponList_Type1[idx] == 0 ? clWhite : clGray,
+            int iTextY = FitCouponText(layout, iWidth, iHeight);    // v2.0.2: one line, fit width, centre
+            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, iTextY, layout, iSelCouponList_Type1[idx] == 0 ? clWhite : clGray,
                                         iSelCouponList_Type1[idx] == 0 ? clBkCoupon1_UnSelect : clBkCoupon1_Selected);
                 
             renderer.Drawable       = null;
             renderer.Gc             = null;
             renderer.Dispose();
             context.Dispose();
+        }
+
+        //--- v2.0.2: "[1] SIM35-0001" at Ubuntu 22 is wider than the button -> it wrapped, the 2nd line
+        //--- was clipped and Justify stretched "[ 1 ]". Keep one line, shrink the font until it fits.
+        static int FitCouponText(Pango.Layout layout, int iWidth, int iHeight)
+        {
+            layout.Justify  = false;
+            layout.Wrap     = Pango.WrapMode.Char;
+            int iW, iH;
+            for (int iSize = 22; ; iSize -= 2)
+            {
+                layout.FontDescription = FontDescription.FromString("Ubuntu " + iSize);
+                layout.Width = -1;
+                layout.GetPixelSize(out iW, out iH);
+                if (iW <= iWidth - 8 || iSize <= 12)
+                    break;
+            }
+            layout.Width = Units.FromPixels(iWidth);
+            layout.GetPixelSize(out iW, out iH);
+            return Math.Max(0, (iHeight - iH) / 2);
         }
 
         protected void OnCouponType2_ExposeEvent(object o, int idx)
@@ -603,7 +628,8 @@ namespace TCT_App.LaneView.MiscDlg
                 layout.SetText((iSelHeaderCouponType == 2 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type2[idx]);
             }
             drawArea.ModifyBg(StateType.Normal, iSelCouponList_Type2[idx] == 0 ? clBkCoupon2_UnSelect : clBkCoupon2_Selected);
-            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 20, layout, iSelCouponList_Type2[idx] == 0 ? clWhite : clGray,
+            int iTextY = FitCouponText(layout, iWidth, iHeight);    // v2.0.2: one line, fit width, centre
+            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, iTextY, layout, iSelCouponList_Type2[idx] == 0 ? clWhite : clGray,
                                         iSelCouponList_Type2[idx] == 0 ? clBkCoupon2_UnSelect : clBkCoupon2_Selected);
                                    
             //renderer.SetOverrideColor(RenderPart.Foreground, Gdk.Color.Zero);
@@ -885,7 +911,7 @@ namespace TCT_App.LaneView.MiscDlg
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                 //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                md.Decorated = false;     // v2.0.2: no title bar
+                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
 
@@ -920,7 +946,7 @@ namespace TCT_App.LaneView.MiscDlg
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                 //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                md.Decorated = false;     // v2.0.2: no title bar
+                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
                 return;
@@ -1072,7 +1098,7 @@ namespace TCT_App.LaneView.MiscDlg
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                 //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                md.Decorated = false;     // v2.0.2: no title bar
+                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
                 return;

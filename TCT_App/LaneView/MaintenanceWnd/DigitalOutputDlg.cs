@@ -13,7 +13,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
         public DigitalOutputDlg()
         {
             this.Build();
-            this.Decorated = false;     // v2.0.2: no title bar on popups
+            UiTheme.StylePopup(this);     // v2.0.2: no title bar + visible frame
 
             this.Title = "Test Digital Output";
 

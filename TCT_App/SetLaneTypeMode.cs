@@ -17,7 +17,7 @@ namespace TCT_App
             TCT_Lib.bActiveSetLaneTypeModeDlg = true;
 
             this.Build();
-            this.Decorated = false;     // v2.0.2: no title bar on popups
+            UiTheme.StylePopup(this);     // v2.0.2: no title bar + visible frame
 
             TCT_Lib.eCurAppPage = AppPage.SetLaneTypeMode;
             this.Title          = "Set Lane Type";
@@ -38,6 +38,10 @@ namespace TCT_App
             btnMode_MTC.Child.ModifyFont(FontDescription.FromString("Arial 18"));
             btnMode_ETC.Child.ModifyFont(FontDescription.FromString("Arial 18"));
             btnMode_Dual.Child.ModifyFont(FontDescription.FromString("Arial 18"));
+            //--- v2.0.3: choice buttons in the theme colour, same size font as the main screen
+            UiTheme.StyleKey(btnMode_MTC,  UiTheme.Blue, "Sans Bold 18");
+            UiTheme.StyleKey(btnMode_ETC,  UiTheme.Blue, "Sans Bold 18");
+            UiTheme.StyleKey(btnMode_Dual, UiTheme.Blue, "Sans Bold 18");
         }
 
         protected void OnAreaHeaderExposeEvent(object o, ExposeEventArgs args)

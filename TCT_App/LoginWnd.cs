@@ -42,7 +42,7 @@ namespace TCT_App
         Gdk.Color clBlue                = new Gdk.Color(10, 110, 170);
         Gdk.Color clGreen               = new Gdk.Color(0x00, 0xb3, 0x3c);
         Gdk.Color clRed                 = new Gdk.Color(0xff, 0x00, 0x00);
-        Gdk.Color clBkTxt               = new Gdk.Color(0x66, 0x4d, 0x00);
+        Gdk.Color clBkTxt               = new Gdk.Color(0x3A, 0x42, 0x4E);      // v2.0.3: slate (was brown 0x664d00)
         //----------------------------------------------------
         const string szTxt_FailConnectLC    = "Fail Connect LC / ไม่สามารถต่ออุปกรณ์ได้";
         const string szTxt_StartLogin       = "โปรดแตะบัตรพนักงาน หรือ กดปุ่ม Manual Login";
@@ -53,6 +53,25 @@ namespace TCT_App
         public LoginWnd() : base(WindowType.Toplevel)
         {
             Build();
+            //--- v2.0.2: header = MainWindow (logo 100 | info 708 | clock 205), same labels/fonts/columns
+            frameHeader.HeightRequest   = 103;
+            frameHeadInfo.WidthRequest  = UiTheme.HdrInfo;
+            hbox5.BorderWidth           = 5;
+            table1.WidthRequest         = UiTheme.HdrTable1;
+            table2.WidthRequest         = UiTheme.HdrTable3;
+            var hdrSpacer               = new Label("") { WidthRequest = UiTheme.HdrTable2 - 17 };  // no staff group on login (-17 = box spacing/borders of the missing table)
+            hbox5.PackStart(hdrSpacer, false, false, 0);
+            hbox5.ReorderChild(hdrSpacer, 1);
+            hdrSpacer.Show();
+            lblPlazaName.WidthRequest   = -1;
+            UiTheme.StyleHeader(new[] { lblPlazaName, label6, label7 }, null,
+                                new[] { label11, label12, label13 }, table1, table2);
+            UiTheme.StyleStatusBar(statusbar1);
+            UiTheme.FlattenFrames(this);
+            frameDateTime.WidthRequest  = UiTheme.HdrClock;
+            txtTime.WidthRequest        = UiTheme.HdrClock - 6;
+            txtTime.Xalign              = 0.5f;
+            txtDate.Xalign              = 0.5f;
             this.Activate();
 
 #if __FULL_SCREEN__
@@ -143,6 +162,18 @@ namespace TCT_App
             Update_PanelTitle();
             btnManualLogin.Child.ModifyFont(FontDescription.FromString("Arial 16"));
             btnLogin.Child.ModifyFont(FontDescription.FromString("Arial 16"));
+            //--- v2.0.3: login screen in the same theme (green = เข้าสู่ระบบ, red = ยกเลิก, keypad = dark keys)
+            UiTheme.StyleKey(btnManualLogin,      UiTheme.Blue,  "Sans Bold 16");
+            UiTheme.StyleKey(btnLogin,            UiTheme.Green, "Sans Bold 16");
+            UiTheme.StyleKey(btnCloseManualLogin, UiTheme.Red,   UiTheme.PopupBtnFont);
+            UiTheme.SetButtonText(btnCloseManualLogin, "ยกเลิก");
+            foreach (Button k in new[] { btnKey_1, btnKey_2, btnKey_3, btnKey_4, btnKey_5, btnKey_6, btnKey_7, btnKey_8, btnKey_9, btnKey_Zero })
+                UiTheme.StyleKey(k, UiTheme.KeyDark, "Sans Bold 16");
+            UiTheme.StyleKey(btnKey_DEL,   UiTheme.Orange, "Sans Bold 14");
+            UiTheme.StyleKey(btnKey_ENTER, UiTheme.Green,  "Sans Bold 14");
+            UiTheme.SetButtonText(btnKey_DEL, "ลบ");
+            UiTheme.SetButtonText(btnKey_ENTER, "ตกลง");      // "ENTER" was cut off
+            GtkLabel2.Markup = "<span fgcolor='#ffffff' weight='bold'> เข้าสู่ระบบด้วยรหัส </span>";
             ClearProcessStatus();
 
             //------------------------------------------------------------------
@@ -876,7 +907,7 @@ namespace TCT_App
             FontDescription fontDesc    = FontDescription.FromString("Ubuntu 14");
             layout.FontDescription      = fontDesc;
 
-            layout.SetText(szUserName);
+            layout.SetText(string.IsNullOrEmpty(szUserName) ? "—" : szUserName);     // v2.0.3: empty box looked unused
 
             Gdk.PangoRenderer renderer  = Gdk.PangoRenderer.GetDefault(drawArea.Screen);
             renderer.Drawable           = drawArea.GdkWindow;
@@ -906,7 +937,7 @@ namespace TCT_App
             FontDescription fontDesc    = FontDescription.FromString("Ubuntu 14");
             layout.FontDescription      = fontDesc;
 
-            layout.SetText(szUserCode);
+            layout.SetText(string.IsNullOrEmpty(szUserCode) ? "—" : szUserCode);     // v2.0.3: empty box looked unused
 
             Gdk.PangoRenderer renderer  = Gdk.PangoRenderer.GetDefault(drawArea.Screen);
             renderer.Drawable           = drawArea.GdkWindow;
@@ -936,7 +967,7 @@ namespace TCT_App
             FontDescription fontDesc    = FontDescription.FromString("Ubuntu 14");
             layout.FontDescription      = fontDesc;
 
-            layout.SetText(szUserRole);
+            layout.SetText(string.IsNullOrEmpty(szUserRole) ? "—" : szUserRole);     // v2.0.3: empty box looked unused
 
             Gdk.PangoRenderer renderer  = Gdk.PangoRenderer.GetDefault(drawArea.Screen);
             renderer.Drawable           = drawArea.GdkWindow;

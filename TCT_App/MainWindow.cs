@@ -544,18 +544,20 @@ public partial class MainWindow : Gtk.Window
 
         //--- v2.0.2: header widths overflowed 1024 (100 + 768 + clock) -> clock "HH:mm:ss" was clipped.
         //--- Narrower plaza/lane block (short values) moves the staff block left; clock box gets room.
-        table1.WidthRequest         = 138;
-        table3.WidthRequest         = 276;
-        table5.WidthRequest         = 280;
-        frameUserInfo.WidthRequest  = 708;
+        table1.WidthRequest         = UiTheme.HdrTable1;
+        table3.WidthRequest         = UiTheme.HdrTable2;
+        table5.WidthRequest         = UiTheme.HdrTable3;
+        frameUserInfo.WidthRequest  = UiTheme.HdrInfo;
         vbox4.WidthRequest          = 199;        // right edge of clock box = right edge of panels below
         txtTime.Xalign              = 0.5f;
         txtDate.Xalign              = 0.5f;
         //--- v2.0.2: 3 header groups (plaza/lane | staff | shift), labels left-aligned in each group
-        foreach (Label lbl in new[] { lblPlazaName, lblLaneName, lblLaneMode,
-                                      lblUserCode, lblUserName, lblUserRole,
-                                      lblSupervisor, lblStartShift, lblShiftID })
-            lbl.Xalign = 0f;
+        UiTheme.StyleHeader(new[] { lblPlazaName, lblLaneName, lblLaneMode },
+                            new[] { lblUserCode, lblUserName, lblUserRole },
+                            new[] { lblSupervisor, lblStartShift, lblShiftID },
+                            table1, table3, table5);
+        UiTheme.StyleStatusBar(statusbar);
+        UiTheme.FlattenFrames(this);
 
         txtDate.ModifyFont(FontDescription.FromString("Ubuntu Regular 12"));
         txtDate.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
@@ -3057,7 +3059,7 @@ public partial class MainWindow : Gtk.Window
                 MessageType.Error, ButtonsType.Ok, true,
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                          //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                md.Decorated = false;     // v2.0.2: no title bar
+                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
 

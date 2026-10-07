@@ -22,7 +22,9 @@ namespace TCT_App.LaneView.MiscDlg
             TCT_Lib.bActiveDmtPaymentDlg = true;
 
             this.Build();
-            this.Decorated = false;     // v2.0.2: no title bar on popups
+            UiTheme.StylePopup(this);     // v2.0.2: no title bar + visible frame
+            //--- v2.0.2: popup buttons = same colour as the Cherry key, readable size
+            UiTheme.StyleKey(buttonCancel, UiTheme.Red, UiTheme.PopupBtnFont);
 
             TCT_Lib.eCurAppPage = AppPage.DmtPayment;
 

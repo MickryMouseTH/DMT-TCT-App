@@ -474,8 +474,8 @@ namespace TCT_App
     //-------------------------------------------------------------
     public class TCT_Lib
     {
-        public static string szAppVersion               = "2.0.2";
-        public static string szAppBuild                 = "2026/10/07 12:00:00";         // 2.0.2 keyboard + GUI restyle; 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
+        public static string szAppVersion               = "2.0.3";
+        public static string szAppBuild                 = "2026/10/07 18:00:00";         // 2.0.3 GUI review fixes; 2.0.2 keyboard + GUI restyle; 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
         public static string szSysUserName              = WindowsIdentity.GetCurrent().Name;
         public static string szSysUserName2             = Environment.UserName;
         //--- Configuration
@@ -587,6 +587,9 @@ namespace TCT_App
         public static int iVideoNVR_AutoKeepDayImageFile                = 2;        // 0=No delete file, -1=Delete when send to server successs, >0=Keep and delete from today date
         public static int iVideoNVR_ResendFileDay                       = 1;        // 0=Resend all files, >0 Resend back days=x day from today
         public static int iVideoNVR_ResizeImage                         = 0;        // 0=Not resize image, 1=Resize image before save image
+        public static int iVideoNVR_ResizeWidth                         = 1280;     // v2.0.3: resize target (was fixed 1024x576), keeps aspect ratio, never upscales
+        public static int iVideoNVR_ResizeHeight                        = 720;
+        public static int iVideoNVR_JpegQuality                         = 85;       // v2.0.3: 1-100 (was GDI+ default ~75)
         // HttpRequestCacheLevel.Default = 0, BypassCache=1, CacheOnly=2, CacheIfAvailable=3, Revalidate=4, Reload=5, NoCacheNoStore=6, CacheOrNextCacheOnly=7, Refresh=8
 
         //--- Video Lane Capture Setting
@@ -1063,6 +1066,16 @@ namespace TCT_App
                 iVideoNVR_AutoKeepDayImageFile      = xTctConfig["VideoNVR"]["AutoKeepDayImageFile"] ?? 0;
                 iVideoNVR_ResendFileDay             = xTctConfig["VideoNVR"]["ResendFileDay"] ?? 1;
                 iVideoNVR_ResizeImage               = xTctConfig["VideoNVR"]["ResizeImage"] ?? 1;
+                iVideoNVR_ResizeWidth               = xTctConfig["VideoNVR"]["ResizeWidth"] ?? 1280;
+                iVideoNVR_ResizeHeight              = xTctConfig["VideoNVR"]["ResizeHeight"] ?? 720;
+                iVideoNVR_JpegQuality               = xTctConfig["VideoNVR"]["JpegQuality"] ?? 85;
+                if (iVideoNVR_ResizeWidth < 320 || iVideoNVR_ResizeHeight < 180)
+                {
+                    iVideoNVR_ResizeWidth  = 1280;
+                    iVideoNVR_ResizeHeight = 720;
+                }
+                if (iVideoNVR_JpegQuality < 30 || iVideoNVR_JpegQuality > 100)
+                    iVideoNVR_JpegQuality = 85;
                 if (iVideoNVR_Img3TimeLapseMilliSec < 100)
                     iVideoNVR_Img3TimeLapseMilliSec = 2000;
                 if (iVideoNVR_TowingTimeLapseMillisec < 1000)
@@ -1361,7 +1374,7 @@ namespace TCT_App
                 LogInfo.WriteLog($"+ VideoNVR_CachePolicy \t\t= {iVideoNVR_CachePolicy}");
                 LogInfo.WriteLog($"+ VideoNVR_AutoKeepDayImageFile \t= {iVideoNVR_AutoKeepDayImageFile}");
                 LogInfo.WriteLog($"+ VideoNVR_ResendFileDay \t\t= {iVideoNVR_ResendFileDay}");
-                LogInfo.WriteLog($"+ VideoNVR_ResizeImage \t\t= {iVideoNVR_ResizeImage}");
+                LogInfo.WriteLog($"+ VideoNVR_ResizeImage \t\t= {iVideoNVR_ResizeImage} ({iVideoNVR_ResizeWidth}x{iVideoNVR_ResizeHeight}, JPEG Q={iVideoNVR_JpegQuality})");
                 LogInfo.WriteLog($"+ VideoLane_CaptureImagePath \t\t= {szVideoLane_CaptureImagePath}");
                 LogInfo.WriteLog($"+ VideoLane_FrontCameraUrl \t\t= {szVideoLane_FrontCameraUrl}");
                 LogInfo.WriteLog($"+ VideoLane_RearCameraUrl \t\t= {szVideoLane_RearCameraUrl}");

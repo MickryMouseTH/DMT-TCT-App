@@ -71,6 +71,23 @@ namespace TCT_App.MaintenanceWnd
                 base(Gtk.WindowType.Toplevel)
         {
             Build();
+            //--- v2.0.2: same window size and header as MainWindow / LoginWnd
+            this.WidthRequest           = 1020;
+            this.HeightRequest          = 768;
+            frameHeader.HeightRequest   = 103;
+            frameUserInfo.WidthRequest  = UiTheme.HdrInfo;
+            table1.WidthRequest         = UiTheme.HdrTable1;
+            table3.WidthRequest         = UiTheme.HdrTable2;
+            table5.WidthRequest         = UiTheme.HdrTable3;
+            UiTheme.StyleHeader(new[] { lblPlazaName, lblLaneName, lblLaneMode },
+                                new[] { lblUserCode, lblUserName, lblUserRole },
+                                new[] { lblSupervisor, lblStartShift, lblShiftID },
+                                table1, table3, table5);
+            UiTheme.StyleStatusBar(statusbar2);
+            UiTheme.FlattenFrames(this);
+            frameDateTime.WidthRequest  = UiTheme.HdrClock;
+            txtTime.Xalign              = 0.5f;
+            txtDate.Xalign              = 0.5f;
 
             Update_Clock();
             InitPanelUI();
@@ -130,25 +147,25 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                txtTime.ModifyFont(FontDescription.FromString("Ubuntu Bold 20"));
+                txtTime.ModifyFont(FontDescription.FromString("Ubuntu Bold 22"));
                 txtTime.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
                 txtTime.Text = DateTime.Now.ToString("HH:mm:ss");
 
                 txtDate.ModifyFont(FontDescription.FromString("Ubuntu Regular 12"));
                 txtDate.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
-                txtDate.Text = DateTime.Today.ToString("dd/MM/yyyy");
+                txtDate.Text = DateTime.Today.ToString("dd/MM/yyyy", DateTimeExtension.ThaiCultureInfo);   // v2.0.2: BE like the other screens
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    txtTime.ModifyFont(FontDescription.FromString("Ubuntu Bold 20"));
+                    txtTime.ModifyFont(FontDescription.FromString("Ubuntu Bold 22"));
                     txtTime.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
                     txtTime.Text = DateTime.Now.ToString("HH:mm:ss");
 
                     txtDate.ModifyFont(FontDescription.FromString("Ubuntu Regular 12"));
                     txtDate.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
-                    txtDate.Text = DateTime.Today.ToString("dd/MM/yyyy");
+                    txtDate.Text = DateTime.Today.ToString("dd/MM/yyyy", DateTimeExtension.ThaiCultureInfo);   // v2.0.2: BE like the other screens
                 });
             }
             finally
@@ -173,6 +190,22 @@ namespace TCT_App.MaintenanceWnd
             Application.Quit();
         }
 
+        //--- v2.0.2: ModifyBg() was called inside every expose handler. Each call resets the widget
+        //--- style and queues another redraw, and the code also disposed the screen's shared default
+        //--- PangoRenderer -> after the first paint this window stopped redrawing (menus never changed,
+        //--- clock frozen). Change the background only when the colour actually changes.
+        readonly System.Collections.Generic.Dictionary<Widget, Gdk.Color> dicBg = new System.Collections.Generic.Dictionary<Widget, Gdk.Color>();
+        void SetBgIfChanged(Widget w, Gdk.Color c)
+        {
+            if (w == null)
+                return;
+            Gdk.Color old;
+            if (dicBg.TryGetValue(w, out old) && old.Equal(c))
+                return;
+            dicBg[w] = c;
+            w.ModifyBg(StateType.Normal, c);
+        }
+
         protected void InitPanelUI()
         {
             InitPanelHeader();
@@ -192,23 +225,23 @@ namespace TCT_App.MaintenanceWnd
 
         protected void InitPanelMaintenance()
         {
-            btnMain_1.ModifyBg(StateType.Normal, clBkNormal);
-            btnMain_2.ModifyBg(StateType.Normal, clBkNormal);
-            btnExit.ModifyBg(StateType.Normal, clBkNormal);
+            SetBgIfChanged(btnMain_1, clBkNormal);
+            SetBgIfChanged(btnMain_2, clBkNormal);
+            SetBgIfChanged(btnExit, clBkNormal);
 
-            btnMenu_1.ModifyBg(StateType.Normal, clBkNormal);
-            btnMenu_2.ModifyBg(StateType.Normal, clBkNormal);
-            btnMenu_3.ModifyBg(StateType.Normal, clBkNormal);
-            btnMenu_4.ModifyBg(StateType.Normal, clBkNormal);
-            btnMenu_5.ModifyBg(StateType.Normal, clBkNormal);
-            btnMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+            SetBgIfChanged(btnMenu_1, clBkNormal);
+            SetBgIfChanged(btnMenu_2, clBkNormal);
+            SetBgIfChanged(btnMenu_3, clBkNormal);
+            SetBgIfChanged(btnMenu_4, clBkNormal);
+            SetBgIfChanged(btnMenu_5, clBkNormal);
+            SetBgIfChanged(btnMenu_6, clBkNormal);
 
-            btnSubMenu_1.ModifyBg(StateType.Normal, clBkNormal);
-            btnSubMenu_2.ModifyBg(StateType.Normal, clBkNormal);
-            btnSubMenu_3.ModifyBg(StateType.Normal, clBkNormal);
-            btnSubMenu_4.ModifyBg(StateType.Normal, clBkNormal);
-            btnSubMenu_5.ModifyBg(StateType.Normal, clBkNormal);
-            btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+            SetBgIfChanged(btnSubMenu_1, clBkNormal);
+            SetBgIfChanged(btnSubMenu_2, clBkNormal);
+            SetBgIfChanged(btnSubMenu_3, clBkNormal);
+            SetBgIfChanged(btnSubMenu_4, clBkNormal);
+            SetBgIfChanged(btnSubMenu_5, clBkNormal);
+            SetBgIfChanged(btnSubMenu_6, clBkNormal);
 
             btnMain_1.QueueDraw();
             btnMain_2.QueueDraw();
@@ -254,7 +287,7 @@ namespace TCT_App.MaintenanceWnd
                 TCT_Lib.eCurAppPage     = AppPage.Login;
                 LoginWnd loginWnd       = TCT_Lib.frmLoginWnd;
                 Gdk.Color colBk         = new Gdk.Color(0x2E, 0x2E, 0x2E);
-                loginWnd.ModifyBg(StateType.Normal, colBk);
+                SetBgIfChanged(loginWnd, colBk);
 
                 var screen              = loginWnd.GdkWindow.Screen;
                 loginWnd.GdkWindow.GetSize(out var winWidth, out var winHeight);
@@ -299,18 +332,18 @@ namespace TCT_App.MaintenanceWnd
 
                 if (iCurActive == 0)
                 {
-                    drawArea.ModifyBg(StateType.Normal, bActive ? clBkActive : clBkNormal);
+                    SetBgIfChanged(drawArea, bActive ? clBkActive : clBkNormal);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 18, layout, clWhite, bActive ? clBkActive : clBkNormal);
                 }
                 else
                 {
-                    drawArea.ModifyBg(StateType.Normal, bActive ? clGray : clBkNormal);
+                    SetBgIfChanged(drawArea, bActive ? clGray : clBkNormal);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 18, layout, clWhite, bActive ? clGray : clBkNormal);
                 }
 
                 renderer.Drawable   = null;
                 renderer.Gc         = null;
-                renderer.Dispose();
+                //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                 context.Dispose();
             }
             catch (Exception)
@@ -323,18 +356,18 @@ namespace TCT_App.MaintenanceWnd
 
                     if (iCurActive == 0)
                     {
-                        drawArea.ModifyBg(StateType.Normal, bActive ? clBkActive : clBkNormal);
+                        SetBgIfChanged(drawArea, bActive ? clBkActive : clBkNormal);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 18, layout, clWhite, bActive ? clBkActive : clBkNormal);
                     }
                     else
                     {
-                        drawArea.ModifyBg(StateType.Normal, bActive ? clGray : clBkNormal);
+                        SetBgIfChanged(drawArea, bActive ? clGray : clBkNormal);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 18, layout, clWhite, bActive ? clGray : clBkNormal);
                     }
 
                     renderer.Drawable   = null;
                     renderer.Gc         = null;
-                    renderer.Dispose();
+                    //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                     context.Dispose();
                 });
             }
@@ -350,13 +383,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMain_1.ModifyBg(StateType.Normal, iMainActive == 1 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMain_1, iMainActive == 1 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMain_1.ModifyBg(StateType.Normal, iMainActive == 1 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMain_1, iMainActive == 1 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -370,13 +403,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMain_2.ModifyBg(StateType.Normal, iMainActive == 2 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMain_2, iMainActive == 2 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMain_2.ModifyBg(StateType.Normal, iMainActive == 2 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMain_2, iMainActive == 2 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -390,13 +423,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnExit.ModifyBg(StateType.Normal, iMainActive == 3 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnExit, iMainActive == 3 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnExit.ModifyBg(StateType.Normal, iMainActive == 3 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnExit, iMainActive == 3 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -497,7 +530,7 @@ namespace TCT_App.MaintenanceWnd
 
                 if ((iCurActive == 1) && (btn == btnMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
@@ -505,19 +538,19 @@ namespace TCT_App.MaintenanceWnd
                 {
                     if (iCurActive == 1)
                     {
-                        drawArea.ModifyBg(StateType.Normal, bActive ? clBkActive : clBkNormal);
+                        SetBgIfChanged(drawArea, bActive ? clBkActive : clBkNormal);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clWhite, bActive ? clBkActive : clBkNormal);
                     }
                     else
                     {
-                        drawArea.ModifyBg(StateType.Normal, bActive ? clGray : clBkNormal);
+                        SetBgIfChanged(drawArea, bActive ? clGray : clBkNormal);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clWhite, bActive ? clGray : clBkNormal);
                     }
                 }
                 //renderer.SetOverrideColor(RenderPart.Foreground, Gdk.Color.Zero);
                 renderer.Drawable           = null;
                 renderer.Gc                 = null;
-                renderer.Dispose();
+                //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                 context.Dispose();
             }
             catch (Exception)
@@ -530,7 +563,7 @@ namespace TCT_App.MaintenanceWnd
 
                     if ((iCurActive == 1) && (btn == btnMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
@@ -538,19 +571,19 @@ namespace TCT_App.MaintenanceWnd
                     {
                         if (iCurActive == 1)
                         {
-                            drawArea.ModifyBg(StateType.Normal, bActive ? clBkActive : clBkNormal);
+                            SetBgIfChanged(drawArea, bActive ? clBkActive : clBkNormal);
                             drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clWhite, bActive ? clBkActive : clBkNormal);
                         }
                         else
                         {
-                            drawArea.ModifyBg(StateType.Normal, bActive ? clGray : clBkNormal);
+                            SetBgIfChanged(drawArea, bActive ? clGray : clBkNormal);
                             drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clWhite, bActive ? clGray : clBkNormal);
                         }
                     }
                     //renderer.SetOverrideColor(RenderPart.Foreground, Gdk.Color.Zero);
                     renderer.Drawable           = null;
                     renderer.Gc                 = null;
-                    renderer.Dispose();
+                    //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                     context.Dispose();
                 });
             }
@@ -566,13 +599,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMenu_1.ModifyBg(StateType.Normal, iMenuActive == 1 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMenu_1, iMenuActive == 1 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMenu_1.ModifyBg(StateType.Normal, iMenuActive == 1 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMenu_1, iMenuActive == 1 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -595,13 +628,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMenu_2.ModifyBg(StateType.Normal, iMenuActive == 2 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMenu_2, iMenuActive == 2 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMenu_2.ModifyBg(StateType.Normal, iMenuActive == 2 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMenu_2, iMenuActive == 2 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -624,13 +657,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMenu_3.ModifyBg(StateType.Normal, iMenuActive == 3 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMenu_3, iMenuActive == 3 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMenu_3.ModifyBg(StateType.Normal, iMenuActive == 3 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMenu_3, iMenuActive == 3 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -653,13 +686,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMenu_4.ModifyBg(StateType.Normal, iMenuActive == 4 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMenu_4, iMenuActive == 4 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMenu_4.ModifyBg(StateType.Normal, iMenuActive == 4 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMenu_4, iMenuActive == 4 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -682,13 +715,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMenu_5.ModifyBg(StateType.Normal, iMenuActive == 5 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMenu_5, iMenuActive == 5 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMenu_5.ModifyBg(StateType.Normal, iMenuActive == 5 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMenu_5, iMenuActive == 5 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -711,13 +744,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnMenu_6.ModifyBg(StateType.Normal, iMenuActive == 6 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnMenu_6, iMenuActive == 6 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnMenu_6.ModifyBg(StateType.Normal, iMenuActive == 6 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnMenu_6, iMenuActive == 6 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -814,7 +847,7 @@ namespace TCT_App.MaintenanceWnd
                 Gdk.Color colBk             = new Gdk.Color(0x2E, 0x2E, 0x2E);
                 TCT_Lib.bMaintenanceMode    = true;
                 mainWnd                     = new MainWindow(LoginMethod.MANUAL);
-                mainWnd.ModifyBg(StateType.Normal, colBk);
+                SetBgIfChanged(mainWnd, colBk);
 
                 var screen                  = mainWnd.GdkWindow.Screen;
                 mainWnd.GdkWindow.GetSize(out var winWidth, out var winHeight);
@@ -862,43 +895,43 @@ namespace TCT_App.MaintenanceWnd
 
                 if (bTestModeKbd && (btn == btnSubMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
                 else if (bTestModeLSD && (btn == btnSubMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
                 else if (bTestModeTFI && (btn == btnSubMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
                 else if (bTestModeCRS && (btn == btnSubMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
                 else if (bTestModeSCR && (btn == btnSubMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
                 else if (bTestDsrcMain && (btn == btnSubMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
                 else if (bTestDsrcSec && (btn == btnSubMenu_6))
                 {
-                    drawArea.ModifyBg(StateType.Normal, clYellow);
+                    SetBgIfChanged(drawArea, clYellow);
                     renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                     drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                 }
@@ -906,20 +939,20 @@ namespace TCT_App.MaintenanceWnd
                 {
                     if ((iCurActive == 2) && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
                     else
                     {
-                        drawArea.ModifyBg(StateType.Normal, clBkNormal);
+                        SetBgIfChanged(drawArea, clBkNormal);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clWhite, clBkNormal);
                     }
                 }
                 renderer.SetOverrideColor(RenderPart.Foreground, Gdk.Color.Zero);
                 renderer.Drawable           = null;
                 renderer.Gc                 = null;
-                renderer.Dispose();
+                //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                 context.Dispose();
             }
             catch (Exception)
@@ -932,43 +965,43 @@ namespace TCT_App.MaintenanceWnd
 
                     if (bTestModeKbd && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
                     else if (bTestModeLSD && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
                     else if (bTestModeTFI && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
                     else if (bTestModeCRS && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
                     else if (bTestModeSCR && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
                     else if (bTestDsrcMain && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
                     else if (bTestDsrcSec && (btn == btnSubMenu_6))
                     {
-                        drawArea.ModifyBg(StateType.Normal, clYellow);
+                        SetBgIfChanged(drawArea, clYellow);
                         renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                         drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                     }
@@ -976,13 +1009,13 @@ namespace TCT_App.MaintenanceWnd
                     {
                         if ((iCurActive == 2) && (btn == btnSubMenu_6))
                         {
-                            drawArea.ModifyBg(StateType.Normal, clYellow);
+                            SetBgIfChanged(drawArea, clYellow);
                             renderer.SetOverrideColor(RenderPart.Foreground, clYellow);
                             drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clBlack, clYellow);
                         }
                         else
                         {
-                            drawArea.ModifyBg(StateType.Normal, clBkNormal);
+                            SetBgIfChanged(drawArea, clBkNormal);
                             drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 30, layout, clWhite, clBkNormal);
                         }
                     }
@@ -990,7 +1023,7 @@ namespace TCT_App.MaintenanceWnd
                     renderer.SetOverrideColor(RenderPart.Foreground, Gdk.Color.Zero);
                     renderer.Drawable           = null;
                     renderer.Gc                 = null;
-                    renderer.Dispose();
+                    //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                     context.Dispose();
                 });
             }
@@ -1006,13 +1039,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_1.ModifyBg(StateType.Normal, iSubMenuActive == 1 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnSubMenu_1, iSubMenuActive == 1 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_1.ModifyBg(StateType.Normal, iSubMenuActive == 1 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnSubMenu_1, iSubMenuActive == 1 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -1046,13 +1079,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_2.ModifyBg(StateType.Normal, iSubMenuActive == 2 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnSubMenu_2, iSubMenuActive == 2 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_2.ModifyBg(StateType.Normal, iSubMenuActive == 2 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnSubMenu_2, iSubMenuActive == 2 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -1085,13 +1118,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_3.ModifyBg(StateType.Normal, iSubMenuActive == 3 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnSubMenu_3, iSubMenuActive == 3 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_3.ModifyBg(StateType.Normal, iSubMenuActive == 3 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnSubMenu_3, iSubMenuActive == 3 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -1124,13 +1157,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_4.ModifyBg(StateType.Normal, iSubMenuActive == 4 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnSubMenu_4, iSubMenuActive == 4 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_4.ModifyBg(StateType.Normal, iSubMenuActive == 4 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnSubMenu_4, iSubMenuActive == 4 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -1163,13 +1196,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_5.ModifyBg(StateType.Normal, iSubMenuActive == 5 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnSubMenu_5, iSubMenuActive == 5 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_5.ModifyBg(StateType.Normal, iSubMenuActive == 5 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnSubMenu_5, iSubMenuActive == 5 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -1238,13 +1271,13 @@ namespace TCT_App.MaintenanceWnd
 
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, iSubMenuActive == 6 ? clBkActive : clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, iSubMenuActive == 6 ? clBkActive : clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, iSubMenuActive == 6 ? clBkActive : clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, iSubMenuActive == 6 ? clBkActive : clBkNormal);
                 });
             }
             finally
@@ -1279,13 +1312,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, clBkNormal);
                 });
             }
             finally
@@ -1301,13 +1334,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, clBkNormal);
                 });
             }
             finally
@@ -1323,13 +1356,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, clBkNormal);
                 });
             }
             finally
@@ -1345,13 +1378,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, clBkNormal);
                 });
             }
             finally
@@ -1367,13 +1400,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, clBkNormal);
                 });
             }
             finally
@@ -1389,13 +1422,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, clBkNormal);
                 });
             }
             finally
@@ -1411,13 +1444,13 @@ namespace TCT_App.MaintenanceWnd
         {
             try
             {
-                btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    btnSubMenu_6.ModifyBg(StateType.Normal, clBkNormal);
+                    SetBgIfChanged(btnSubMenu_6, clBkNormal);
                 });
             }
             finally
@@ -1863,13 +1896,13 @@ namespace TCT_App.MaintenanceWnd
             TCT_Lib.laneController.ClearAndInitialVar();
             try
             {
-                mainWnd.ModifyBg(StateType.Normal, colBk);
+                SetBgIfChanged(mainWnd, colBk);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    mainWnd.ModifyBg(StateType.Normal, colBk);
+                    SetBgIfChanged(mainWnd, colBk);
                 });
             }
             finally
@@ -1897,13 +1930,13 @@ namespace TCT_App.MaintenanceWnd
             Gdk.Color colBk     = new Gdk.Color(0x2E, 0x2E, 0x2E);
             try
             {
-                dlg.ModifyBg(StateType.Normal, colBk);
+                SetBgIfChanged(dlg, colBk);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    dlg.ModifyBg(StateType.Normal, colBk);
+                    SetBgIfChanged(dlg, colBk);
                 });
             }
             finally
@@ -1920,13 +1953,13 @@ namespace TCT_App.MaintenanceWnd
             Gdk.Color colBk         = new Gdk.Color(0x2E, 0x2E, 0x2E);
             try
             {
-                dlg.ModifyBg(StateType.Normal, colBk);
+                SetBgIfChanged(dlg, colBk);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    dlg.ModifyBg(StateType.Normal, colBk);
+                    SetBgIfChanged(dlg, colBk);
                 });
             }
             finally
@@ -1943,13 +1976,13 @@ namespace TCT_App.MaintenanceWnd
             Gdk.Color colBk = new Gdk.Color(0x2E, 0x2E, 0x2E);
             try
             {
-                dlg.ModifyBg(StateType.Normal, colBk);
+                SetBgIfChanged(dlg, colBk);
             }
             catch (Exception)
             {
                 Application.Invoke(delegate
                 {
-                    dlg.ModifyBg(StateType.Normal, colBk);
+                    SetBgIfChanged(dlg, colBk);
                 });
             }
             finally
@@ -2804,13 +2837,13 @@ namespace TCT_App.MaintenanceWnd
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 try
                 {
-                    frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
+                    SetBgIfChanged(frmEdcPaymentDlg, colBk);
                 }
                 catch (Exception)
                 {
                     Application.Invoke(delegate
                     {
-                        frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
+                        SetBgIfChanged(frmEdcPaymentDlg, colBk);
                     });
                 }
                 finally
@@ -2834,13 +2867,13 @@ namespace TCT_App.MaintenanceWnd
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 try
                 {
-                    frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
+                    SetBgIfChanged(frmEdcPaymentDlg, colBk);
                 }
                 catch (Exception)
                 {
                     Application.Invoke(delegate
                     {
-                        frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
+                        SetBgIfChanged(frmEdcPaymentDlg, colBk);
                     });
                 }
                 finally

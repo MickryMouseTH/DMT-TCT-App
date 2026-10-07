@@ -238,15 +238,16 @@ namespace TCT_App
                     //----------------------------------
                     Image img       = Image.FromStream(stream);
                     //Image imgPhoto  = ResizeImage(img, 768, 432);
+                    //--- v2.0.3: 1280x720 (config ResizeWidth/ResizeHeight) high quality + JPEG quality (was 1024x576, default quality)
+                    string szImgPath = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, szImgFileName);
                     if (TCT_Lib.iVideoNVR_ResizeImage > 0)
                     {
-                        Image imgPhoto = ResizeImage(img, 1024, 576);
-                        imgPhoto.Save(Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, szImgFileName), ImageFormat.Jpeg);
-                        imgPhoto.Dispose();
+                        using (Image imgPhoto = ResizeImage(img, TCT_Lib.iVideoNVR_ResizeWidth, TCT_Lib.iVideoNVR_ResizeHeight))
+                            SaveJpeg(imgPhoto, szImgPath, TCT_Lib.iVideoNVR_JpegQuality);
                     }
                     else
                     {
-                        img.Save(Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, szImgFileName), ImageFormat.Jpeg);
+                        SaveJpeg(img, szImgPath, TCT_Lib.iVideoNVR_JpegQuality);
                     }
                     LogInfo.WriteLogVideoCapture($"+ Save file image success. index={idx}, CaptureRuunningNo={iCaptureRunningNo}, FileName={szImgFileName}");
 
@@ -363,12 +364,41 @@ namespace TCT_App
             return cahcePolicy;
         }
 
-        private Bitmap ResizeImage(Image sBmp, int iNewWidth, int iNewHeight)
+        //--- v2.0.3: fit inside iMaxWidth x iMaxHeight keeping the aspect ratio, never upscale, high quality filter
+        private Bitmap ResizeImage(Image sBmp, int iMaxWidth, int iMaxHeight)
         {
+            double k = Math.Min(1.0, Math.Min((double)iMaxWidth / sBmp.Width, (double)iMaxHeight / sBmp.Height));
+            int iNewWidth  = Math.Max(1, (int)Math.Round(sBmp.Width * k));
+            int iNewHeight = Math.Max(1, (int)Math.Round(sBmp.Height * k));
+
             Bitmap result = new Bitmap(iNewWidth, iNewHeight);
             using (Graphics g = Graphics.FromImage(result))
+            {
+                g.InterpolationMode  = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode      = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.PixelOffsetMode    = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
                 g.DrawImage(sBmp, 0, 0, iNewWidth, iNewHeight);
+            }
             return result;
+        }
+
+        private static void SaveJpeg(Image img, string szPath, int iQuality)
+        {
+            ImageCodecInfo jpeg = null;
+            foreach (ImageCodecInfo c in ImageCodecInfo.GetImageEncoders())
+                if (c.FormatID == ImageFormat.Jpeg.Guid)
+                    jpeg = c;
+            if (jpeg == null)
+            {
+                img.Save(szPath, ImageFormat.Jpeg);
+                return;
+            }
+            using (var prms = new EncoderParameters(1))
+            {
+                prms.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)iQuality);
+                img.Save(szPath, jpeg, prms);
+            }
         }
 
         private Gdk.Pixbuf GetPixbufFromUrl(string szImgUrl)

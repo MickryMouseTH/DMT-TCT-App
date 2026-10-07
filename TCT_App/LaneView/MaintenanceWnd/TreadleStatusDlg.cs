@@ -12,7 +12,10 @@ namespace TCT_App.LaneView.MaintenanceWnd
         public TreadleStatusDlg()
         {
             this.Build();
-            this.Decorated = false;     // v2.0.2: no title bar on popups
+            UiTheme.StylePopup(this);     // v2.0.2: no title bar + visible frame
+            //--- v2.0.3: barrier commands = one neutral blue (green / red are kept for OK / cancel)
+            UiTheme.StyleKey(btnOpenALB,  UiTheme.Blue, UiTheme.PopupBtnFont);
+            UiTheme.StyleKey(btnCloseALB, UiTheme.Blue, UiTheme.PopupBtnFont);
 
             this.Title = "Test Treadle Status";
             ClearTreadleStatus();
