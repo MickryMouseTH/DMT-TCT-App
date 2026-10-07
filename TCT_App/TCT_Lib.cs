@@ -474,8 +474,8 @@ namespace TCT_App
     //-------------------------------------------------------------
     public class TCT_Lib
     {
-        public static string szAppVersion               = "2.0.1";
-        public static string szAppBuild                 = "2026/10/07 00:00:00";         // 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
+        public static string szAppVersion               = "2.0.2";
+        public static string szAppBuild                 = "2026/10/07 12:00:00";         // 2.0.2 keyboard + GUI restyle; 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
         public static string szSysUserName              = WindowsIdentity.GetCurrent().Name;
         public static string szSysUserName2             = Environment.UserName;
         //--- Configuration
@@ -893,6 +893,7 @@ namespace TCT_App
         public static bool bDC_Connected                    = false;    // Check DC Networking
         public static bool bMTS_Connected                   = false;    // Check MTS Networking
         public static bool bSupAdjust_Connected             = false;    // Check SupAdjust Networking
+        public static int iEdcLastStatus                    = -1;       // v2.0.2: last EDC check (-1 unknown, 0 fail, 1 ok)
         public static bool bLSD_Connected                   = false;    // Check LSD Networking
         public static bool bLCSD_Connected                  = false;    // Check LCSD Networking - TCT
         public static bool bLCIO_Connected                  = false;    // Check LCIO Networking
@@ -3894,6 +3895,12 @@ namespace TCT_App
             //keyMapping[''] = (int)KeyPressedType.END;
             //keyMapping[13]      = (int)KeyPressedType.ENTER;
             keyMapping[65293]   = (int)KeyPressedType.ENTER;
+            //--- v2.0.2: real key codes (Cherry BACK SPACE / END / keypad ENTER, PC Esc/Tab)
+            keyMapping[65421]   = (int)KeyPressedType.ENTER;        // KP_Enter
+            keyMapping[65288]   = (int)KeyPressedType.BACKSPACE;    // BackSpace
+            keyMapping[65289]   = (int)KeyPressedType.TAB;          // Tab
+            keyMapping[65307]   = (int)KeyPressedType.ESC;          // Escape (= CANCEL)
+            keyMapping[65367]   = (int)KeyPressedType.END;          // End
             keyMapping[65361]   = (int)KeyPressedType.LEFT;
             keyMapping[65362]   = (int)KeyPressedType.UP;
             keyMapping[65363]   = (int)KeyPressedType.RIGHT;
@@ -3951,6 +3958,9 @@ namespace TCT_App
                 case (int)KeyPressedType.NUM_8:         return "NUM_8";
                 case (int)KeyPressedType.NUM_9:         return "NUM_9";
                 case (int)KeyPressedType.ESC:           return "ESC";
+                case (int)KeyPressedType.BACKSPACE:     return "BACKSPACE";     // v2.0.2
+                case (int)KeyPressedType.TAB:           return "TAB";
+                case (int)KeyPressedType.END:           return "END";
                 case (int)KeyPressedType.ENTER:         return "ENTER";
                 case (int)KeyPressedType.LEFT:          return "LEFT";
                 case (int)KeyPressedType.UP:            return "UP";

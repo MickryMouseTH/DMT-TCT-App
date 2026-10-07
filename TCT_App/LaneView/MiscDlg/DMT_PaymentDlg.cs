@@ -132,7 +132,7 @@ namespace TCT_App.LaneView.MiscDlg
         {
             Application.Invoke(delegate
             {
-                if (iKey == (int)KeyPressedType.EDIT)
+                if ((iKey == (int)KeyPressedType.EDIT) || (iKey == (int)KeyPressedType.ESC))   // v2.0.2: + CANCEL key
                 {
                     Process_CancelDmtCard();
                 }

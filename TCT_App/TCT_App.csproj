@@ -283,6 +283,7 @@
     <Compile Include="EMV\EMV_V1\EdcHandShaking_V1.cs" />
     <Compile Include="EMV\EMV_V1\EdcChkHandShaking_V1.cs" />
     <Compile Include="TCT_Version.cs" />
+    <Compile Include="UiTheme.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Images\" />

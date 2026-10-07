@@ -34,6 +34,7 @@ namespace TCT_App.EMV.EMV_V1
         {
             TCT_Lib.bActiveEMVDlg = true;
             this.Build();
+            this.KeyPressEvent  += OnKeyPressEvent;     // v2.0.2: keyboard support
             this.Activate();
             bCancel             = false;
             bHasResult          = false;
@@ -380,8 +381,7 @@ namespace TCT_App.EMV.EMV_V1
                 // 2025-08-04  : Try to fix  TCT cannot found Ack from EDC
                 if (err.Message == "Operation on non-blocking socket would block")
                 {
-                    Dispose();
-                    Destroy();
+                    RespondOnGtk(ResponseType.None);   // v2.0.2: was Dispose()/Destroy() off the GTK thread
                 }
                 else
                 {
@@ -462,7 +462,7 @@ namespace TCT_App.EMV.EMV_V1
                                     TCT_Lib.bActiveEMVDlg = false;
                                     TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
                                     //eventThread.Abort();
-                                    this.Respond(ResponseType.Cancel);
+                                    RespondOnGtk(ResponseType.Cancel);   // v2.0.2: was Respond() on socket thread
 
                                     if (clientSocket != null)
                                     {
@@ -480,9 +480,7 @@ namespace TCT_App.EMV.EMV_V1
                                         recvSocket = null;
                                     }
 
-                                    Dispose();
-                                    Destroy();
-
+                                    //--- v2.0.2: no Dispose()/Destroy() here (socket thread) - MainWindow disposes on GTK thread
                                     bRunning = false;
                                     return;
                                 }
@@ -911,7 +909,7 @@ namespace TCT_App.EMV.EMV_V1
                     {
                         TCT_Lib.bActiveEMVDlg = false;
                         TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
-                        this.Respond(ResponseType.Ok);
+                        RespondOnGtk(ResponseType.Ok);   // v2.0.2: was Respond() on socket thread
 
                         Thread.Sleep(500);
                         LogInfo.WriteLogEDC("+ Recv Socket Close / Disconnect when success payment");
@@ -933,13 +931,7 @@ namespace TCT_App.EMV.EMV_V1
                         LogInfo.WriteLogEDC("+ After Clear Thread");
 */                                               
 
-                        //LogInfo.WriteLogEDC("+ Before Dispose");
-                        Dispose();
-                        //LogInfo.WriteLogEDC("+ After Dispose");
-
-                        //LogInfo.WriteLogEDC("+ Before Destroy");
-                        Destroy();
-                        //LogInfo.WriteLogEDC("+ After Destroy");
+                        //--- v2.0.2: Dispose()/Destroy() removed (socket thread) - MainWindow disposes on GTK thread
 
                         return;
                     }
@@ -1166,17 +1158,44 @@ namespace TCT_App.EMV.EMV_V1
             }
         }
 
+        //--- v2.0.2: GTK is not thread-safe - the socket threads must not Respond/Dispose/Destroy this
+        //--- dialog directly (native crash in gtk_dialog_run). MainWindow disposes it after Run().
+        volatile bool bResponded = false;
+        void RespondOnGtk(ResponseType xResponse)
+        {
+            if (bResponded)
+                return;
+            bResponded = true;
+            Application.Invoke(delegate
+            {
+                try
+                {
+                    this.Respond(xResponse);
+                }
+                catch (Exception err)
+                {
+                    LogInfo.WriteLogEDC("- Error RespondOnGtk : " + err.Message);
+                }
+            });
+        }
+
+        //--- v2.0.2: KeyPressEvent was never wired (gtk-gui) -> USB keyboard could not cancel this popup.
+        //--- ConnectBefore + RetVal so ENTER does not also press the focused button.
+        [GLib.ConnectBefore]
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue], 1);
+                args.RetVal = true;
+            }
         }
 
         void LaneController_ManageProcessEMV(int iKey)
         {
             Application.Invoke(delegate
             {
-                if (iKey == (int)KeyPressedType.EDIT)
+                if ((iKey == (int)KeyPressedType.EDIT) || (iKey == (int)KeyPressedType.ESC))   // v2.0.2: + CANCEL key
                 {
                     Process_CancelEMV();
                 }

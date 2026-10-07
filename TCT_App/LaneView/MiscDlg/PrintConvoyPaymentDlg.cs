@@ -768,6 +768,7 @@ namespace TCT_App.LaneView.MiscDlg
                 }
             }
                        
+            TCT_Lib.eCurAppPage   = AppPage.PayConvoy;     // v2.0.2: give keys back to this popup
             TCT_Lib.bActiveEMVDlg = false;
         }
 
@@ -910,6 +911,7 @@ namespace TCT_App.LaneView.MiscDlg
                 }
             }
 
+            TCT_Lib.eCurAppPage   = AppPage.PayConvoy;     // v2.0.2: give keys back to this popup
             TCT_Lib.bActiveEMVDlg = false;
         }
 

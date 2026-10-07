@@ -272,7 +272,7 @@ namespace TCT_App
         };
         static readonly HashSet<int> kManageEMV = new HashSet<int>
         {
-            (int)KeyPressedType.EDIT,
+            (int)KeyPressedType.EDIT, (int)KeyPressedType.ESC, (int)KeyPressedType.ENTER,   // v2.0.2: CANCEL / QR inquiry
             (int)KeyPressedType.OTL_OPEN, (int)KeyPressedType.OTL_CLOSE
         };
         static readonly HashSet<int> kModeETC = new HashSet<int>
@@ -289,7 +289,7 @@ namespace TCT_App
         };
         static readonly HashSet<int> kManageDmtCard = new HashSet<int>
         {
-            (int)KeyPressedType.EDIT,
+            (int)KeyPressedType.EDIT, (int)KeyPressedType.ESC,   // v2.0.2: CANCEL
             (int)KeyPressedType.OTL_OPEN, (int)KeyPressedType.OTL_CLOSE
         };
         //------------------------------
@@ -6876,12 +6876,14 @@ namespace TCT_App
                                         {
                                             Console.WriteLine("+ EDC Connection is SUCCESS");
                                             LogInfo.WriteLogEDC("+ EDC Connection is SUCCESS (Type 0)");
+                                            TCT_Lib.iEdcLastStatus = 1;
                                             checkNetworkStatus((int)ChkDeviceType.Device_EMV, true);
                                         }
                                         else
                                         {
                                             Console.WriteLine($"- Fail EDC Connection : EDC IPAddress = {TCT_Lib.szEdcIPAddress}, EDC Port = {TCT_Lib.iEdcSendPort}");
                                             LogInfo.WriteLogEDC($"- Fail EDC Connection : EDC IPAddress = {TCT_Lib.szEdcIPAddress}, EDC Port = {TCT_Lib.iEdcSendPort} (Type 0)");
+                                            TCT_Lib.iEdcLastStatus = 0;
                                             checkNetworkStatus((int)ChkDeviceType.Device_EMV, false);
                                         }
                                         LogInfo.WriteLogEDC("---------------------------------");
@@ -6895,12 +6897,14 @@ namespace TCT_App
                                         {
                                             Console.WriteLine("+ EDC Connection is SUCCESS");
                                             LogInfo.WriteLogEDC("+ EDC Connection is SUCCESS (Type 1)");
+                                            TCT_Lib.iEdcLastStatus = 1;
                                             checkNetworkStatus((int)ChkDeviceType.Device_EMV, true);
                                         }
                                         else
                                         {
                                             Console.WriteLine($"- Fail EDC Connection : EDC IPAddress = {TCT_Lib.szEdcIPAddress}, EDC Port = {TCT_Lib.iEdcSendPort}");
                                             LogInfo.WriteLogEDC($"- Fail EDC Connection : EDC IPAddress = {TCT_Lib.szEdcIPAddress}, EDC Port = {TCT_Lib.iEdcSendPort} (Type 1)");
+                                            TCT_Lib.iEdcLastStatus = 0;
                                             checkNetworkStatus((int)ChkDeviceType.Device_EMV, false);
                                         }
                                         LogInfo.WriteLogEDC("---------------------------------");

@@ -17,6 +17,8 @@ namespace TCT_App.EMV.EMV_V1
         decimal fPayAmount;
         bool bTowing;
         bool bCancel    = false;
+        volatile bool bResponded = false;   // v2.0.2: dialog already answered (guard for cancel fallback)
+        uint iTimerIdCancelFallback = 0;
 
         bool bRetryRecv = false;
 
@@ -45,6 +47,7 @@ namespace TCT_App.EMV.EMV_V1
         {
             TCT_Lib.bActiveEMVDlg = true;
             this.Build();
+            this.KeyPressEvent      += OnKeyPressEvent;     // v2.0.2: keyboard support
             this.Activate();
 
             TCT_Lib.eCurAppPage     = AppPage.EMV;
@@ -255,7 +258,7 @@ namespace TCT_App.EMV.EMV_V1
                                 TCT_Lib.bActiveEMVDlg = false;
                                 TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
                                 //eventThread.Abort();
-                                this.Respond(ResponseType.Cancel);
+                                RespondOnGtk(ResponseType.Cancel);     // v2.0.2: was Respond() on this socket thread
 
                                 if (clientSocket != null)
                                 {
@@ -268,9 +271,7 @@ namespace TCT_App.EMV.EMV_V1
                                 recvSocket.Dispose();
                                 recvSocket = null;
 
-                                Dispose();
-                                Destroy();
-
+                                //--- v2.0.2: no Dispose()/Destroy() here (socket thread) - MainWindow disposes on GTK thread
                                 bRunning = false;
                                 return;
                             }
@@ -283,7 +284,7 @@ namespace TCT_App.EMV.EMV_V1
                                 /*
                                                                 TCT_Lib.bActiveEMVDlg = false;
                                                                 TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
-                                                                this.Respond(ResponseType.Ok);
+                                                                bResponded = true; this.Respond(ResponseType.Ok);
 
                                                                 if (clientSocket != null)
                                                                 {
@@ -316,6 +317,12 @@ namespace TCT_App.EMV.EMV_V1
                             }
                             //if (recvSocket != null)
                             //    recvSocket.Close();
+
+                            //--- v2.0.2: Accept() times out every 3 s (ReceiveTimeout on the listen socket).
+                            //--- The card dialog keeps listening on this error; the QR dialog stopped,
+                            //--- so the QR inquiry result (Inquiry button is enabled after 5 s) never arrived.
+                            if ((err.Message == "Operation on non-blocking socket would block") && !bCancel && !bResponded)
+                                bRunning = true;
                         }
                         catch (Exception err)
                         {
@@ -409,7 +416,7 @@ namespace TCT_App.EMV.EMV_V1
                         {
                             //--- TX not found, customer not scan QR
                             //-------------------------------------
-                            this.Respond(ResponseType.Reject);
+                            RespondOnGtk(ResponseType.Reject);     // v2.0.2: was Respond() on socket thread -> native crash
                             bCancel = true;
                             //Console.WriteLine("Start 1");
                             //-------------------------------------------------
@@ -432,11 +439,8 @@ namespace TCT_App.EMV.EMV_V1
                                 TCT_Lib.bActiveEMVDlg = false;
                                 TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
                                 //Console.WriteLine("Start 5");
-                                Dispose();
-                                Destroy();
-
-                                if (eventThread != null)
-                                    eventThread.Abort();
+                                //--- v2.0.2: no Dispose()/Destroy()/Abort() here (socket thread) - MainWindow disposes
+                                //--- the dialog on the GTK thread; the receive loop ends by itself (bRunning=false).
                             }
 
                             return;
@@ -651,14 +655,12 @@ namespace TCT_App.EMV.EMV_V1
                     });
                     
                     //-------------------------------------
-                    this.Respond(ResponseType.Ok);
+                    RespondOnGtk(ResponseType.Ok);     // v2.0.2: was Respond() + self Abort() on socket thread
 
                     //Console.WriteLine("Start 1");
                     //-------------------------------------------------
                     try
                     {
-                        if (eventThread != null)
-                            eventThread.Abort();
                     }
                     catch(Exception)
                     {
@@ -675,8 +677,7 @@ namespace TCT_App.EMV.EMV_V1
                         TCT_Lib.bActiveEMVDlg = false;
                         TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
                         //Console.WriteLine("Start 5");
-                        Dispose();
-                        Destroy();
+                        //--- v2.0.2: Dispose()/Destroy() removed (socket thread) - MainWindow disposes on GTK thread
 
                         LogInfo.WriteLogEDC("-------------------- COMPLETE EDC QR PAYMENT -----------------");
                         //Console.WriteLine("Start 6");
@@ -1102,6 +1103,19 @@ namespace TCT_App.EMV.EMV_V1
                     Process_CancelPayEDC();
             }
 
+            //--- v2.0.2: this popup only closed when the EDC sent a reply to RecvPort.
+            //--- EDC offline (QR never sent) or no reply to CP -> popup could never be closed
+            //--- (touch or keyboard). Close now / after 8 s fallback.
+            if (!bStartCmd)
+                CloseWithoutEdcReply("QR command was not sent (EDC offline)");
+            else if (iTimerIdCancelFallback == 0)
+                iTimerIdCancelFallback = GLib.Timeout.Add(5000, () =>
+                {
+                    iTimerIdCancelFallback = 0;
+                    CloseWithoutEdcReply("no reply from EDC 5 s after cancel");
+                    return false;
+                });
+
             //if (iTimerIdInquiry > 0)
             //    GLib.Source.Remove(iTimerIdInquiry);
 
@@ -1122,17 +1136,64 @@ namespace TCT_App.EMV.EMV_V1
             TCT_Lib.bActiveEMVDlg = false;
         }
 
+        //--- v2.0.2: GTK is not thread-safe. The receive thread must not call Respond/Dispose/Destroy
+        //--- itself (native crash in gtk_dialog_run). Ask the GTK main loop to answer the dialog;
+        //--- MainWindow disposes the dialog after Run() returns.
+        void RespondOnGtk(ResponseType xResponse)
+        {
+            if (bResponded)
+                return;
+            bResponded = true;
+            Application.Invoke(delegate
+            {
+                try
+                {
+                    this.Respond(xResponse);
+                }
+                catch (Exception err)
+                {
+                    LogInfo.WriteLogEDC("- Error RespondOnGtk : " + err.Message);
+                }
+            });
+        }
+
+        //--- v2.0.2: close the popup as Cancel when no EDC reply will arrive (runs on GTK thread)
+        void CloseWithoutEdcReply(string szReason)
+        {
+            if (bResponded)
+                return;
+            bCancel = true;
+            LogInfo.WriteLogEDC("+ Close QR dialog without EDC reply : " + szReason);
+            LogInfo.WriteLaneEvent("+ Cancel QR Code : " + szReason);
+            TCT_Lib.bActiveEMVDlg = false;
+            TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
+            try
+            {
+                if (recvSocket != null)
+                    recvSocket.Close();     // unblocks Accept() -> receive thread exits
+            }
+            catch (Exception) { }
+            bResponded = true;
+            this.Respond(ResponseType.Cancel);
+        }
+
+        //--- v2.0.2: KeyPressEvent was never wired (gtk-gui) -> USB keyboard could not cancel this popup.
+        //--- ConnectBefore + RetVal so ENTER does not also press the focused button.
+        [GLib.ConnectBefore]
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
+                args.RetVal = true;
+            }
         }
 
         void LaneController_ManageProcessEMV(int iKey)
         {
             Application.Invoke(delegate
             {
-                if (iKey == (int)KeyPressedType.EDIT)
+                if ((iKey == (int)KeyPressedType.EDIT) || (iKey == (int)KeyPressedType.ESC))   // v2.0.2: + CANCEL key
                 {
                     Process_CancelEMV();
                 }

@@ -87,7 +87,7 @@ namespace TCT_App
         private void Action_Cancel()
         {
             this.Respond(ResponseType.Cancel);
-            TCT_Lib.laneController.manageProcessPayConvoy -= LaneController_ManageProcessSetLaneTypeMode;
+            TCT_Lib.laneController.manageProcessSetLaneTypeMode -= LaneController_ManageProcessSetLaneTypeMode;   // v2.0.2: was manageProcessPayConvoy
             TCT_Lib.eCurAppPage                 = AppPage.Login;
             TCT_Lib.bActiveSetLaneTypeModeDlg   = false;
             Dispose();

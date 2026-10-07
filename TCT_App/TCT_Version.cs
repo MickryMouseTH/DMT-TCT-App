@@ -695,5 +695,26 @@ TCT (V.2.0.1)   2026-10-07
     - Fix bug (H3) - Force Reset ไม่เรียก ForceEnd ซ้ำ 2 ครั้ง (กันรายการ Violation/Class 0 เกิน)
     - Bump version 2.0.0 -> 2.0.1, AssemblyVersion 2.0.0 -> 2.0.1
 
+TCT (V.2.0.2)   2026-10-07
+    [Keyboard - ใช้คีย์บอร์ด Cherry ได้ครบขึ้น รวม Popup]
+    - Fix bug - Popup EMV / QR Code (EDC V1) ไม่รับคีย์บอร์ด (KeyPressEvent ไม่ได้ผูก) -> [แก้ไข] / [CANCEL] ยกเลิกได้
+    - Fix bug - หน้าหลักกด ENTER แล้วไปกดปุ่มบนจอที่ถูกแตะล่าสุดซ้ำ (เช่น FORCE RESET) -> ปุ่มไม่รับ focus, คีย์ที่ map แล้วไม่ส่งต่อให้ GTK
+    - Fix bug - Popup รถขบวนจ่ายเงิน: หลังจ่าย EMV/QR แล้วคีย์บอร์ดใช้ไม่ได้ (eCurAppPage ไม่คืนค่า)
+    - Fix bug - SetLaneTypeMode ถอด event ผิดตัว (handler ค้างสะสมทุกครั้งที่เปิด)
+    - Add - [CANCEL] ยกเลิก Popup EMV / QR / บัตร DMT ได้, [ENTER] ตรวจสอบการจ่าย QR ได้
+    - Add - map ปุ่มจริง BackSpace / End / Escape / Tab / Keypad Enter
+    [EDC V1 - พบจากการทดสอบกับ EDC จำลอง]
+    - Fix crash - Popup QR/EMV ปิดตัวเอง (Respond/Dispose/Destroy) จาก socket thread -> โปรแกรมดับ (SIGSEGV ใน gtk_dialog_run)
+                  เช่น ลูกค้ายังไม่สแกน QR (code 12) -> ย้ายไปทำบน GTK thread, MainWindow เป็นคน Dispose
+    - Fix bug - Popup QR หยุดรอผลจาก EDC หลัง 3 วินาที (Accept timeout) แต่ปุ่มตรวจสอบเปิดหลัง 5 วินาที -> จ่าย QR ไม่สำเร็จ
+    - Fix bug - EDC ออฟไลน์ / ไม่ตอบการยกเลิก -> Popup QR ปิดไม่ได้เลย -> ปิดทันที หรือภายใน 5 วินาที
+    - Fix bug - แถบสถานะแสดง "EDC : Disconnect" หลัง Login นานถึง EdcCheckKeepAliveIntervalMin -> แสดงผลตรวจล่าสุดทันที
+    [GUI - Header]
+    - จัดหัวจอเป็น 3 กลุ่ม (ด่าน/ช่อง | พนักงาน | กะ) ชิดซ้าย, นาฬิกาไม่ถูกตัด, เวลาเริ่มงานไม่ล้นกรอบ, แก้คำ "Maunal" -> "Manual"
+    [GUI - ปรับสีและตัวอักษร (ตำแหน่งปุ่มเหมือนเดิม)]
+    - สีปุ่มบนจอ = สีปุ่มเดียวกันบนคีย์บอร์ด Cherry, ตัวอักษรหนาอ่านง่าย, ปุ่มที่ใช้ไม่ได้เป็นสีเทา
+    - ไม่มีกรอบ focus ประบนปุ่ม, ปุ่ม "รถขบวนจ่ายเงิน" แสดง 2 บรรทัด
+    - Bump version 2.0.1 -> 2.0.2
+
 
 =============================================================================================*/

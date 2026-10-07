@@ -212,6 +212,9 @@ public partial class MainWindow : Gtk.Window
         TCT_Lib.laneController.printConvoy                  += LaneController_PrintConvoy;
         //TCT_Lib.laneController.dmtPayment                   += LaneController_DmtPayment;
         TCT_Lib.laneController.checkNetworkStatus           += LaneController_CheckNetworkStatus;
+        //--- v2.0.2: show the last EDC check result now (next check can be EdcCheckKeepAliveIntervalMin later)
+        if (!TCT_Lib.bEnableEdc || (TCT_Lib.iEdcLastStatus >= 0))
+            LaneController_CheckNetworkStatus((int)ChkDeviceType.Device_EMV, TCT_Lib.iEdcLastStatus == 1);
         TCT_Lib.laneController.nextVehicleTypeLaneControl   += LaneController_NextVehicleTypeLaneControl;
         TCT_Lib.laneController.laneStateEtcPayCardPAN       += LaneController_LaneStateEtcPayCardPAN;
         TCT_Lib.laneController.compilePassageETC            += LaneController_CompilePassageETC;
@@ -539,6 +542,21 @@ public partial class MainWindow : Gtk.Window
         txtTime.ModifyFont(FontDescription.FromString("Ubuntu Bold 22"));
         txtTime.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
 
+        //--- v2.0.2: header widths overflowed 1024 (100 + 768 + clock) -> clock "HH:mm:ss" was clipped.
+        //--- Narrower plaza/lane block (short values) moves the staff block left; clock box gets room.
+        table1.WidthRequest         = 138;
+        table3.WidthRequest         = 276;
+        table5.WidthRequest         = 280;
+        frameUserInfo.WidthRequest  = 708;
+        vbox4.WidthRequest          = 199;        // right edge of clock box = right edge of panels below
+        txtTime.Xalign              = 0.5f;
+        txtDate.Xalign              = 0.5f;
+        //--- v2.0.2: 3 header groups (plaza/lane | staff | shift), labels left-aligned in each group
+        foreach (Label lbl in new[] { lblPlazaName, lblLaneName, lblLaneMode,
+                                      lblUserCode, lblUserName, lblUserRole,
+                                      lblSupervisor, lblStartShift, lblShiftID })
+            lbl.Xalign = 0f;
+
         txtDate.ModifyFont(FontDescription.FromString("Ubuntu Regular 12"));
         txtDate.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
 
@@ -558,7 +576,7 @@ public partial class MainWindow : Gtk.Window
 
         string szLoginType = "";
         if (loginType == LoginType.Manual)
-            szLoginType = "Maunal Key";
+            szLoginType = "Manual Key";
         else if (loginType == LoginType.SmartCard)
             szLoginType = "Smart Card";
         else if (loginType == LoginType.RTO_Remote)
@@ -685,6 +703,34 @@ public partial class MainWindow : Gtk.Window
             btn_Payment9.Clicked -= OnBtnPayment9Clicked;
             btn_Payment9.Sensitive = false;
         }
+
+        //--- v2.0.2: restyle - button colour = colour of the same key on the Cherry toll keyboard
+        UiTheme.StyleKey(btnClassType_1,        UiTheme.Yellow);
+        UiTheme.StyleKey(btnClassType_2,        UiTheme.Red);
+        UiTheme.StyleKey(btnPay_Cash,           UiTheme.Navy);
+        UiTheme.StyleKey(btnPay_Coupon,         UiTheme.Coupon);
+        UiTheme.StyleKey(btnPay_EMV,            UiTheme.Pink);
+        UiTheme.StyleKey(btnPay_QRCode,         UiTheme.Teal);
+        UiTheme.StyleKey(btnPayType_DmtCard,    UiTheme.Purple);
+        UiTheme.StyleKey(btn_Confirm,           UiTheme.Pink);
+        UiTheme.StyleKey(btn_Edit,              UiTheme.Red);
+        UiTheme.StyleKey(btnSalesCoupon,        UiTheme.Yellow);
+        UiTheme.StyleKey(btnLeftOut,            UiTheme.Pink);
+        btnPrintConvoy.Label = "รถขบวน\nจ่ายเงิน";     // two lines - one line is clipped at 1024x768
+        UiTheme.StyleKey(btnPrintConvoy,        UiTheme.Green);
+        UiTheme.StyleKey(btnClassType_Exempt,   UiTheme.LightTeal);
+        UiTheme.StyleKey(btnClassType_Towing,   UiTheme.Teal);
+        UiTheme.StyleKey(btnClassType_HPMC,     UiTheme.Purple);
+        UiTheme.StyleKey(btn_Violation,         UiTheme.Orange);
+        UiTheme.StyleKey(btnPrintReceipt,       UiTheme.Purple);
+        UiTheme.StyleKey(btn_ForceReset,        UiTheme.Yellow);
+        UiTheme.StyleKey(btn_EndShift,          UiTheme.Blue);
+        UiTheme.StyleKey(btn_Payment6,          UiTheme.White);
+        UiTheme.StyleKey(btn_Payment7,          UiTheme.White);
+        UiTheme.StyleKey(btn_Payment8,          UiTheme.White);
+        UiTheme.StyleKey(btn_Payment9,          UiTheme.White);
+        UiTheme.StyleKey(btn_OpenOTL,           UiTheme.White);
+        UiTheme.StyleKey(btn_CloseOTL,          UiTheme.White);
 
     }
 
@@ -2024,14 +2070,24 @@ public partial class MainWindow : Gtk.Window
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.SALE_COUPON);
     }
         
+    //--- v2.0.2: ConnectBefore + RetVal = true for mapped keys, so GTK does not ALSO
+    //--- re-press the focused button on ENTER/space or move focus on arrow keys
+    //--- (e.g. last touched FORCE RESET pressed again by the ENTER key).
+    //--- Key value is read now, not inside Invoke (the event is freed after this handler).
+    [GLib.ConnectBefore]
     protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
     {
+        int iKeyValue = (int)args.Event.KeyValue;
+        if (!TCT_Lib.keyMapping.ContainsKey(iKeyValue))
+            return;
+
+        int iKey        = TCT_Lib.keyMapping[iKeyValue];
+        args.RetVal     = true;
         Application.Invoke(delegate
         {
             try
             {
-                if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
-                    TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue], 1);
+                TCT_Lib.webSocketLane.SendVirtualKeyboard(iKey, 1);
             }
             catch (Exception err)
             {
@@ -3172,7 +3228,7 @@ public partial class MainWindow : Gtk.Window
         {
             string szLoginType = "";
             if (loginType == LoginType.Manual)
-                szLoginType = "Maunal Key";
+                szLoginType = "Manual Key";
             else if (loginType == LoginType.SmartCard)
                 szLoginType = "Smart Card";
             else if (loginType == LoginType.RTO_Remote)

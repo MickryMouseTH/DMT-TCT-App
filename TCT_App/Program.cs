@@ -44,6 +44,7 @@ namespace TCT_App
             LogInfo.WriteLog("====================================================");
 */
             Application.Init();
+            UiTheme.ApplyGlobalStyle();     // v2.0.2: GUI restyle
             Gtk.Settings.Default.SetLongProperty("gtk-button-images", 1, "");
             //MainWindow win = new MainWindow();
             LoginWnd win        = new LoginWnd();
