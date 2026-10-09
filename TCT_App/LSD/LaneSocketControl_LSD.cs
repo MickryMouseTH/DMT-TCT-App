@@ -41,11 +41,15 @@ namespace TCT_App.LSD
         public LaneSocketControl_LSD()
         {
             if (!TCT_Lib.bEnableLSD)
+            {
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, "+ LaneSocketControl_LSD : disabled (bEnableLSD=false)");
                 return;
+            }
 
 
             LogInfo.WriteLogLSD("");
             LogInfo.WriteLogLSD("=====================================================================================================================");
+            LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD : endpoint={TCT_Lib.szLSD_IPAddress}:{TCT_Lib.iLSD_SocketPort}, keepAliveSec={TCT_Lib.iLSD_KeepAliveSec}, retryTime={TCT_Lib.iLSD_RetryTime}, retryWaitSec={TCT_Lib.iLSD_RetryWaitSec}");
             try
             {
                 bRunKeepAlive   = false;
@@ -69,6 +73,7 @@ namespace TCT_App.LSD
             {
                 Console.WriteLine("- Fail Initial LSD :" + err.Message);
                 LogInfo.WriteLogLSD("- Fail Initial LSD :" + err.Message);
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, "- LaneSocketControl_LSD : stack=" + err.StackTrace);
             }
         }
 
@@ -94,10 +99,12 @@ namespace TCT_App.LSD
             }
 */
             //int iRetry = 0;
+            LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.ThreadEventSendKeepAlive : start, interval={TCT_Lib.iLSD_KeepAliveSec}s");
             while (true)
             {
                 try
                 {
+                    LogInfo.WriteLogLSD(LogLevel.TRACE, $"+ LaneSocketControl_LSD.ThreadEventSendKeepAlive : tick, runKeepAlive={bRunKeepAlive}, lsdStatus={bLsdStatus}");
                     //if (bLsdStatus)
                     {
                         if (bRunKeepAlive)
@@ -158,6 +165,7 @@ namespace TCT_App.LSD
                 catch (Exception err)
                 {
                     LogInfo.WriteLogLSD("- Fail ThreadEventSendKeyAlive :" + err.Message);
+                    LogInfo.WriteLogLSD(LogLevel.DEBUG, "- LaneSocketControl_LSD.ThreadEventSendKeepAlive : stack=" + err.StackTrace);
                     //await Task.Delay(60 * 1000);
                 }
                 finally
@@ -168,6 +176,7 @@ namespace TCT_App.LSD
                         bRunKeepAlive = true;
                 }
             }
+            LogInfo.WriteLogLSD(LogLevel.DEBUG, "+ LaneSocketControl_LSD.ThreadEventSendKeepAlive : loop exit");
         }
 
         async public Task<bool> InitialSocketConnection()
@@ -185,9 +194,12 @@ namespace TCT_App.LSD
                                 }
                 */
 
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.InitialSocketConnection : connect {TCT_Lib.szLSD_IPAddress}:{TCT_Lib.iLSD_SocketPort}, timeout=500ms");
+                System.Diagnostics.Stopwatch swConnect = System.Diagnostics.Stopwatch.StartNew();
                 client      = new TcpClient();
                 var result  = client.BeginConnect(TCT_Lib.szLSD_IPAddress, TCT_Lib.iLSD_SocketPort, null, null);
                 result.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(500));
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.InitialSocketConnection : connected={client.Connected}, elapsed={swConnect.ElapsedMilliseconds}ms");
                 if (!client.Connected)
                 {
                     client.Close();
@@ -214,6 +226,7 @@ namespace TCT_App.LSD
 
                 //bRunKeepAlive = true;
 
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.InitialSocketConnection : maint={TCT_Lib.bMaintenanceMode}, lsdStatus={bLsdStatus}, runInitial={bRunInitial}, lsdMode={TCT_Lib.eCurLsdMode}");
                 if (!TCT_Lib.bMaintenanceMode)
                 {
                     if (bLsdStatus)
@@ -221,6 +234,7 @@ namespace TCT_App.LSD
                         await Task.Delay(300);
                         if (!bRunInitial)
                         {
+                            LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.InitialSocketConnection : re-show current mode {TCT_Lib.eCurLsdMode}");
                             //--------------------------------------------------------------------------
                             if (TCT_Lib.eCurLsdMode == LsdMode.LSD_CLOSE)
                                 await CmdShow_LaneClose();
@@ -236,6 +250,7 @@ namespace TCT_App.LSD
                         if (TCT_Lib.iLSD_KeepAliveSec == 0)
                         {
                             //--- Close Connnection
+                            LogInfo.WriteLogLSD(LogLevel.DEBUG, "+ LaneSocketControl_LSD.InitialSocketConnection : keepAliveSec=0, close connection + abort keep-alive thread");
                             CloseSocketConnection();
                             threadKeepAlive.Abort();
                             return true;
@@ -257,6 +272,7 @@ namespace TCT_App.LSD
                 bRunKeepAlive   = true;
                 Console.WriteLine("- Fail InitialSocketConnection LSD :" + err.Message);
                 LogInfo.WriteLogLSD("- Fail InitialSocketConnection LSD :" + err.Message);
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, "- LaneSocketControl_LSD.InitialSocketConnection : stack=" + err.StackTrace);
                 return false;
             }
         }
@@ -266,13 +282,17 @@ namespace TCT_App.LSD
             try
             {
                 TCT_Lib.bCurLsdStatus = true;
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.RunInitialLSD : autoClose={bAutoCloseConnect}, client={(client == null ? "null" : client.Connected ? "connected" : "disconnected")}");
 
                 int iMaxInitTime = 3;
                 int iCurInitTime = 1;
                 while (client == null)
                 {
                     if (iCurInitTime > iMaxInitTime)
+                    {
+                        LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.RunInitialLSD : cannot connect after {iMaxInitTime} tries, give up");
                         return false;
+                    }
                     bSuccessConnect = await InitialSocketConnection();
                     if (!bSuccessConnect)
                     {
@@ -285,6 +305,7 @@ namespace TCT_App.LSD
 
                 if (!client.Connected)
                 {
+                    LogInfo.WriteLogLSD(LogLevel.WARN, "- LaneSocketControl_LSD.RunInitialLSD : client not connected, reconnect");
                     TCT_Lib.bCurLsdStatus = false;
                     CloseSocketConnection();
                     bSuccessConnect = await InitialSocketConnection();
@@ -332,12 +353,14 @@ namespace TCT_App.LSD
             catch (Exception err)
             {
                 LogInfo.WriteLogLSD("-Error RunInitialLSD : " + err.Message);
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, "- LaneSocketControl_LSD.RunInitialLSD : stack=" + err.StackTrace);
                 return false;
             }
         }
 
         async public Task<bool> RunInitialLSD_V0()
         {
+            LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.RunInitialLSD_V0 : client={(client == null ? "null" : client.Connected ? "connected" : "disconnected")}, lsdStatus={bLsdStatus}");
             if (client == null)
             {
                 bSuccessConnect = await InitialSocketConnection();
@@ -425,6 +448,7 @@ namespace TCT_App.LSD
 
             bRunInitial     = false;
             bRunKeepAlive   = true;
+            LogInfo.WriteLogLSD(bLsdStatus ? LogLevel.DEBUG : LogLevel.WARN, $"{(bLsdStatus ? "+" : "-")} LaneSocketControl_LSD.Cmd_InitialLSD : result lsdStatus={bLsdStatus}, maint={TCT_Lib.bMaintenanceMode}, lsdMode={TCT_Lib.eCurLsdMode}");
             return bLsdStatus;
         }
 
@@ -432,6 +456,7 @@ namespace TCT_App.LSD
         {
             bRunKeepAlive   = false;
             bLsdStatus      = false;
+            LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.ReInitialLSD : close socket, wait {iWaitRestart}s then re-initial");
             CloseSocketConnection();
             //Thread.Sleep(2 * 1000);
             await Task.Delay(iWaitRestart * 1000);
@@ -450,6 +475,7 @@ namespace TCT_App.LSD
         public void CloseSocketConnection()
         {
             LogInfo.WriteLogLSD("+ CloseSocketConnection");
+            LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.CloseSocketConnection : stream={(networkStream != null)}, client={(client != null)}");
             if (networkStream != null)
             {
                 networkStream.Close();
@@ -641,6 +667,7 @@ namespace TCT_App.LSD
             byte[] bb       = StringToByteArray(szHexCmd);
             szHexCmd        += GetCRC(bb);
             szHexCmd        += szCmdJson;
+            LogInfo.WriteLogLSD(LogLevel.TRACE, $"+ LaneSocketControl_LSD.GenCmdLSD : seq={sendSeq}, cmd1={szCmd1}, jsonLen={(szCmdJson == null ? 0 : szCmdJson.Length / 2)}");
 
             return szHexCmd.ToLower();
         }
@@ -670,6 +697,8 @@ namespace TCT_App.LSD
            
             bNetWorkStatus  = true;
             bRunKeepAlive   = true;
+            LogLevel eCmdLevel = szCmdType == "KeepAlive" ? LogLevel.TRACE : LogLevel.DEBUG;
+            LogInfo.WriteLogLSD(eCmdLevel, $"+ LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, bytes={(szStrHex == null ? 0 : szStrHex.Length / 2)}, client={(client != null)}, lsdStatus={bLsdStatus}");
 
             try
             {
@@ -677,7 +706,10 @@ namespace TCT_App.LSD
                 {
                     bSuccessConnect = await InitialSocketConnection();
                     if (!bSuccessConnect)
+                    {
+                        LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : not connected, dropped cmd={szCmdType}");
                         return false;
+                    }
                 }
 /*
                 else if (!client.Connected)
@@ -692,18 +724,28 @@ namespace TCT_App.LSD
                 {
                     if (!bLsdStatus)
                     {
+                        LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : LSD not initialized, re-initial before cmd={szCmdType}");
                         if (!await ReInitialLSD())
+                        {
+                            LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : re-initial failed, dropped cmd={szCmdType}");
                             return false;
+                        }
                     }
                 }
 
                 if (networkStream == null)
+                {
+                    LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : networkStream is null, dropped cmd={szCmdType}");
                     return false;
+                }
 
                 bRunKeepAlive   = true;
                 byte[] msg      = StringToByteArray(szStrHex);
+                System.Diagnostics.Stopwatch swCmd = System.Diagnostics.Stopwatch.StartNew();
                 networkStream.Write(msg, 0, msg.Length);
                 networkStream.Flush();
+                if (szCmdType == "KeepAlive" && LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLogLSD(LogLevel.TRACE, "+ LaneSocketControl_LSD.SendCmdLSD : KeepAlive tx=" + szStrHex);
 
                 if (szCmdType != "KeepAlive")
                 {
@@ -742,6 +784,9 @@ namespace TCT_App.LSD
                     LogInfo.WriteLogLSD("+ Recv Response " + szCmdType + " -> : " + szReponseStr);
                 else
                     LogInfo.WriteLogLSD("+ Recv Response " + szCmdType);
+                LogInfo.WriteLogLSD(eCmdLevel, $"+ LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, rxLen={iLen}, elapsed={swCmd.ElapsedMilliseconds}ms");
+                if (szCmdType == "KeepAlive")
+                    LogInfo.WriteLogLSD(LogLevel.TRACE, "+ LaneSocketControl_LSD.SendCmdLSD : KeepAlive rx=" + szReponseStr);
 
                 //-----------------------------------------------------------------------
                 if (szReponseStr.Trim() == "00")
@@ -752,6 +797,7 @@ namespace TCT_App.LSD
                        (szCmdType == "ShowOpenDual") || (szCmdType == "ClearOpenDual"))
                     {
                         LogInfo.WriteLogLSD("+ Can Recv data but no response string (Length=0) from LSD Controller. Then send retry again.");
+                        LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : empty response for cmd={szCmdType}, retry once");
 
                         msg = StringToByteArray(szStrHex);
                         networkStream.Write(msg, 0, msg.Length);
@@ -768,7 +814,10 @@ namespace TCT_App.LSD
                         LogInfo.WriteLogLSD("+ Re-Recv Response " + szCmdType + " -> : " + GenHexCharList(byteRespone, iLen));
 
                         if (szReponseStr.Trim() == "00")
+                        {
+                            LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType} result=false (empty response after retry)");
                             return false;
+                        }
                     }
                 }
                 //------------------------------------------------------------------------
@@ -835,36 +884,43 @@ namespace TCT_App.LSD
                             LogInfo.WriteLogLSD("+ Open Dual Id = " + szIdOpenDual);
                         }
 
+                        LogInfo.WriteLogLSD(eCmdLevel, $"+ LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType} result=true");
                         return true;
                     }
                     catch (Exception err)
                     {
                         bLsdStatus = false;
                         LogInfo.WriteLogLSD("- Error SYNC : " + err.Message);
+                        LogInfo.WriteLogLSD(LogLevel.DEBUG, $"- LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, stack={err.StackTrace}");
                         return false;
                     }
                 }
+                LogInfo.WriteLogLSD(eCmdLevel, $"+ LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType} result=true (short response)");
                 return true;
             }
             catch (SocketException err)
             {
                 LogInfo.WriteLogLSD("- Error Send Command LSD (SocketException) : " + err.Message);
+                LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, socket error code={err.SocketErrorCode}, reconnect + re-initial");
                 bLsdStatus = false;
                 await InitialSocketConnection();
                 //if (!bLsdStatus)
                 {
                     bool bResult = await ReInitialLSD();
+                    LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, re-initial result={bResult}");
                     return bResult;
                 }
             }
             catch (IOException err)
             {
                 LogInfo.WriteLogLSD("- Error Send Command LSD (IOException) : " + err.Message);
+                LogInfo.WriteLogLSD(LogLevel.WARN, $"- LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, IO error (timeout/closed), reconnect + re-initial");
                 bLsdStatus = false;
                 await InitialSocketConnection();
                 //if (!bLsdStatus)
                 {
                     bool bResult = await ReInitialLSD();
+                    LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, re-initial result={bResult}");
                     return bResult;
                 }
             }
@@ -875,10 +931,12 @@ namespace TCT_App.LSD
                 else
                     bLsdStatus = false;
                 LogInfo.WriteLogLSD("- Error Send Command LSD : " + err.Message);
+                LogInfo.WriteLogLSD(LogLevel.DEBUG, $"- LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, stack={err.StackTrace}");
                 await InitialSocketConnection();
                 //if (!bLsdStatus)
                 {
                     bool bResult = await ReInitialLSD();
+                    LogInfo.WriteLogLSD(LogLevel.DEBUG, $"+ LaneSocketControl_LSD.SendCmdLSD : cmd={szCmdType}, re-initial result={bResult}");
                     return bResult;
                 }
 

@@ -106,6 +106,7 @@ class Ctx:
         with urllib.request.urlopen(f"{PANEL}/api/shot", timeout=15) as r:
             (RESULT / fn).write_bytes(r.read())
         self.notes.append(f"    ภาพ: {fn}")
+        return RESULT / fn
 
     def check(self, cond, msg):
         self.notes.append(("    ✔ " if cond else "    ✘ ") + msg)
@@ -155,6 +156,7 @@ def restart_tct():
     time.sleep(5)
     for i in range(16):
         post(action="di", idx=i, value=0)
+    post(action="ta", mode="ok", reset=True)       # TA จำลอง: คืนคูปองที่ขายไปแล้ว (เริ่มกะใหม่)
 
 
 def kb_login(staff="99001", pw="123456"):
@@ -442,7 +444,13 @@ def t_coupon(c):
     time.sleep(3)
     c.shot("coupon_popup")
     press("1")
-    c.shot("coupon_selected")
+    time.sleep(1)
+    img = c.shot("coupon_selected")
+    #--- ต้องเห็นบนจอว่าเลือกแล้ว (เดิม Popup ค้างการวาด: เลือกได้จริงแต่จอไม่เปลี่ยน -> พนักงานนึกว่ากดไม่ติด)
+    from PIL import Image
+    px = Image.open(img).convert("RGB").getpixel((115, 195))     # มุมซ้ายบนของช่อง [1]
+    c.check(all(abs(a - b) <= 24 for a, b in zip(px, (0xB8, 0xE6, 0xC6))),
+            f"ช่อง [1] เปลี่ยนเป็นสีจาง (เลือกแล้ว) บนจอ: RGB{px} (คาด ~(184, 230, 198))")
     press("เงินสด", "ยืนยัน")
     time.sleep(3)
     c.shot("after_sold")
@@ -463,6 +471,229 @@ def t_coupon_cancel(c):
     c.check(len(sold) == 0, "ไม่มีการขาย")
     rto = [it for it in state(c.m.seq)["logs"] if it["src"] == "RTO" and "SALES_COUPON" in it["text"]]
     c.check(len(rto) >= 2, f"RTO ได้ SALES_COUPON เปิด/ปิด {len(rto)} ครั้ง (คาด 2)")
+
+
+# ---------------------------------------------------------------- v2.0.4 : ขายคูปอง — ทุกเส้นทาง
+def ta_mode(mode="ok"):
+    post(action="ta", mode=mode)
+    time.sleep(0.5)
+
+
+def ta_sold(c):
+    return [it for it in state(c.m.seq)["logs"] if it["src"] == "TA" and "SoldCoupon" in it["text"]]
+
+
+def edc_sales(c):
+    return [t for t in edc_logs(c) if "ขอ 20" in t]
+
+
+def open_coupon(c, label="coupon_popup"):
+    press("ขายคูปอง")
+    time.sleep(3)
+    c.shot(label)
+
+
+def popup_closed(c):
+    return any("SalesCoupon : popup closed" in l for l in c.m.lines())
+
+
+@case("j_sale_coupon_print", "[ขายคูปอง] → [1] → [เงินสด] → [พิมพ์ใบเสร็จ] → ขาย 1 ใบ + พิมพ์ใบเสร็จคูปอง")
+def t_coupon_print(c):
+    open_coupon(c)
+    press("1", "เงินสด", "พิมพ์ใบเสร็จ")
+    time.sleep(3)
+    c.shot("after_print")
+    c.check(len(ta_sold(c)) == 1, f"TA ได้ SoldCoupon {len(ta_sold(c))} รายการ (คาด 1)")
+    c.log_has("PrintSalesCoupon : sent", "ส่งใบเสร็จคูปองไปเครื่องพิมพ์")
+    c.log_has("popup closed (Ok, printed)", "popup ปิดหลังพิมพ์")
+
+
+@case("j_sale_coupon_multi", "[ขายคูปอง] → [1] [2] (35) → [▶] → [1] (80) → [ยืนยัน] → ขาย 3 ใบ รวม 150 บาท")
+def t_coupon_multi(c):
+    open_coupon(c)
+    press("1", "2", "▶", "1")
+    time.sleep(1)
+    c.shot("selected_3")
+    press("ยืนยัน")
+    time.sleep(3)
+    sold = ta_sold(c)
+    c.check(len(sold) == 3, f"TA ได้ SoldCoupon {len(sold)} รายการ (คาด 3)")
+    total = sum(float((it.get("data") or {}).get("price") or 0) for it in sold)
+    types = sorted((it.get("data") or {}).get("coupontype") for it in sold)
+    c.check(total == 150 and types == ["35", "35", "80"], f"ชนิด {types} รวม {total:.0f} บาท (คาด 35,35,80 = 150)")
+    c.log_has("type1 x2, type2 x1", "รายการขายในฐานข้อมูล: ชนิด 35 x2, ชนิด 80 x1")
+
+
+@case("j_sale_coupon_toggle_none", "[ขายคูปอง] → [1] [1] (เลือกแล้วยกเลิก) → [ยืนยัน] ต้องไม่ขาย popup ยังเปิด → [แก้ไข]")
+def t_coupon_toggle(c):
+    open_coupon(c)
+    press("1", "1", "ยืนยัน")
+    time.sleep(2)
+    c.shot("no_selection")
+    c.log_has("no coupon selected", "แจ้ง 'ไม่พบการเลือกคูปอง'")
+    c.check(not popup_closed(c), "popup ยังเปิดอยู่")
+    c.check(len(ta_sold(c)) == 0, "ไม่มีการขาย")
+    press("แก้ไข")
+    time.sleep(2)
+    c.check(popup_closed(c), "[แก้ไข] ปิด popup ได้")
+
+
+@case("j_sale_coupon_emv", "[ขายคูปอง] → [1] → [EMV] → EDC อนุมัติ → [ยืนยัน] → TA ได้ SoldCoupon แบบ EMV พร้อมข้อมูลบัตร")
+def t_coupon_emv(c):
+    edc_mode("approve")
+    open_coupon(c)
+    press("1", "EMV")
+    time.sleep(5)
+    c.shot("after_approve")
+    c.log_has("Success Pay Sales Coupon with EMV", "popup ได้รับผลอนุมัติจาก EDC")
+    c.log_has("current-car card data restored", "popup EMV ถูก Dispose และคืนข้อมูลบัตรของรถคันปัจจุบัน")
+    press("ยืนยัน")
+    time.sleep(3)
+    sold = ta_sold(c)
+    c.check(len(sold) == 1, f"TA ได้ SoldCoupon {len(sold)} รายการ (คาด 1)")
+    if sold:
+        d = sold[0].get("data") or {}
+        c.check(d.get("paytypeid") == 1 and bool(d.get("edccardno")),
+                f"TA: paytype={d.get('paytypename')} card={d.get('edccardno')} ref3={d.get('edcref3')} (คาด EMV + ข้อมูลบัตร)")
+    c.check(len(edc_sales(c)) == 1, f"EDC ได้คำขอชำระ {len(edc_sales(c))} ครั้ง (คาด 1)")
+
+
+@case("j_sale_coupon_emv_twice", "[บั๊ก] [1] → [EMV] อนุมัติ → กด [EMV] ซ้ำ → ต้องไม่ตัดบัตรซ้ำ → [ยืนยัน]")
+def t_coupon_emv_twice(c):
+    edc_mode("approve")
+    open_coupon(c)
+    press("1", "EMV")
+    time.sleep(5)
+    press("EMV")
+    time.sleep(3)
+    c.shot("after_second_emv")
+    c.log_has("EMV ignored, already paid", "กด [EMV] ซ้ำถูกปฏิเสธ")
+    c.check(len(edc_sales(c)) == 1, f"EDC ได้คำขอชำระ {len(edc_sales(c))} ครั้ง (คาด 1 = ไม่ตัดบัตรซ้ำ)")
+    press("ยืนยัน")
+    time.sleep(3)
+    c.check(len(ta_sold(c)) == 1, f"TA ได้ SoldCoupon {len(ta_sold(c))} รายการ (คาด 1)")
+
+
+@case("j_sale_coupon_emv_cancel", "[บั๊ก] [1] → [EMV] อนุมัติ → [แก้ไข] ต้องปิดไม่ได้ (บัตรถูกตัดแล้ว) → [ยืนยัน] ขายได้")
+def t_coupon_emv_cancel(c):
+    edc_mode("approve")
+    open_coupon(c)
+    press("1", "EMV")
+    time.sleep(5)
+    press("แก้ไข")
+    time.sleep(2)
+    c.shot("after_cancel_try")
+    c.log_has("cancel ignored, already paid", "[แก้ไข] หลังอนุมัติถูกปฏิเสธ")
+    c.check(not popup_closed(c), "popup ยังเปิดอยู่")
+    c.check(len(ta_sold(c)) == 0, "ยังไม่มีการขาย (รอยืนยัน)")
+    press("ยืนยัน")
+    time.sleep(3)
+    sold = ta_sold(c)
+    c.check(len(sold) == 1 and (sold[0].get("data") or {}).get("paytypeid") == 1, f"TA ได้ SoldCoupon {len(sold)} รายการ แบบ EMV")
+
+
+@case("j_sale_coupon_emv_decline", "[1] → [EMV] → EDC ปฏิเสธ → กลับเป็นเงินสด → [ยืนยัน] ขายแบบเงินสด")
+def t_coupon_emv_decline(c):
+    edc_mode("decline")
+    open_coupon(c)
+    press("1", "EMV")
+    time.sleep(4)
+    c.shot("declined")
+    if not any("EdcPaymentDlg_V1 closed" in l for l in c.m.lines()):
+        press("แก้ไข")                                 # ปิด popup EMV ที่ค้างแสดงผลปฏิเสธ
+        time.sleep(3)
+    c.log_has("payment not approved -> back to pay Cash", "กลับเป็นเงินสดหลังบัตรถูกปฏิเสธ")
+    c.check(not popup_closed(c), "popup ขายคูปองยังเปิดอยู่")
+    press("ยืนยัน")
+    time.sleep(3)
+    sold = ta_sold(c)
+    c.check(len(sold) == 1 and (sold[0].get("data") or {}).get("paytypeid") == 0, f"TA ได้ SoldCoupon {len(sold)} รายการ แบบเงินสด")
+    edc_mode("approve")
+
+
+@case("j_sale_coupon_emv_then_car", "[บั๊ก] รถจ่าย EMV แล้วยังไม่ผ่าน → ขายคูปองด้วย EMV → รถผ่าน → รายการรถต้องเป็นบัตรของรถ ไม่ใช่ของคูปอง")
+def t_coupon_emv_then_car(c):
+    edc_mode("approve")
+    press("รถประเภท1", "EMV")
+    time.sleep(5)
+    c.log_has("Response OK from EMV", "รถจ่าย EMV สำเร็จ")
+    open_coupon(c)
+    press("1", "EMV")
+    time.sleep(5)
+    press("ยืนยัน")
+    time.sleep(3)
+    sold = ta_sold(c)
+    c.check(len(sold) == 1, f"TA ได้ SoldCoupon {len(sold)} รายการ (คาด 1)")
+    scn("normal", 3)
+    time.sleep(5)
+    c.expect_trans(1, cls=1, pay="EMV")
+    dc = c.trans("DC")
+    if dc and sold:
+        edc = dc[-1].get("edcInfo") or {}
+        cp = sold[0].get("data") or {}
+        c.info(f"รายการรถ: approve={edc.get('approveCode')} amount={edc.get('transAmount')} ref3={edc.get('transRef')} | คูปอง: amount={cp.get('edcamount')} ref3={cp.get('edcref3')}")
+        c.check(bool(edc.get("approveCode")), "รายการรถมีข้อมูลบัตร (EmvDetail)")
+        c.check(edc.get("transRef") != cp.get("edcref3"), "ข้อมูลบัตรของรถไม่ใช่ของคูปอง (ref3 ต่างกัน)")
+        c.check(str(edc.get("transAmount") or "") != "3500", "ยอดบัตรของรถไม่ใช่ 35 บาทของคูปอง")
+
+
+@case("j_sale_coupon_escape_reopen", "[บั๊ก] Escape บนคีย์บอร์ดต้องไม่ปิด popup → [แก้ไข] → เปิดใหม่ → คีย์ไม่ถูกส่งซ้ำ")
+def t_coupon_escape(c):
+    open_coupon(c)
+    post(action="kb", k="Escape", name="Escape")
+    time.sleep(2)
+    c.shot("after_escape")
+    c.check(not popup_closed(c), "Escape ไม่ปิด popup (ไม่มี delete-event หลุดไป GTK)")
+    c.check(not any("delete-event" in l for l in c.m.lines()), "ไม่เกิด delete-event")
+    press("แก้ไข")
+    time.sleep(2)
+    c.check(popup_closed(c), "[แก้ไข] ปิด popup ได้")
+    rto1 = len([it for it in state(c.m.seq)["logs"] if it["src"] == "RTO" and "SALES_COUPON" in it["text"]])
+    open_coupon(c, "reopened")
+    press("1")
+    time.sleep(1.5)
+    n = sum("coupon type1 [1]" in l and "selected" in l for l in c.m.lines())
+    c.check(n == 1, f"เปิดครั้งที่ 2: เลือก [1] ถูกบันทึก {n} ครั้ง (คาด 1 = handler ไม่ซ้อน)")
+    press("แก้ไข")
+    time.sleep(2)
+    rto2 = len([it for it in state(c.m.seq)["logs"] if it["src"] == "RTO" and "SALES_COUPON" in it["text"]])
+    c.check(rto1 == 2 and rto2 == 4, f"RTO ได้ SALES_COUPON เปิด/ปิด {rto2} ครั้ง (คาด 4)")
+
+
+@case("j_sale_coupon_ta_error", "[บั๊ก] TA ตอบ error ตอนเปิด popup → รายการคูปองเดิมต้องยังอยู่ (ไม่ถูกล้าง)")
+def t_coupon_ta_error(c):
+    ta_mode("error")
+    open_coupon(c, "ta_error_popup")
+    c.log_has("Fail CallWebService_GetCoupons", "TA ตอบ error")
+    c.check(not any("loaded type1 '35' 0 coupons" in l for l in c.m.lines()), "รายการคูปองชนิด 35 ไม่ว่าง")
+    press("1")
+    time.sleep(1.5)
+    c.log_has("-> selected", "เลือกคูปองได้")
+    press("แก้ไข")
+    time.sleep(2)
+    ta_mode("ok")
+
+
+@case("j_sale_coupon_ta_slow", "[บั๊ก] TA ช้า (timeout) ตอนเปิด popup → popup ยังเปิดพร้อมคูปองเดิม / ขายแล้ว TA ช้า จอต้องไม่ค้าง")
+def t_coupon_ta_slow(c):
+    ta_mode("slow")
+    press("ขายคูปอง")
+    time.sleep(6)
+    c.shot("ta_slow_popup")
+    c.log_has("Error CallWebService_GetCoupons", "GetCoupons timeout")
+    c.check(not any("loaded type1 '35' 0 coupons" in l for l in c.m.lines()), "รายการคูปองชนิด 35 ไม่ว่าง")
+    press("1", "ยืนยัน")
+    t0 = time.time()
+    time.sleep(1)
+    press("รถประเภท1")                                 # จอต้องรับคีย์ได้ทันทีแม้ TA ยังไม่ตอบ
+    time.sleep(1.5)
+    c.check(popup_closed(c), "popup ปิดทันทีหลัง [ยืนยัน] (ไม่รอ TA)")
+    c.log_has("Press CLASS 1", "หน้าหลักรับคีย์ได้ทันที (จอไม่ค้างรอ TA)")
+    c.info(f"ตรวจภายใน {time.time() - t0:.1f} วินาทีหลังยืนยัน")
+    ta_mode("ok")
+    time.sleep(8)
+    c.check(any("SendSoldCouponsToTA" in l for l in c.m.lines()), "มีการส่ง SoldCoupon แบบ background (retry)")
+    press("FORCE_RESET")
 
 
 @case("k_emv_popup", "[รถประเภท 1] → [EMV] (Popup) → [แก้ไข] ยกเลิก")

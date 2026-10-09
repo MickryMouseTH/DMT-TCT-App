@@ -59,6 +59,8 @@ namespace TCT_App.EMV.EMV_V1
 
             LogInfo.WriteLogEDC("");
             LogInfo.WriteLogEDC("+------------------ Start CreditCard Payment V.1 --------------------");
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ EdcPaymentDlg_V1 : open, amount={fPayAmount}, towing={bTowing}, edc={TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}, recvPort={TCT_Lib.iEdcRecvPort}, ackDelay={TCT_Lib.iEdcRelayMilliSecBeforeAck}ms");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EMV popup opened : amount={fPayAmount}, towing={bTowing}");
             TCT_Lib.laneController.manageProcessEMV += LaneController_ManageProcessEMV;
 
             //this.DeleteEvent += new DeleteEventHandler(OnDlgDelete);
@@ -140,6 +142,7 @@ namespace TCT_App.EMV.EMV_V1
 
         void OnDlgDelete(object sender, DeleteEventArgs a)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ OnDlgDelete : dialog delete event");
             Application.Invoke(delegate
             {
                 TCT_Lib.bActiveEMVDlg = false;
@@ -156,6 +159,7 @@ namespace TCT_App.EMV.EMV_V1
 
         protected void OnDeleteEvent(object o, DeleteEventArgs args)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ OnDeleteEvent : dialog delete event");
             Application.Invoke(delegate
             {
                 TCT_Lib.bActiveEMVDlg = false;
@@ -221,6 +225,7 @@ namespace TCT_App.EMV.EMV_V1
                 LogInfo.WriteLogEDC($"+ Generate EDC Payment (#2) : Amount={fAmount}, Ref1={szRef1}, Ref2={szRef2}, Ref3={szRef3}, Ref4={szRef4}");
                 string szStrMsg = ClassLibEDC_V1.GenHexCharList(byteMsg);
                 LogInfo.WriteLogEDC("+ Payment Hex Message : " + szStrMsg);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartPaymentEDC : build cmd=20(Purchase) result={bResult}, err={szErrMsg}, frameLen={byteMsg?.Length ?? 0}, jobNo={TCT_Lib.iJobNo}, nTrx={iEdc_nTrx}");
 
                 if (!bTowing)
                     TCT_Lib.xCurEMV.requestText     = "";
@@ -234,16 +239,20 @@ namespace TCT_App.EMV.EMV_V1
                 sendSocket                  = new System.Net.Sockets.Socket(sendEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
                 sendSocket.SendTimeout      = 2 * 1000;
                 sendSocket.ReceiveTimeout   = 2 * 1000;
+                var swEdc                   = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     //string szStr    = EdcLib.GenHexCharList(byteMsg);
                     //Console.WriteLine(szStr);
 
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartPaymentEDC : connect {TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}, sendTimeout=2000ms, recvTimeout=2000ms");
                     sendSocket.Connect(sendEndPoint);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartPaymentEDC : connected={sendSocket.Connected}, elapsed={swEdc.ElapsedMilliseconds}ms");
                     //Thread.Sleep(1000);
                     if (sendSocket.Connected)
                     {
                         sendSocket.Send(byteMsg);
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartPaymentEDC : sent {byteMsg?.Length ?? 0} bytes, wait ack");
 
                         //Thread.Sleep(TCT_Lib.iEdcRelayMilliSecBeforeAck);   // Add this line when 2025-08-04 (Fix cannot recv ack from send request)
                         //Thread.Sleep(100);
@@ -254,8 +263,10 @@ namespace TCT_App.EMV.EMV_V1
                         string szResultStr = ClassLibEDC_V1.GenHexCharList(bAck);
                         int iAck = bAck[0];
                         LogInfo.WriteLogEDC("+ Ack Data from EDC (Payment) : " + iAck);
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartPaymentEDC : ack bytes={iTotalByte}, ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}), elapsed={swEdc.ElapsedMilliseconds}ms");
                         if (iAck != 0x06) // Ack
                         {
+                            LogInfo.WriteLogEDC(LogLevel.WARN, $"- Warning Process_StartPaymentEDC : ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}) is not ACK(06)");
                             Application.Invoke(delegate {
                                 txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
                                 if (iAck == 0x04)
@@ -297,7 +308,10 @@ namespace TCT_App.EMV.EMV_V1
                         sendSocket.Dispose();
                         sendSocket = null;
                         LogInfo.WriteLogEDC("+ Success Close SendSocket");
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartPaymentEDC : request done, bStartCmd={bStartCmd}, total={swEdc.ElapsedMilliseconds}ms, wait response on port {TCT_Lib.iEdcRecvPort}");
                     }
+                    else
+                        LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning Process_StartPaymentEDC : socket not connected, payment request not sent");
 
                     return;
                 }
@@ -317,6 +331,8 @@ namespace TCT_App.EMV.EMV_V1
                         sendSocket = null;
                     }
                     Console.WriteLine("- Error Send Credit Payment : " + err.Message);
+                    LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error Process_StartPaymentEDC : SocketException {err.SocketErrorCode} {err.Message}, elapsed={swEdc.ElapsedMilliseconds}ms");
+                    LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning EMV request not sent : {err.Message}");
                     Application.Invoke(delegate {
                         if (err.Message == "No route to host")      // Not found EDC Hosting
                         {
@@ -370,6 +386,7 @@ namespace TCT_App.EMV.EMV_V1
 
                 Console.WriteLine("- Error Exception Send Credit Payment : " + err.Message);
                 LogInfo.WriteLogEDC("- Error Exception Send Credit Payment : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_StartPaymentEDC : stack=" + err.StackTrace);
 
 /*
                 Application.Invoke(delegate {
@@ -384,6 +401,7 @@ namespace TCT_App.EMV.EMV_V1
                 // 2025-08-04  : Try to fix  TCT cannot found Ack from EDC
                 if (err.Message == "Operation on non-blocking socket would block")
                 {
+                    LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning Process_StartPaymentEDC : ack timeout (would block) -> close popup with ResponseType.None");
                     RespondOnGtk(ResponseType.None);   // v2.0.2: was Dispose()/Destroy() off the GTK thread
                 }
                 else
@@ -406,6 +424,7 @@ namespace TCT_App.EMV.EMV_V1
             eventThread.Priority        = ThreadPriority.Normal;
             eventThread.IsBackground    = true;
             eventThread.Start();
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ InitSocketRecvEDC : recv thread started");
         }
 
         int iCountFn = 0;
@@ -416,6 +435,7 @@ namespace TCT_App.EMV.EMV_V1
                 //IPAddress ipAddr        = IPAddress.Parse(TCT_Lib.szEdcIPAddress);
                 IPAddress ipAddr        = IPAddress.Any;
                 IPEndPoint recvEndPoint = new IPEndPoint(ipAddr, TCT_Lib.iEdcRecvPort);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : start, port={TCT_Lib.iEdcRecvPort}, retry={iCountFn}");
 
                 System.Net.Sockets.Socket clientSocket = null;
                 try
@@ -427,6 +447,7 @@ namespace TCT_App.EMV.EMV_V1
                     recvSocket.Bind(recvEndPoint);
                     // Using Listen() method we create the Client list that will want to connect to Server
                     recvSocket.Listen(10);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : listening, accept/recv timeout=3000ms");
 
                     bool bRunning = true;
                     while (bRunning)
@@ -437,7 +458,11 @@ namespace TCT_App.EMV.EMV_V1
                             byte[] bytes    = new Byte[2048];
                             //string data     = null;
                             clientSocket    = recvSocket.Accept();
+                            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : accepted " + ClassLibEDC.SafeEndPoint(clientSocket));
                             int numByte     = clientSocket.Receive(bytes);
+                            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : recv {numByte} bytes, bCancel={bCancel}");
+                            if (numByte == 0)
+                                LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning ThreadEventRecvServer : empty frame (peer closed), keep listening");
                             byte[] byteData = new byte[numByte];
                             Array.Copy(bytes, 0, byteData, 0, numByte);
                             string szStrMsg = ClassLibEDC_V1.GenHexCharList(byteData);
@@ -462,6 +487,7 @@ namespace TCT_App.EMV.EMV_V1
 
                                 if (bCancel)
                                 {
+                                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : reply after cancel -> respond Cancel, thread exit");
                                     TCT_Lib.bActiveEMVDlg = false;
                                     TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
                                     //eventThread.Abort();
@@ -493,6 +519,7 @@ namespace TCT_App.EMV.EMV_V1
                                     {
                                         AnalysisEdcMsg(byteData);
                                         bRunning = false;
+                                        LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : reply handled, bHasResult={bHasResult}, bError={bError}, loop end");
                                     }
                                    
                                     /*
@@ -524,6 +551,12 @@ namespace TCT_App.EMV.EMV_V1
                         {
                             bRunning = false;
                             Console.WriteLine(err.Message);
+                            if (err.Message == "Operation on non-blocking socket would block")
+                                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : accept/recv timeout 3000ms, keep listening");
+                            else if (bCancel)
+                                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : socket closed by cancel ({err.SocketErrorCode}), loop end");
+                            else
+                                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error ThreadEventRecvServer : SocketException {err.SocketErrorCode} {err.Message}, loop end");
                             if (clientSocket != null)
                             {
                                 //clientSocket.Shutdown(SocketShutdown.Both);
@@ -548,6 +581,13 @@ namespace TCT_App.EMV.EMV_V1
                         {
                             bRunning = false;
                             Console.WriteLine(err.Message);
+                            if (bCancel)
+                                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : {err.GetType().Name} after cancel, loop end");
+                            else
+                            {
+                                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error ThreadEventRecvServer : {err.GetType().Name} {err.Message}, loop end");
+                                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : stack=" + err.StackTrace);
+                            }
                             if (clientSocket != null)
                             {
                                 //clientSocket.Shutdown(SocketShutdown.Both);
@@ -568,6 +608,7 @@ namespace TCT_App.EMV.EMV_V1
                 }
                 catch (SocketException err)
                 {
+                    LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error ThreadEventRecvServer : listen SocketException {err.SocketErrorCode} {err.Message}, retry={iCountFn}");
                     if (err.Message == "Address already in use")
                     {
                         LogInfo.WriteLogEDC("- Error Recv server 1 : " + err.Message);
@@ -606,6 +647,8 @@ namespace TCT_App.EMV.EMV_V1
                 catch (Exception e)
                 {
                     Console.WriteLine(e.Message);
+                    LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error ThreadEventRecvServer : {e.GetType().Name} {e.Message}");
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : stack=" + e.StackTrace);
                     if (e.Message == "Address already in use")
                     {
                         LogInfo.WriteLogEDC("- Error Recv server 2 : " + e.Message);
@@ -617,6 +660,7 @@ namespace TCT_App.EMV.EMV_V1
                 }
                 finally
                 {
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : thread exit, bHasResult={bHasResult}, bCancel={bCancel}, bError={bError}");
                     if (clientSocket != null)
                     {
                         //clientSocket.Shutdown(SocketShutdown.Both);
@@ -640,6 +684,7 @@ namespace TCT_App.EMV.EMV_V1
                 {
                     Encoding enc        = new ASCIIEncoding();
                     string szResponse   = Encoding.ASCII.GetString(byteMsg);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ AnalysisEdcMsg : len={byteMsg?.Length ?? 0}, towing={bTowing}");
                 //Console.WriteLine("+ Result Response : " + szResponse);
                 //LogInfo.WriteLogEDC("+ EDC Result Response (Pay EMV) : " + szResponse);
 
@@ -676,12 +721,14 @@ namespace TCT_App.EMV.EMV_V1
                     Console.WriteLine("+ Response Code : " + szRespCode);
                     Console.WriteLine("-");
                     LogInfo.WriteLogEDC("+ EDC Response Code (Pay EMV) : " + szRespCode);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ AnalysisEdcMsg : transCode={szResponse.Substring(15, 2)}, respCode={szRespCode} ({ClassLibEDC_V1.GetResponseMsg(szRespCode)})");
                     if (szRespCode != "00")
                     {
                         string szErrCodeMsg     = ClassLibEDC_V1.GetResponseMsg(szRespCode);
                         string szErrorShowMsg   = ClassLibEDC_V1.ShowResponseMsg(szRespCode);
                         //Console.WriteLine($"Error Code : {szRespCode}, Error Text : szErrCodeMsg");
                         LogInfo.WriteLogEDC($"Error Code : {szRespCode}, Error Text : " + szErrCodeMsg);
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning EMV not approved : code={szRespCode} ({szErrCodeMsg}), amount={fPayAmount}");
                         //txtMsg.Text = $"{szErrorShowMsg}";
                         Application.Invoke(delegate {
                             txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
@@ -743,8 +790,10 @@ namespace TCT_App.EMV.EMV_V1
                         xOutCreditCard.szRef2       = xOutCreditCard.szRef2 ?? "";
                         xOutCreditCard.szCardNo     = xOutCreditCard.szCardNo ?? "";
                         xOutCreditCard.szInvoiceNo  = xOutCreditCard.szInvoiceNo ?? "";
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : parsed " + ClassLibEDC.CardInfoSummary(xOutCreditCard));
                         if ((xOutCreditCard.szRef1 != szRef1) || (xOutCreditCard.szRef2 != szRef2))
                         {
+                            LogInfo.WriteLaneEvent(LogLevel.WARN, "- Warning EMV result rejected : reference not match");
                             LogInfo.WriteLogEDC($"- Warning...Reference is not match, CurRef={szRef1}, Result-Ref1={xOutCreditCard.szRef1}, CurRef2={szRef2}, Result-Ref2={xOutCreditCard.szRef2}");
 
                             Application.Invoke(delegate {
@@ -765,6 +814,7 @@ namespace TCT_App.EMV.EMV_V1
                         if (xOutCreditCard.szCardNo == "")
                         {
                             LogInfo.WriteLogEDC($"- Warning...Card No is not found.");
+                            LogInfo.WriteLaneEvent(LogLevel.WARN, "- Warning EMV result rejected : card no not found");
                             //----------------
 
                             int iAlarmID = (int)TCT_Lib.LaneDB.WriteLaneAlarmRTO(AlarmDevice.EDC_WARNING, AlarmType.Occurred, $"EMV payment not found Card No", $"");
@@ -776,6 +826,7 @@ namespace TCT_App.EMV.EMV_V1
                         if (xOutCreditCard.szInvoiceNo != "")
                         {
                             LogInfo.WriteLogEDC($"- Warning...Invoice is {xOutCreditCard.szInvoiceNo}, then this is QR Payment (Not EMV Payment)");
+                            LogInfo.WriteLaneEvent(LogLevel.WARN, "- Warning EMV result rejected : invoice present (QR result)");
                             //----------------
 
                             int iAlarmID = (int)TCT_Lib.LaneDB.WriteLaneAlarmRTO(AlarmDevice.EDC_WARNING, AlarmType.Occurred, $"EMV payment, InvoiceNo ( {xOutCreditCard.szInvoiceNo}), Payment is not match (QR Code)", $"");
@@ -912,6 +963,8 @@ namespace TCT_App.EMV.EMV_V1
                     {
                         TCT_Lib.bActiveEMVDlg = false;
                         TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : approved -> respond Ok");
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EMV popup closed : Ok, amount={fPayAmount}");
                         RespondOnGtk(ResponseType.Ok);   // v2.0.2: was Respond() on socket thread
 
                         Thread.Sleep(500);
@@ -942,6 +995,7 @@ namespace TCT_App.EMV.EMV_V1
                     {
                         Console.WriteLine("- Error AnalysisEdcMsg EMV Payment : " + err.Message);
                         LogInfo.WriteLogEDC("- Error AnalysisEdcMsg EMV Payment : " + err.Message);
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg (close) : stack=" + err.StackTrace);
 
 /*
                         LogInfo.WriteLogEDC("+ Before Clear Thread");
@@ -966,6 +1020,7 @@ namespace TCT_App.EMV.EMV_V1
                 {
                     Console.WriteLine("- Error AnalysisEdcMsg EMV Payment : " + err.Message);
                     LogInfo.WriteLogEDC("- Error AnalysisEdcMsg EMV Payment : " + err.Message);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : stack=" + err.StackTrace);
 
 /*
                     LogInfo.WriteLogEDC("+ Before Clear Thread");
@@ -1001,6 +1056,7 @@ namespace TCT_App.EMV.EMV_V1
             bool bResult        = ClassLibEDC_V1.GenerateCancelEdcMessage_V1(ref byteMsg, ref szCmdMsg, ref szErrMsg);
             string szStrMsg     = ClassLibEDC_V1.GenHexCharList(byteMsg);
             LogInfo.WriteLogEDC("+ Cancel Credit Payment Hex : " + szStrMsg);
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelPayEDC : build cmd=CP(Cancel) result={bResult}, err={szErrMsg}, frameLen={byteMsg?.Length ?? 0}");
 
             //-------------------------------------------------
             IPAddress ipAddr            = IPAddress.Parse(TCT_Lib.szEdcIPAddress);
@@ -1008,14 +1064,17 @@ namespace TCT_App.EMV.EMV_V1
             System.Net.Sockets.Socket sendSocket = new System.Net.Sockets.Socket(sendEndPoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             sendSocket.SendTimeout      = 5 * 1000;
             sendSocket.ReceiveTimeout   = 5 * 1000;
+            var swEdc                   = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 //string szStr    = EdcLib.GenHexCharList(byteMsg);
                 //Console.WriteLine(szStr);
 
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelPayEDC : connect {TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}, sendTimeout=5000ms, recvTimeout=5000ms");
                 sendSocket.Connect(sendEndPoint);
                 sendSocket.Send(byteMsg);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelPayEDC : sent {byteMsg?.Length ?? 0} bytes, elapsed={swEdc.ElapsedMilliseconds}ms, wait ack");
 
                 Application.Invoke(delegate
                 { 
@@ -1028,8 +1087,10 @@ namespace TCT_App.EMV.EMV_V1
 
                 string szResultStr  = ClassLibEDC_V1.GenHexCharList(bAck);
                 int iAck            = bAck[0];
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelPayEDC : ack bytes={iTotalByte}, ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}), elapsed={swEdc.ElapsedMilliseconds}ms");
                 if (iAck != 0x05) // Ack
                 {
+                    LogInfo.WriteLogEDC(LogLevel.WARN, $"- Warning Process_CancelPayEDC : ack=0x{iAck:X2} is not expected 0x05");
                     Application.Invoke(delegate
                     {
                         txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
@@ -1067,6 +1128,8 @@ namespace TCT_App.EMV.EMV_V1
                 //sendSocket.Shutdown(SocketShutdown.Both);
                 sendSocket.Close();
                 Console.WriteLine("- Error Send Cancel Credit Payment : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error Process_CancelPayEDC : SocketException {err.SocketErrorCode} {err.Message}, elapsed={swEdc.ElapsedMilliseconds}ms");
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_CancelPayEDC : stack=" + err.StackTrace);
 
                 return false;
             }
@@ -1074,6 +1137,7 @@ namespace TCT_App.EMV.EMV_V1
 
         protected void OnBtnCancelClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ OnBtnCancelClicked : operator cancel");
 
 #if __TEST_EDC__
             SimEMV();
@@ -1090,12 +1154,16 @@ namespace TCT_App.EMV.EMV_V1
 
         protected void Process_CancelEMV()
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelEMV : bError={bError}, bStartCmd={bStartCmd}, bHasResult={bHasResult}");
             if (!bError)
             {
                 if (bStartCmd)
                 {
                     if (!Process_CancelPayEDC())
+                    {
+                        LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning Process_CancelEMV : cancel command failed, popup stays open");
                         return;
+                    }
                 }
             }
 
@@ -1128,10 +1196,12 @@ namespace TCT_App.EMV.EMV_V1
             catch (Exception err)
             {
                 LogInfo.WriteLogEDC("- Error Cancel CreditCard : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_CancelEMV : stack=" + err.StackTrace);
             }
             finally
             {
                 LogInfo.WriteLogEDC("+ Complete Cancel CreditCard Payment");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EMV popup closed : Cancel, amount={fPayAmount}");
                 TCT_Lib.bActiveEMVDlg = false;
 
                 //----------------------------------------------------------
@@ -1166,6 +1236,7 @@ namespace TCT_App.EMV.EMV_V1
         volatile bool bResponded = false;
         void RespondOnGtk(ResponseType xResponse)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ RespondOnGtk : {xResponse}, alreadyResponded={bResponded}");
             if (bResponded)
                 return;
             bResponded = true;
@@ -1196,6 +1267,7 @@ namespace TCT_App.EMV.EMV_V1
 
         void LaneController_ManageProcessEMV(int iKey)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ LaneController_ManageProcessEMV : key={iKey}");
             Application.Invoke(delegate
             {
                 if ((iKey == (int)KeyPressedType.EDIT) || (iKey == (int)KeyPressedType.ESC))   // v2.0.2: + CANCEL key

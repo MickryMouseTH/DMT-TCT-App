@@ -56,6 +56,7 @@ namespace TCT_App
                     }
                     class ""GtkButton"" style ""tct-button""
                 ");
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ UiTheme.ApplyGlobalStyle : rc style applied");
             }
             catch (Exception err)
             {
@@ -154,6 +155,13 @@ namespace TCT_App
                 return;
             try
             {
+                //--- v2.0.4: Stetic Build() already called Show() on most popups. Changing decoration / border on a
+                //--- mapped window makes GTK ask the WM for a new size and freeze all repaints until the WM answers;
+                //--- the answer never came -> popup painted once then froze (keys/touch worked, screen did not change).
+                //--- Restyle while unmapped, then map again.
+                bool bWasMapped  = w.IsMapped;
+                if (bWasMapped)
+                    w.Hide();
                 w.Decorated = false;
                 if (w.BorderWidth < 6)
                     w.BorderWidth = 6;           // keep content off the frame
@@ -163,6 +171,9 @@ namespace TCT_App
                 w.SizeAllocated  += OnPopupSize;    // v2.0.3: rounded window corners
                 StyleActionButtons(w);
                 FlattenFrames(w);
+                if (bWasMapped)
+                    w.Show();
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ UiTheme.StylePopup : {w.GetType().Name} '{w.Title}' styled (was mapped {bWasMapped})");
             }
             catch (Exception err)
             {
@@ -236,7 +247,7 @@ namespace TCT_App
                     DrawRound(w.GdkWindow, gc, 1, 1, iW - 3, iH - 3, PopupRadius);
                 }
             }
-            catch (Exception) { }
+            catch (Exception err) { LogInfo.WriteLog(LogLevel.TRACE, "- Error UiTheme.OnPopupExpose : " + err.Message); }
         }
 
         //=== v2.0.3: rounded corners (plain GDK arcs - no Cairo / theme engine needed on the lane PC) ===
@@ -292,7 +303,7 @@ namespace TCT_App
                 }
                 w.ShapeCombineMask(mask, 0, 0);
             }
-            catch (Exception) { }
+            catch (Exception err) { LogInfo.WriteLog(LogLevel.ERROR, "- Error UiTheme.OnPopupSize : " + err.Message); }
         }
 
         //--- paints a styled button as a rounded key, then its label; the default square bevel is skipped
@@ -338,7 +349,7 @@ namespace TCT_App
                         btn.PropagateExpose(btn.Child, args.Event);
                     args.RetVal = true;
                 }
-                catch (Exception) { }
+                catch (Exception err) { LogInfo.WriteLog(LogLevel.TRACE, "- Error UiTheme.RoundKey.OnExpose : " + err.Message); }
             }
         }
 
@@ -397,7 +408,7 @@ namespace TCT_App
                     FillRound(f.GdkWindow, gc, a.X, a.Y, a.Width, a.Height, Radius);
                 }
             }
-            catch (Exception) { }
+            catch (Exception err) { LogInfo.WriteLog(LogLevel.TRACE, "- Error UiTheme.OnCardExpose : " + err.Message); }
         }
 
         //--- v2.0.3: bottom status bar -> exactly one separator between every two items.
@@ -436,6 +447,7 @@ namespace TCT_App
                     sb.ReorderChild(sep, idx);
                     sep.Show();
                 }
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ UiTheme.StyleStatusBar : {items.Count} items, {Math.Max(0, items.Count - 1)} separators");
             }
             catch (Exception err)
             {

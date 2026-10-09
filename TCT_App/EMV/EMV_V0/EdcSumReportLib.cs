@@ -42,6 +42,7 @@ namespace TCT_App.EMV.V0
             //--------------------------------------------------------------------------------------
 
             TCT_Lib.bEdcProcessing = true;
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ EdcSumReportLib : edc={TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}, recvPort={TCT_Lib.iEdcRecvPort}, clearBatchInterval={TCT_Lib.iEdcMinuteIntervalClearBatch}min, autoClose=20000ms");
 
             if (InitSocketSendEDC())
             {
@@ -117,15 +118,19 @@ namespace TCT_App.EMV.V0
                 LogInfo.WriteLog("- ECD Error Dispose SumReport : " + e.Message);
                 LogInfo.WriteLaneEvent("- ECD Error Dispose SumReport : " + e.Message);
                 LogInfo.WriteLogEDC("- ECD Error Dispose SumReport : " + e.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ DisposeData : stack=" + e.StackTrace);
                 Console.WriteLine("- Error : " + e.Message);
             }
         }
 
         private bool InitSocketSendEDC()
         {
+            var swEdc = System.Diagnostics.Stopwatch.StartNew();
             try
             {
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ InitSocketSendEDC : connect {TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}");
                 client = new TcpClient(TCT_Lib.szEdcIPAddress, TCT_Lib.iEdcSendPort);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ InitSocketSendEDC : connected, elapsed={swEdc.ElapsedMilliseconds}ms");
                 stream = client.GetStream();
                 //Console.WriteLine("-- Success Init Socket ---");
                 LogInfo.WriteLogEDC("+ Success InitSocketSendEDC");
@@ -135,6 +140,8 @@ namespace TCT_App.EMV.V0
             catch (SocketException err)
             {
                 //LogInfo.WriteLogEDC("- Error InitSocketSendEDC : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error InitSocketSendEDC : {err.SocketErrorCode} {err.Message}, elapsed={swEdc.ElapsedMilliseconds}ms");
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ InitSocketSendEDC : stack=" + err.StackTrace);
 
                 return false;
             }
@@ -146,12 +153,14 @@ namespace TCT_App.EMV.V0
             eventThread.Priority        = ThreadPriority.Normal;
             eventThread.IsBackground    = true;
             eventThread.Start();
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ InitSocketRecvEDC : recv thread started");
             //eventThread.Join(10*1000);      // Timeout-10 sec
         }
 
         private void ThreadEventRecvServer()
         {
             byte[] data = new byte[256];
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : start, port={TCT_Lib.iEdcRecvPort}");
             try
             {
                 if (netServer == null)
@@ -180,6 +189,7 @@ namespace TCT_App.EMV.V0
                     }
 
                     TcpClient clientSocket      = netServer.AcceptTcpClient();
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : accepted " + ClassLibEDC.SafeEndPoint(clientSocket?.Client) + ", read timeout=3000ms");
                     clientSocket.ReceiveTimeout = 3 * 1000;
                     clientSocket.SendTimeout    = 3 * 1000;
                     sendStream                  = clientSocket.GetStream();
@@ -203,17 +213,22 @@ namespace TCT_App.EMV.V0
                         DisposeData();
                     }
                     else
+                    {
+                        LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning ThreadEventRecvServer : accepted client not connected");
                         clientSocket.Close();
+                    }
                 }
                 catch (SocketException errSocket)
                 {
                     //LogInfo.WriteLogEDC("+ EDC SocketException : " + errSocket.Message);
+                    LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error ThreadEventRecvServer : SocketException {errSocket.SocketErrorCode} {errSocket.Message}, stop listening");
                     DisposeData();
                     break;
                 }
                 catch (TimeoutException errTimeout)
                 {
                     Console.WriteLine("Warning!...ThreadEventReceTimeOut error : " + errTimeout.Message);
+                    LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error ThreadEventRecvServer : TimeoutException " + errTimeout.Message + ", restart listener");
                     Thread.Sleep(1000);
                     if (sendStream != null)
                     {
@@ -231,6 +246,8 @@ namespace TCT_App.EMV.V0
                 catch (Exception err)
                 {
                     Console.WriteLine("Warning!...ThreadEventRecvServer error : " + err.Message);
+                    LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error ThreadEventRecvServer : " + err.Message + ", restart listener");
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : stack=" + err.StackTrace);
                     Thread.Sleep(1000);
                     if (sendStream != null)
                     {
@@ -257,6 +274,7 @@ namespace TCT_App.EMV.V0
                 }
             }
 
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : thread exit");
             //netServer.Stop();
         }
 
@@ -266,6 +284,7 @@ namespace TCT_App.EMV.V0
             {
                 //--- Send Ack
                 Encoding enc = new ASCIIEncoding();
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ AnalysisEdcMsg : send ACK 06 to EDC, frameBuf={byteMsg?.Length ?? 0}");
                 sendStream.Write(enc.GetBytes(ClassLibEDC.GenHexChar(0x06).ToString()), 0, 1);
                 //---------------------------------------------------------------------------
 
@@ -282,6 +301,7 @@ namespace TCT_App.EMV.V0
                 Console.WriteLine("+ Response Code : " + szRespCode);
                 Console.WriteLine("-");
                 LogInfo.WriteLogEDC("+ EDC Response Code (SumReport) : " + szRespCode);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ AnalysisEdcMsg : transCode={szResponse.Substring(15, 2)}, respCode={szRespCode} ({ClassLibEDC.GetResponseMsg(szRespCode)})");
                 if (szRespCode != "00")
                 {
                     string szErrCodeMsg     = ClassLibEDC.GetResponseMsg(szRespCode);
@@ -306,7 +326,8 @@ namespace TCT_App.EMV.V0
             catch (Exception err)
             {
                 Console.WriteLine(err.Message);
-                LogInfo.WriteLogEDC(err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : stack=" + err.StackTrace);
                 DisposeData();
             }
         }
@@ -327,6 +348,8 @@ namespace TCT_App.EMV.V0
 
                 //stream.ReadTimeout  = 5 * 1000;
                 stream.WriteTimeout = 5 * 1000;
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartSendSumReport : write {byteMsg?.Length ?? 0} bytes, writeTimeout=5000ms, readTimeout=default");
+                var swEdc = System.Diagnostics.Stopwatch.StartNew();
                 stream.Write(byteMsg, 0, byteMsg.Length);
 
                 //--- Wait Ack
@@ -335,8 +358,10 @@ namespace TCT_App.EMV.V0
                 int iDataLen    = stream.Read(bAck, 0, 1);
                 iAck            = bAck[0];
                 LogInfo.WriteLogEDC("+ Ack Data : " + iAck);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartSendSumReport : ack bytes={iDataLen}, ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}), elapsed={swEdc.ElapsedMilliseconds}ms");
                 if (iAck != 0x06) // Ack
                 {
+                    LogInfo.WriteLogEDC(LogLevel.WARN, $"- Warning Process_StartSendSumReport : ack=0x{iAck:X2} is not ACK(06)");
                     if (iAck == 0x15)
                     {
                         Console.WriteLine("- Error...CRC Invalid. ---");
@@ -375,6 +400,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error IOException Send SumReport : " + err.Message);
                 LogInfo.WriteLogEDC("- Error IOException Send SumReport : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_StartSendSumReport : stack=" + err.StackTrace);
                 //stream.Flush();
                 AutoCloseSumReport();
             }
@@ -382,6 +408,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error SendEdc_SumReportMessage : " + err.Message);
                 LogInfo.WriteLogEDC("- Error SendEdc_SumReportMessage : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_StartSendSumReport : stack=" + err.StackTrace);
                 AutoCloseSumReport();
             }
         }

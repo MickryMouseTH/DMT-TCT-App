@@ -92,6 +92,7 @@ namespace TCT_App.MaintenanceWnd
             Update_Clock();
             InitPanelUI();
             GLib.Timeout.Add(1000, new GLib.TimeoutHandler(Update_Clock));
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : window opened, page {TCT_Lib.eCurAppPage} -> Maintenance, lane mode {TCT_Lib.eCurLaneMode} -> MAINTENANCE, staff {TCT_Lib.szStaffID}");
             TCT_Lib.eCurLaneMode    = LaneMode.MAINTENANCE;
             TCT_Lib.eCurAppPage     = AppPage.Maintenance;
 
@@ -104,6 +105,7 @@ namespace TCT_App.MaintenanceWnd
 
             this.Activate();
             //--------------------------------------------------------------
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : LSD enabled {TCT_Lib.bEnableLSD}, method {TCT_Lib.iLSD_MethodType}, keepAlive {TCT_Lib.iLSD_KeepAliveSec} s");
             if (TCT_Lib.bEnableLSD)
             {
                 TCT_Lib.eCurLsdMode = LsdMode.LSD_CLOSE;
@@ -137,6 +139,7 @@ namespace TCT_App.MaintenanceWnd
         void LaneSocketServerRTO_EtcChangeLaneMode(int iEtcLaneMode, int iEtcLaneState)
         {
             //--- Close Maintenance Mode
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : RTO change lane mode {iEtcLaneMode}, state {iEtcLaneState}{((iEtcLaneMode == (int)LaneMode.MAINTENANCE) && (iEtcLaneState == 0) ? " -> exit maintenance" : "")}");
             if ((iEtcLaneMode == (int)LaneMode.MAINTENANCE) && (iEtcLaneState == 0))
             {
                 ProcessExitWnd();
@@ -145,6 +148,8 @@ namespace TCT_App.MaintenanceWnd
 
         private bool Update_Clock()
         {
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ Maintenance : clock tick");
             try
             {
                 txtTime.ModifyFont(FontDescription.FromString("Ubuntu Bold 22"));
@@ -155,8 +160,9 @@ namespace TCT_App.MaintenanceWnd
                 txtDate.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
                 txtDate.Text = DateTime.Today.ToString("dd/MM/yyyy", DateTimeExtension.ThaiCultureInfo);   // v2.0.2: BE like the other screens
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.Update_Clock : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     txtTime.ModifyFont(FontDescription.FromString("Ubuntu Bold 22"));
@@ -182,6 +188,7 @@ namespace TCT_App.MaintenanceWnd
 
         protected void OnDeleteEvent(object o, Gtk.DeleteEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : window delete event -> quit app, page {TCT_Lib.eCurAppPage} -> Login");
             TCT_Lib.bMaintenanceMode = false;
             TCT_Lib.laneController.maintenanceProcess -= LaneController_MaintenanceProcess;
             TCT_Lib.eCurAppPage     = AppPage.Login;
@@ -279,8 +286,10 @@ namespace TCT_App.MaintenanceWnd
 
         protected void ProcessExitWnd()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : exit requested, queued to UI thread");
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : exit, page {TCT_Lib.eCurAppPage} -> Login, show LoginWnd, lane mode -> CLOSED");
                 TCT_Lib.laneController.ClearTextCRS_EndJob();
 
                 TCT_Lib.bMaintenanceMode = false;
@@ -346,8 +355,9 @@ namespace TCT_App.MaintenanceWnd
                 //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                 context.Dispose();
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnMainExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     Gdk.PangoRenderer renderer  = Gdk.PangoRenderer.GetDefault(drawArea.Screen);
@@ -385,8 +395,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMain_1, iMainActive == 1 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMain1ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMain_1, iMainActive == 1 ? clBkActive : clBkNormal);
@@ -405,8 +416,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMain_2, iMainActive == 2 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMain2ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMain_2, iMainActive == 2 ? clBkActive : clBkNormal);
@@ -425,8 +437,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnExit, iMainActive == 3 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnExitExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnExit, iMainActive == 3 ? clBkActive : clBkNormal);
@@ -441,11 +454,13 @@ namespace TCT_App.MaintenanceWnd
 
         protected void OnBtnMain1ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch main menu 1");
             OnBtnMainPressEvent(1);                     
         }
 
         protected void OnBtnMain2ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch main menu 2");
             OnBtnMainPressEvent(2);                      
         }
 
@@ -458,6 +473,7 @@ namespace TCT_App.MaintenanceWnd
         protected void OnBtnMainPressEvent(int iMainMenu)
         {
             LogInfo.WriteLaneEvent($"+ Maintenance : MainMenu={iMainMenu}");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : main {iMainActive} -> {iMainMenu}, focus {iCurActive} -> 0 (Main), redraw main + menu");
             iCurActive  = 0;
             iMainActive = iMainMenu;
             try
@@ -466,8 +482,9 @@ namespace TCT_App.MaintenanceWnd
                 btnMain_2.QueueDraw();
                 btnExit.QueueDraw();
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.OnBtnMainPressEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     btnMain_1.QueueDraw();
@@ -491,8 +508,9 @@ namespace TCT_App.MaintenanceWnd
                 btnMenu_5.QueueDraw();
                 btnMenu_6.QueueDraw();
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.ShowMenu_Main : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     btnMenu_1.QueueDraw();
@@ -553,8 +571,9 @@ namespace TCT_App.MaintenanceWnd
                 //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                 context.Dispose();
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnMenuExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     Gdk.PangoRenderer renderer  = Gdk.PangoRenderer.GetDefault(drawArea.Screen);
@@ -601,8 +620,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMenu_1, iMenuActive == 1 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMenu1ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMenu_1, iMenuActive == 1 ? clBkActive : clBkNormal);
@@ -630,8 +650,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMenu_2, iMenuActive == 2 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMenu2ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMenu_2, iMenuActive == 2 ? clBkActive : clBkNormal);
@@ -659,8 +680,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMenu_3, iMenuActive == 3 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMenu3ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMenu_3, iMenuActive == 3 ? clBkActive : clBkNormal);
@@ -688,8 +710,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMenu_4, iMenuActive == 4 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMenu4ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMenu_4, iMenuActive == 4 ? clBkActive : clBkNormal);
@@ -717,8 +740,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMenu_5, iMenuActive == 5 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMenu5ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMenu_5, iMenuActive == 5 ? clBkActive : clBkNormal);
@@ -746,8 +770,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnMenu_6, iMenuActive == 6 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnMenu6ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnMenu_6, iMenuActive == 6 ? clBkActive : clBkNormal);
@@ -775,6 +800,7 @@ namespace TCT_App.MaintenanceWnd
 
         protected void OnBtnMenuClick(int iMenu)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : menu {iMenuActive} -> {iMenu} (main {iMainActive}), focus {iCurActive} -> 1 (Menu), redraw menu");
             iCurActive  = 1;
             iMenuActive = iMenu;
 
@@ -787,8 +813,9 @@ namespace TCT_App.MaintenanceWnd
                 btnMenu_5.QueueDraw();
                 btnMenu_6.QueueDraw();
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.OnBtnMenuClick : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     btnMenu_1.QueueDraw();
@@ -808,31 +835,37 @@ namespace TCT_App.MaintenanceWnd
 
         protected void OnBtnMenu1ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch menu 1");
             OnBtnMenuClick(1);
         }
 
         protected void OnBtnMenu2ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch menu 2");
             OnBtnMenuClick(2);
         }
 
         protected void OnBtnMenu3ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch menu 3");
             OnBtnMenuClick(3);
         }
 
         protected void OnBtnMenu4ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch menu 4");
             OnBtnMenuClick(4);
         }
 
         protected void OnBtnMenu5ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch menu 5");
             OnBtnMenuClick(5);
         }
 
         protected void OnBtnMenu6ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch menu 6");
             OnBtnMenuClick(6);
         }
 
@@ -955,8 +988,9 @@ namespace TCT_App.MaintenanceWnd
                 //renderer.Dispose();   // v2.0.2: shared default renderer of the screen - never dispose
                 context.Dispose();
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnSubMenuExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     Gdk.PangoRenderer renderer  = Gdk.PangoRenderer.GetDefault(drawArea.Screen);
@@ -1041,8 +1075,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_1, iSubMenuActive == 1 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnSubMenu1ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_1, iSubMenuActive == 1 ? clBkActive : clBkNormal);
@@ -1081,8 +1116,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_2, iSubMenuActive == 2 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnSubMenu2ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_2, iSubMenuActive == 2 ? clBkActive : clBkNormal);
@@ -1120,8 +1156,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_3, iSubMenuActive == 3 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnSubMenu3ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_3, iSubMenuActive == 3 ? clBkActive : clBkNormal);
@@ -1159,8 +1196,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_4, iSubMenuActive == 4 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnSubMenu4ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_4, iSubMenuActive == 4 ? clBkActive : clBkNormal);
@@ -1198,8 +1236,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_5, iSubMenuActive == 5 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnSubMenu5ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_5, iSubMenuActive == 5 ? clBkActive : clBkNormal);
@@ -1273,8 +1312,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, iSubMenuActive == 6 ? clBkActive : clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnBtnSubMenu6ExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, iSubMenuActive == 6 ? clBkActive : clBkNormal);
@@ -1314,8 +1354,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnShowKeyPressedExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, clBkNormal);
@@ -1336,8 +1377,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnShowTestLsdExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, clBkNormal);
@@ -1358,8 +1400,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnShowTestTfiExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, clBkNormal);
@@ -1380,8 +1423,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnShowTestCrsExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, clBkNormal);
@@ -1402,8 +1446,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnShowTestScrExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, clBkNormal);
@@ -1424,8 +1469,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnShowTestDsrcMainExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, clBkNormal);
@@ -1446,8 +1492,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(btnSubMenu_6, clBkNormal);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.TRACE, "- Error Maintenance.OnShowTestDsrcSecExposeEvent : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(btnSubMenu_6, clBkNormal);
@@ -1464,6 +1511,7 @@ namespace TCT_App.MaintenanceWnd
 
         protected void OnBtnSubMenuClick(int iMenu)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : sub menu {iSubMenuActive} -> {iMenu} (main {iMainActive}, menu {iMenuActive}), test TFI {bTestModeTFI} CRS {bTestModeCRS} LSD {bTestModeLSD}, redraw sub menu");
             if (!bTestModeTFI && !bTestModeCRS && !bTestModeLSD)
                 ClearActionProcess();
 
@@ -1477,8 +1525,9 @@ namespace TCT_App.MaintenanceWnd
                 btnSubMenu_5.QueueDraw();
                 btnSubMenu_6.QueueDraw();
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.OnBtnSubMenuClick : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     btnSubMenu_1.QueueDraw();
@@ -1551,36 +1600,43 @@ namespace TCT_App.MaintenanceWnd
 
         protected void OnBtnSubMenu1ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch sub menu 1");
             OnBtnSubMenuClick(1);
         }
 
         protected void OnBtnSubMenu2ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch sub menu 2");
             OnBtnSubMenuClick(2);
         }
 
         protected void OnBtnSubMenu3ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch sub menu 3");
             OnBtnSubMenuClick(3);
         }
 
         protected void OnBtnSubMenu4ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch sub menu 4");
             OnBtnSubMenuClick(4);
         }
 
         protected void OnBtnSubMenu5ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch sub menu 5");
             OnBtnSubMenuClick(5);
         }
 
         protected void OnBtnSubMenu6ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : touch sub menu 6");
             OnBtnSubMenuClick(6);
         }
 
         protected void OnShown(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : shown, dispose simulate MainWindow ({(mainWnd == null ? "null" : "exists")})");
             TCT_Lib.laneController.maintenanceProcess -= LaneController_MaintenanceProcess;
             mainWnd.Dispose();
             mainWnd.Destroy();
@@ -1593,7 +1649,10 @@ namespace TCT_App.MaintenanceWnd
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : keyboard {args.Event.Key} -> key {(KeyPressedType)TCT_Lib.keyMapping[(int)args.Event.KeyValue]}");
                 LaneController_MaintenanceProcess(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
+            }
                 //TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
         }
 
@@ -1601,10 +1660,12 @@ namespace TCT_App.MaintenanceWnd
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : key {(KeyPressedType)iKey}, focus {iCurActive} (0=Main 1=Menu 2=Sub), main {iMainActive} menu {iMenuActive} sub {iSubMenuActive}, test Kbd {bTestModeKbd} SCR {bTestModeSCR}");
                 if (bTestModeKbd)
                 {
                     if (iKey == (int)KeyPressedType.NUM_0)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : keyboard test end (key 0)");
                         bTestModeKbd    = false;
                         szKeyName       = "";
                         btnSubMenu_6.QueueDraw();
@@ -1616,6 +1677,7 @@ namespace TCT_App.MaintenanceWnd
                 {
                     if (iKey == (int)KeyPressedType.NUM_0)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : SCR test end (key 0)");
                         bTestModeSCR    = false;
                         szScrName       = "";
                         btnSubMenu_6.QueueDraw();
@@ -1741,7 +1803,10 @@ namespace TCT_App.MaintenanceWnd
                                     if (iKey == (int)KeyPressedType.NUM_1)
                                     {
                                         if (bTestModeCRS)
+                                        {
+                                            LogInfo.WriteLaneEvent(LogLevel.WARN, "+ Maintenance : CRS test ignored, already running");
                                             return;
+                                        }
                                         Process_CRS_Test();
                                     }
                                     else if (iKey == (int)KeyPressedType.NUM_2)
@@ -1796,6 +1861,9 @@ namespace TCT_App.MaintenanceWnd
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : smart card read, len {(strVal ?? "").Length}, SCR test {(bTestModeSCR ? "on -> show" : "off -> ignored")}");
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLaneEvent(LogLevel.TRACE, "+ Maintenance : smart card value " + (strVal ?? "null"));
                 if (bTestModeSCR)
                 {
                     szScrName   = strVal;
@@ -1806,6 +1874,7 @@ namespace TCT_App.MaintenanceWnd
 
         void LaneController_ExitMaintenanceMode()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : exit maintenance requested by lane controller");
             Application.Invoke(delegate
             {
                 ProcessExitWnd();
@@ -1814,6 +1883,8 @@ namespace TCT_App.MaintenanceWnd
 
         protected void ClearActionProcess()
         {
+            if (bTestModeKbd || bTestModeSCR || bTestModeCRS || bTestModeTFI || bTestModeLSD)
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : clear test modes Kbd {bTestModeKbd} SCR {bTestModeSCR} CRS {bTestModeCRS} TFI {bTestModeTFI} LSD {bTestModeLSD}");
             try
             {
                 if (bTestModeKbd)
@@ -1847,8 +1918,9 @@ namespace TCT_App.MaintenanceWnd
                     btnSubMenu_6.QueueDraw();
                 }
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.ClearActionProcess : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     if (bTestModeKbd)
@@ -1888,6 +1960,7 @@ namespace TCT_App.MaintenanceWnd
         //-----------------------------------------------
         protected void Process_SimulateTCT()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : simulate TCT -> open MainWindow (maintenance login)");
             this.Sensitive              = false;
 
             Gdk.Color colBk             = new Gdk.Color(0x2E, 0x2E, 0x2E);
@@ -1898,8 +1971,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(mainWnd, colBk);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.Process_SimulateTCT : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(mainWnd, colBk);
@@ -1919,6 +1993,7 @@ namespace TCT_App.MaintenanceWnd
             mainWnd.HasFocus            = true;
             mainWnd.Activate();
             this.Sensitive              = true;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : simulate MainWindow shown, page {TCT_Lib.eCurAppPage}");
 #if __FULL_SCREEN__
                 mainWnd.Fullscreen();
 #endif
@@ -1932,8 +2007,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(dlg, colBk);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.Process_DigitalInput_Test : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(dlg, colBk);
@@ -1944,7 +2020,9 @@ namespace TCT_App.MaintenanceWnd
 
             }
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : popup DigitalInputDlg run");
             dlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : popup DigitalInputDlg returned");
         }
 
         protected void Process_DigitalOutput_Test()
@@ -1955,8 +2033,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(dlg, colBk);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.Process_DigitalOutput_Test : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(dlg, colBk);
@@ -1967,7 +2046,9 @@ namespace TCT_App.MaintenanceWnd
 
             }
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : popup DigitalOutputDlg run");
             dlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : popup DigitalOutputDlg returned");
         }
 
         protected void Process_TreadleStatus_Test()
@@ -1978,8 +2059,9 @@ namespace TCT_App.MaintenanceWnd
             {
                 SetBgIfChanged(dlg, colBk);
             }
-            catch (Exception)
+            catch (Exception exLog)
             {
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.Process_TreadleStatus_Test : " + exLog.Message);
                 Application.Invoke(delegate
                 {
                     SetBgIfChanged(dlg, colBk);
@@ -1990,13 +2072,19 @@ namespace TCT_App.MaintenanceWnd
 
             }
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : popup TreadleStatusDlg run");
             dlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : popup TreadleStatusDlg returned");
         }
 
         protected void Process_CRS_Test()
         {
             if (bTestModeTFI || bTestModeCRS || bTestModeLSD)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ Maintenance : CRS test ignored, test running (TFI {bTestModeTFI} CRS {bTestModeCRS} LSD {bTestModeLSD})");
                 return;
+            }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : CRS test start");
 
             ProcessTestCRS();
            
@@ -2212,7 +2300,11 @@ namespace TCT_App.MaintenanceWnd
         protected void Process_TFI_Test()
         {
             if (bTestModeTFI || bTestModeCRS || bTestModeLSD)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ Maintenance : TFI test ignored, test running (TFI {bTestModeTFI} CRS {bTestModeCRS} LSD {bTestModeLSD})");
                 return;
+            }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : TFI test start");
 
             ProcessTestTFIAsync();
 
@@ -2469,7 +2561,11 @@ namespace TCT_App.MaintenanceWnd
         {
         
             if (bTestModeTFI || bTestModeCRS || bTestModeLSD)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ Maintenance : LSD test ignored, test running (TFI {bTestModeTFI} CRS {bTestModeCRS} LSD {bTestModeLSD})");
                 return;
+            }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : LSD test start");
 
             ProcessTestLSD();
 
@@ -2626,6 +2722,7 @@ namespace TCT_App.MaintenanceWnd
                     }
                     else
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : LSD test via RTO (method 1)");
                         szLsdName = "LSD - Testing";
                         //btnSubMenu_6.QueueDraw();
                         DrawText(btnSubMenu_6);
@@ -2802,6 +2899,7 @@ namespace TCT_App.MaintenanceWnd
             }
             catch (ThreadAbortException)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "- Maintenance : LSD test thread aborted");
                 bTestModeLSD            = false;
                 TCT_Lib.bAllowSendRTO   = true;
             }
@@ -2817,6 +2915,7 @@ namespace TCT_App.MaintenanceWnd
         //--- Peripheral Test
         protected void Process_Printer_Test()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : printer test");
             //----------------------------------------------
             if (!CheckAllowRepeatKeyChar((int)KeyPressedType.RECEIPT))
             {
@@ -2825,6 +2924,7 @@ namespace TCT_App.MaintenanceWnd
                 return;
             }
             //---------------------------------------------
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : print test receipt");
             PrintUtils.PrintReceiptLib.PrintReceipt(0, false, false, "", "", "", true);
         }
 
@@ -2839,8 +2939,9 @@ namespace TCT_App.MaintenanceWnd
                 {
                     SetBgIfChanged(frmEdcPaymentDlg, colBk);
                 }
-                catch (Exception)
+                catch (Exception exLog)
                 {
+                    LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.Process_EDC_Test : " + exLog.Message);
                     Application.Invoke(delegate
                     {
                         SetBgIfChanged(frmEdcPaymentDlg, colBk);
@@ -2850,7 +2951,9 @@ namespace TCT_App.MaintenanceWnd
                 {
 
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : popup EdcPaymentDlg opened (amount 1, page {TCT_Lib.eCurAppPage})");
                 ResponseType xResult = (ResponseType)frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : popup EdcPaymentDlg closed -> {xResult}");
 
                 if (xResult == ResponseType.Ok)
                 {
@@ -2869,8 +2972,9 @@ namespace TCT_App.MaintenanceWnd
                 {
                     SetBgIfChanged(frmEdcPaymentDlg, colBk);
                 }
-                catch (Exception)
+                catch (Exception exLog)
                 {
+                    LogInfo.WriteLog(LogLevel.ERROR, "- Error Maintenance.Process_EDC_Test : " + exLog.Message);
                     Application.Invoke(delegate
                     {
                         SetBgIfChanged(frmEdcPaymentDlg, colBk);
@@ -2880,7 +2984,9 @@ namespace TCT_App.MaintenanceWnd
                 {
 
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : popup EdcPaymentDlg_V1 opened (amount 1, page {TCT_Lib.eCurAppPage})");
                 ResponseType xResult = (ResponseType)frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : popup EdcPaymentDlg_V1 closed -> {xResult}");
 
                 if (xResult == ResponseType.Ok)
                 {
@@ -2892,6 +2998,7 @@ namespace TCT_App.MaintenanceWnd
                 frmEdcPaymentDlg = null;
             }
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : page {TCT_Lib.eCurAppPage} -> Maintenance");
             TCT_Lib.eCurAppPage = AppPage.Maintenance;
             LogInfo.WriteLaneEvent("+ End Process_EDC_Test");
         }
@@ -2900,12 +3007,14 @@ namespace TCT_App.MaintenanceWnd
         {
             LogInfo.WriteLaneEvent("+ Start Process_SCR_Test");
             bTestModeSCR    = true;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : SCR test waiting for card (key 0 = exit)");
             szScrName       = "แตะบัตรที่เครื่องอ่าน หรือ กดปุ่ม 0 เพื่อออก";
             btnSubMenu_6.QueueDraw();
         }
 
         protected void Process_KeyPressed_Test()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : keyboard/touch test start (key 0 = exit)");
             bTestModeKbd    = true;
             szKeyName       = "กดปุ่มเพื่อทดสอบ หรือ กดปุ่ม 0 เพื่อออก";
             btnSubMenu_6.QueueDraw();
@@ -2913,6 +3022,7 @@ namespace TCT_App.MaintenanceWnd
 
         protected void Process_ForceMode_Test()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : force mode test -> clear CRS/TFI, DO off");
             TCT_Lib.webSocketLane.OutIo_ClearCRS();
             TCT_Lib.webSocketLane.OutIo_ClearTFI();
             TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.LTL, OFF);
@@ -2934,8 +3044,10 @@ namespace TCT_App.MaintenanceWnd
         async protected void Process_MainAntenna_Test()
         {
             bTestDsrcMain = true;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : main antenna test, enabled {TCT_Lib.bEnableAntenna}, {TCT_Lib.szMainAntenna_IPAddress}:{TCT_Lib.iMainAntenna_SocketPort}");
             if (!TCT_Lib.bEnableAntenna)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ Maintenance : main antenna test skipped, antenna not enabled");
                 szDsrcMainName  = "No Enable Main Antenna";
                 btnSubMenu_6.QueueDraw();
                 await Task.Delay(2000);
@@ -2947,6 +3059,7 @@ namespace TCT_App.MaintenanceWnd
             {
                 if (TCT_Lib.szMainAntenna_IPAddress == "")
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.WARN, "+ Maintenance : main antenna test skipped, no IP");
                     szDsrcMainName  = "Not found IP of Main Antenna";
                     btnSubMenu_6.QueueDraw();
                     await Task.Delay(2000);
@@ -2962,6 +3075,7 @@ namespace TCT_App.MaintenanceWnd
                     else
                         szDsrcMainName = "Fail Connect Main Antenna";
 
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : main antenna result -> " + szDsrcMainName);
                     btnSubMenu_6.QueueDraw();
                     await Task.Delay(2000);
                     //Thread.Sleep(2000);
@@ -2976,8 +3090,10 @@ namespace TCT_App.MaintenanceWnd
         async protected void Process_BackupAntenna_Test()
         {
             bTestDsrcSec = true;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Maintenance : secondary antenna test, enabled {TCT_Lib.bEnableAntenna}, {TCT_Lib.szSecondaryAntenna_IPAddress}:{TCT_Lib.iSecondaryAntenna_SocketPort}");
             if (!TCT_Lib.bEnableAntenna)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ Maintenance : secondary antenna test skipped, antenna not enabled");
                 szDsrcSecName = "No Enable Secondary Antenna";
                 btnSubMenu_6.QueueDraw();
                 await Task.Delay(2000);
@@ -2989,6 +3105,7 @@ namespace TCT_App.MaintenanceWnd
             {
                 if (TCT_Lib.szMainAntenna_IPAddress == "")
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.WARN, "+ Maintenance : secondary antenna test skipped, no IP");
                     szDsrcSecName = "Not found IP of Secondary Antenna";
                     btnSubMenu_6.QueueDraw();
                     await Task.Delay(2000);
@@ -3004,6 +3121,7 @@ namespace TCT_App.MaintenanceWnd
                     else
                         szDsrcSecName = "Fail Connect Secondary Antenna";
 
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : secondary antenna result -> " + szDsrcSecName);
                     btnSubMenu_6.QueueDraw();
                     await Task.Delay(2000);
                     //Thread.Sleep(2000);
@@ -3031,14 +3149,17 @@ namespace TCT_App.MaintenanceWnd
                 }
             };
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : run terminal x-terminal-emulator (wait for exit)");
             proc.Start();
             proc.WaitForExit();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : terminal closed");
         }
 
         protected void Action_ShowTestKeyboard(int iKey)
         {
             var keyCode = (KeyPressedType)iKey;
             szKeyName   = keyCode.ToString();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Maintenance : keyboard test shows " + szKeyName);
             btnSubMenu_6.QueueDraw();
         }
 

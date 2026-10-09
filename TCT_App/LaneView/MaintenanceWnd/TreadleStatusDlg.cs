@@ -21,15 +21,18 @@ namespace TCT_App.LaneView.MaintenanceWnd
             ClearTreadleStatus();
 
             TCT_Lib.webSocketLane.digitalInputLaneEvent += LaneSocket_DigitalInputLaneEvent;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ TreadleStatusDlg : popup opened");
         }
 
         protected void OnButtonOkClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ TreadleStatusDlg : button OK clicked");
             Process_Exit();
         }
 
         private void Process_Exit()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ TreadleStatusDlg : popup closed");
             TCT_Lib.webSocketLane.digitalInputLaneEvent -= LaneSocket_DigitalInputLaneEvent;
 
             Destroy();
@@ -40,6 +43,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
         {
             if ((int)args.Event.KeyValue == (int)'p')   // ESC, Cancel
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ TreadleStatusDlg : key ESC");
                 Process_Exit();
             }
         }
@@ -54,6 +58,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtnOpenALBClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ TreadleStatusDlg : button Open ALB clicked -> DO ALB_Open pulse 300 ms");
             //--- ALB ON
             TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Open, ON);
             Thread.Sleep(300);
@@ -62,6 +67,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtnCloseALBClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ TreadleStatusDlg : button Close ALB clicked -> DO ALB_Close pulse 300 ms");
             //--- ALB OFF
             TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Close, ON);
             Thread.Sleep(300);
@@ -87,6 +93,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
             bool bInTreadleB        = values[13] == 1;
             bool bInTreadleC        = values[14] == 1;
             bool bInTreadleD        = values[15] == 1;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ TreadleStatusDlg : treadle A={bInTreadleA} B={bInTreadleB} C={bInTreadleC} D={bInTreadleD}, error={bInTreadleError}");
 
             img_TreadleA.Pixbuf = Gdk.Pixbuf.LoadFromResource(bInTreadleA ? "TCT_App.Images.OK-48.png" : "TCT_App.Images.Fail-48.png");
             img_TreadleB.Pixbuf = Gdk.Pixbuf.LoadFromResource(bInTreadleB ? "TCT_App.Images.OK-48.png" : "TCT_App.Images.Fail-48.png");

@@ -50,6 +50,7 @@ namespace TCT_App.EMV.V0
 
                 string szCharList = GenHexCharList(szMsg);
                 LogInfo.WriteLogEDC("+ EDC Payment : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GeneratePaymentEdcMessage : cmd=20(Purchase), amount={szAmount}, ref1={szRef1}, ref2={szRef2}, frameLen={szMsg.Length}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 //Console.WriteLine("Byte Data : " + szCharList);
                 szPayMsg    = szCharList;
@@ -63,6 +64,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error GeneratePaymentEdcMessage : " + err.Message);
                 LogInfo.WriteLogEDC("- Error GeneratePaymentEdcMessage : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GeneratePaymentEdcMessage : stack=" + err.StackTrace);
                 szErrMsg = err.Message;
 
                 return false;
@@ -170,6 +172,7 @@ namespace TCT_App.EMV.V0
 
                 string szCharList = GenHexCharList(szMsg);
                 LogInfo.WriteLogEDC("+ EDC Cancel : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateCancelEdcMessage : cmd=CP(Cancel), frameLen={szMsg.Length}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 //Console.WriteLine("Byte Data : " + szCharList);
                 szReqMsg = szCharList;
@@ -183,6 +186,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error GenerateCancelEdcMessage : " + err.Message);
                 LogInfo.WriteLogEDC("- Error GenerateCancelEdcMessage : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateCancelEdcMessage : stack=" + err.StackTrace);
                 szErrMsg = err.Message;
 
                 return false;
@@ -232,6 +236,7 @@ namespace TCT_App.EMV.V0
 
                 string szCharList = GenHexCharList(szMsg);
                 LogInfo.WriteLogEDC("+ EDC Generate QR Code : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateQrCodeEdcMessage : cmd=QR, amount={szAmount}, ref1={szEdcRef1}, ref2={szEdcRef2}, frameLen={szMsg.Length}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 //Console.WriteLine("Byte Data : " + szCharList);
                 szReqMsg        = szCharList;
@@ -245,6 +250,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error GenerateQrCodeEdcMessage : " + err.Message);
                 LogInfo.WriteLogEDC("- Error GenerateQrCodeEdcMessage : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateQrCodeEdcMessage : stack=" + err.StackTrace);
                 szErrMsg = err.Message;
 
                 return false;
@@ -352,6 +358,7 @@ namespace TCT_App.EMV.V0
 
                 string szCharList = GenHexCharList(szMsg);
                 LogInfo.WriteLogEDC("+ EDC Inquiry QR Code : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ InquiryQrCodeEdcMessage : cmd=IQ(Inquiry QR), invoice=000000(current), frameLen={szMsg.Length}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 //Console.WriteLine("Byte Data : " + szCharList);
                 szReqMsg    = szCharList;
@@ -365,6 +372,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error InquiryQrCodeEdcMessage : " + err.Message);
                 LogInfo.WriteLogEDC("- Error InquiryQrCodeEdcMessage : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ InquiryQrCodeEdcMessage : stack=" + err.StackTrace);
                 szErrMsg = err.Message;
 
                 return false;
@@ -422,6 +430,7 @@ namespace TCT_App.EMV.V0
 
                 string szCharList = GenHexCharList(szMsg);
                 LogInfo.WriteLogEDC("+ EDC Generate EojSumReport : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateEojSumReportEdcMessage : cmd=50(Summary Report), boj={dtBOJ:yyyy-MM-dd HH:mm:ss}, ref1={szEdcRef1}, ref2={szEdcRef2}, ref3={szEdcRef3}, frameLen={szMsg.Length}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 //Console.WriteLine("Byte Data : " + szCharList);
                 szReqMsg        = szCharList;
@@ -435,6 +444,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error GenerateEojSumReportEdcMessage : " + err.Message);
                 LogInfo.WriteLogEDC("- Error GenerateEojSumReportEdcMessage : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateEojSumReportEdcMessage : stack=" + err.StackTrace);
                 szErrMsg = err.Message;
 
                 return false;
@@ -787,6 +797,8 @@ namespace TCT_App.EMV.V0
             if (xCreditCardInfo.szResponseText == null)
                 xCreditCardInfo.szResponseText = "";
 
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLogEDC(LogLevel.TRACE, "+ EncodeFormatEDC : " + CardInfoFields(xCreditCardInfo));
             return xCreditCardInfo;
         }
 
@@ -827,16 +839,20 @@ namespace TCT_App.EMV.V0
             catch (CryptographicException e)
             {
                 Console.WriteLine("A Cryptographic error occurred: {0}", e.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error AES_CBC_EncryptString : CryptographicException {e.Message}");
                 return null;
             }
             catch (UnauthorizedAccessException e)
             {
                 Console.WriteLine("A file error occurred: {0}", e.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error AES_CBC_EncryptString : UnauthorizedAccessException {e.Message}");
                 return null;
             }
             catch (Exception e)
             {
                 Console.WriteLine("An error occurred: {0}", e.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error AES_CBC_EncryptString : {e.Message}");
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AES_CBC_EncryptString : stack=" + e.StackTrace);
             }
             finally
             {
@@ -845,5 +861,95 @@ namespace TCT_App.EMV.V0
             return encrypted;
         }
 
+        //--- v2.0.4 logging helpers: never throw, never expose full PAN / expiry / card holder name
+        internal static string MaskPan(string szPan)
+        {
+            if (szPan == null)
+                return "null";
+            string s = szPan.Trim();
+            if (s.Length < 13)
+                return "****(len=" + s.Length + ")";
+            return s.Substring(0, 6) + "******" + s.Substring(s.Length - 4);
+        }
+
+        internal static string AckName(int iAck)
+        {
+            switch (iAck)
+            {
+                case 0x00: return "none";
+                case 0x04: return "EOT/EDC busy";
+                case 0x05: return "ENQ";
+                case 0x06: return "ACK";
+                case 0x08: return "BS";
+                case 0x09: return "HT";
+                case 0x14: return "DC4/offline full";
+                case 0x15: return "NAK/CRC invalid";
+                case 0x16: return "SYN";
+                default:   return "unknown";
+            }
+        }
+
+        internal static string SafeEndPoint(System.Net.Sockets.Socket xSocket)
+        {
+            try
+            {
+                return xSocket?.RemoteEndPoint?.ToString() ?? "null";
+            }
+            catch (Exception)
+            {
+                return "?";
+            }
+        }
+
+        //--- hex dump with card no (field 30: first6 + ****** + last4), expiry (31) and holder name (D5) masked
+        internal static string MaskedHex(byte[] bMsg)
+        {
+            if (bMsg == null)
+                return "null";
+            try
+            {
+                byte[] b    = (byte[])bMsg.Clone();
+                int n       = b.Length;
+                foreach (string szTag in new string[] { "30", "31", "D5" })
+                {
+                    for (int i = 0; i + 4 < n; i++)
+                    {
+                        if (b[i] != 0x1C || b[i + 1] != (byte)szTag[0] || b[i + 2] != (byte)szTag[1] || b[i + 3] != 0x00)
+                            continue;
+                        int iStart = i + 5, iEnd = i + 5;
+                        while (iEnd < n && b[iEnd] != 0x1C)
+                            iEnd++;
+                        int iLen = iEnd - iStart;
+                        for (int k = iStart; k < iEnd; k++)
+                        {
+                            if (szTag != "30" || iLen < 13 || (k - iStart >= 6 && k - iStart < iLen - 4))
+                                b[k] = (byte)'*';
+                        }
+                    }
+                }
+                StringBuilder sb = new StringBuilder(n * 3);
+                foreach (byte x in b)
+                    sb.Append(x.ToString("X2")).Append(' ');
+                return sb.ToString();
+            }
+            catch (Exception)
+            {
+                return "(len=" + bMsg.Length + ", hex unavailable)";
+            }
+        }
+
+        internal static string CardInfoSummary(objCreditCardInfo x)
+        {
+            if (x == null)
+                return "null";
+            return $"respText={x.szResponseText ?? "null"}, approval={x.szApprovalCode ?? "null"}, tid={x.szTerminalID ?? "null"}, card={MaskPan(x.szCardNo)}, amount={x.szAmount ?? "null"}, invoice={x.szInvoiceNo ?? "null"}, ref1={x.szRef1 ?? "null"}, ref2={x.szRef2 ?? "null"}";
+        }
+
+        internal static string CardInfoFields(objCreditCardInfo x)
+        {
+            if (x == null)
+                return "null";
+            return CardInfoSummary(x) + $", date={x.szTransactionDate ?? "null"}, time={x.szTransactionTime ?? "null"}, ref3={x.szRef3 ?? "null"}, ref4={x.szRef4 ?? "null"}, refNo={x.szReferenceNo ?? "null"}, merchant={x.szMerchantName ?? "null"}, mid={x.szMerchantNo ?? "null"}, issuer={x.szCardIssueName ?? "null"}, issuerId={x.szCardIssueID ?? "null"}, expiry={(string.IsNullOrEmpty(x.szCardExpireDate) ? "none" : "****")}, holder={(string.IsNullOrEmpty(x.szCardHolderName) ? "none" : "***")}";
+        }
     }
 }

@@ -73,7 +73,7 @@ OVERRIDES = {
     "ETC_RabbitMQ": {"Enable": 0},
     "MTS_RabbitMQ": {"Enable": 0},
     "TFI":    {"Enable": 0},
-    "Config": {"ManualImportPath": "/tct/Manual-Import", "LogPath": ""},
+    "Config": {"ManualImportPath": "/tct/Manual-Import", "LogPath": "", "LogLevel": "DEBUG"},   # เครื่องจำลอง: log ละเอียด
 }
 
 

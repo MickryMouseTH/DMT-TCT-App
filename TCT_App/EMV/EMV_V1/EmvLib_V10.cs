@@ -942,16 +942,20 @@ namespace TCT_App.EMV.EMV_V1
             catch (CryptographicException e)
             {
                 Console.WriteLine("A Cryptographic error occurred: {0}", e.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error AES_CBC_EncryptString (V10) : CryptographicException {e.Message}");
                 return null;
             }
             catch (UnauthorizedAccessException e)
             {
                 Console.WriteLine("A file error occurred: {0}", e.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error AES_CBC_EncryptString (V10) : UnauthorizedAccessException {e.Message}");
                 return null;
             }
             catch (Exception e)
             {
                 Console.WriteLine("An error occurred: {0}", e.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, $"- Error AES_CBC_EncryptString (V10) : {e.Message}");
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AES_CBC_EncryptString (V10) : stack=" + e.StackTrace);
             }
             finally
             {

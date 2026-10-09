@@ -35,9 +35,11 @@ namespace TCT_App.LaneView.MiscDlg
             imgVehicleType1 = Gdk.Pixbuf.LoadFromResource("TCT_App.Images.VehicleType1.png");
             imgVehicleType2 = Gdk.Pixbuf.LoadFromResource("TCT_App.Images.VehicleType2.png");
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : popup opened, page {TCT_Lib.eCurAppPage} -> PayConvoy");
             TCT_Lib.eCurAppPage = AppPage.PayConvoy;
             iFocus              = 0;
             iCurMaxReceiptID    = TCT_Lib.LaneDB.GetMaxRunningReceiptNo();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : fare class1 {TCT_Lib.fFareClass1}, class2 {TCT_Lib.fFareClass2}, max receipt id {iCurMaxReceiptID}, edcVer {TCT_Lib.iEdcVersionType}");
 
             InitUI();
             //----------------------------------------------
@@ -160,6 +162,7 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnButtonCancelClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : button Cancel clicked");
             Action_BtnCancel();
         }
 
@@ -168,6 +171,7 @@ namespace TCT_App.LaneView.MiscDlg
             LogInfo.WriteLog("+ Close Convoy from Cancel (Cancel Convoy)");
             LogInfo.WriteLaneEvent("+ Close Convoy from Cancel (Cancel Convoy)");
             TCT_Lib.LaneDB.SetMaxRunningReceiptNo(iCurMaxReceiptID);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : popup closed (Cancel), receipt id reset to {iCurMaxReceiptID}, page PayConvoy -> Main");
             this.Respond(ResponseType.Cancel);
             TCT_Lib.laneController.manageProcessPayConvoy -= LaneController_ManageProcessPayConvoy;
             TCT_Lib.eCurAppPage         = AppPage.Main;
@@ -180,6 +184,7 @@ namespace TCT_App.LaneView.MiscDlg
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : key {(KeyPressedType)iKey} (focus class{iFocus + 1}, pay {iSelPayType}, paid {bPayCompleted})");
                 if ((iKey >= (int)KeyPressedType.NUM_0) && (iKey <= (int)KeyPressedType.NUM_9))
                 {
                     if (iFocus == 0)
@@ -242,11 +247,13 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnEdtTotalClass1FocusInEvent(object o, FocusInEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : focus -> class1 field");
             iFocus = 0;
         }
 
         protected void OnEdtTotalClass2FocusInEvent(object o, FocusInEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : focus -> class2 field");
             iFocus = 1;
         }
 
@@ -302,6 +309,7 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void Action_Key(String szChar)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : keypad '{szChar}' -> class{iFocus + 1} field");
             if (iFocus == 0)
                 edtTotalClass1.Text += szChar;
             else
@@ -310,6 +318,7 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnBtnBackSpaceClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : button BackSpace clicked (class{iFocus + 1} field)");
             if (iFocus == 0)
             {
                 if (edtTotalClass1.Text == "")
@@ -326,6 +335,7 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnBtnEnterClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : button Enter clicked (focus class{iFocus + 1} -> {(iFocus == 0 ? "class2" : "Print Receipt")})");
             if (iFocus == 0)
                 edtTotalClass2.GrabFocus();
             else if (iFocus == 1)
@@ -335,44 +345,58 @@ namespace TCT_App.LaneView.MiscDlg
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : keyboard {args.Event.Key} -> virtual key {(KeyPressedType)TCT_Lib.keyMapping[(int)args.Event.KeyValue]}");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue], 1);
+            }
         }
 
         protected void OnEdtTotalClass1KeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : keyboard {args.Event.Key} -> virtual key {(KeyPressedType)TCT_Lib.keyMapping[(int)args.Event.KeyValue]}");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
+            }
         }
 
         protected void OnEdtTotalClass2KeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : keyboard {args.Event.Key} -> virtual key {(KeyPressedType)TCT_Lib.keyMapping[(int)args.Event.KeyValue]}");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
+            }
         }
 
         protected void OnEdtTotalClass1Activated(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : class1 field Enter -> virtual key ENTER");
             TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.ENTER);
         }
 
         protected void OnEdtTotalClass2Activated(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : class2 field Enter -> virtual key ENTER");
             TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.ENTER);
         }
 
         protected void OnBtnSelPayCashButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : touch pay Cash");
             Action_BtnSelPayment(0);
         }
 
         protected void OnBtnSelPayEMVButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : touch pay EMV");
             Action_BtnSelPayment(1);
             Perform_ProcessEMV();
         }
 
         protected void OnBtnSelPayQrCodeButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : touch pay QR Code");
             Action_BtnSelPayment(2);
             Perform_ProcessQrCode();
         }
@@ -380,7 +404,11 @@ namespace TCT_App.LaneView.MiscDlg
         protected void Action_BtnSelPayment(int iPayType)
         {
             if (bPayCompleted)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ PrintConvoy : pay type {iPayType} ignored, already paid");
                 return;
+            }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : pay type {iSelPayType} -> {iPayType} (0=Cash 1=EMV 2=QR), redraw pay buttons");
 
             iSelPayType = iPayType;
             btnSelPayCash.QueueDraw();
@@ -524,11 +552,13 @@ namespace TCT_App.LaneView.MiscDlg
         {
            if (edtTotalClass1.Text.Contains("n"))
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : class1 field got 'n' -> cancel");
                 Action_BtnCancel();
                 return;
             }
             if (edtTotalClass1.Text.Contains("p"))
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : class1 field got 'p' -> cancel");
                 Action_BtnCancel();
                 return;
             }
@@ -541,11 +571,13 @@ namespace TCT_App.LaneView.MiscDlg
         {
             if (edtTotalClass2.Text.Contains("n"))
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : class2 field got 'n' -> cancel");
                 Action_BtnCancel();
                 return;
             }
             if (edtTotalClass2.Text.Contains("p"))
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : class2 field got 'p' -> cancel");
                 Action_BtnCancel();
                 return;
             }
@@ -616,6 +648,7 @@ namespace TCT_App.LaneView.MiscDlg
             txtTotalAmount.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
             txtTotalVehicle.UseMarkup   = true;
             txtTotalVehicle.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : class1 x{iTotalClass1} = {fTotalAmount1}, class2 x{iTotalClass2} = {fTotalAmount2}, total {iTotalVehicle} cars / {fTotalAmount} THB{(fTotalAmount < 1500 ? "" : " (cash only)")}");
         }
 
         protected decimal Calc_TotalAmount()
@@ -651,12 +684,17 @@ namespace TCT_App.LaneView.MiscDlg
         protected void Perform_ProcessEMV()
         {
             if (TCT_Lib.bActiveEMVDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ PrintConvoy : EMV ignored, EMV dialog already open");
                 return;
+            }
 
             //---------------------------------------
             decimal fTotalAmount = Calc_TotalAmount();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EMV start, amount {fTotalAmount}");
             if (fTotalAmount == 0)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ PrintConvoy : EMV ignored, no convoy cars -> pay Cash");
                 iSelPayType = 0;
                 btnSelPayCash.QueueDraw();
                 btnSelPayEMV.QueueDraw();
@@ -670,6 +708,7 @@ namespace TCT_App.LaneView.MiscDlg
 
             if (fTotalAmount >= 1500)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ PrintConvoy : EMV/QR refused, amount {fTotalAmount} >= 1500 -> pay Cash, popup opened");
                 iSelPayType = 0;
                 btnSelPayCash.QueueDraw();
                 btnSelPayEMV.QueueDraw();
@@ -683,6 +722,7 @@ namespace TCT_App.LaneView.MiscDlg
                 UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : popup 'over 1,500' closed");
                 return;
             }
             //-------------------------------------------------------------------
@@ -692,7 +732,9 @@ namespace TCT_App.LaneView.MiscDlg
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog EMV");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPaymentDlg opened, amount {fTotalAmount}");
                 ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPaymentDlg closed -> {xResult}");
 
                 if (xResult == ResponseType.Ok)
                 {
@@ -725,6 +767,7 @@ namespace TCT_App.LaneView.MiscDlg
                 else
                 {
                     //--- Back to Pay Cash
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
                     iSelPayType = 0;
                     btnSelPayCash.QueueDraw();
                     btnSelPayEMV.QueueDraw();
@@ -737,7 +780,9 @@ namespace TCT_App.LaneView.MiscDlg
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog EMV_V1");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPaymentDlg_V1 opened, amount {fTotalAmount}");
                 ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPaymentDlg_V1 closed -> {xResult}");
 
                 if (xResult == ResponseType.Ok)
                 {
@@ -770,6 +815,7 @@ namespace TCT_App.LaneView.MiscDlg
                 else
                 {
                     //--- Back to Pay Cash
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
                     iSelPayType = 0;
                     btnSelPayCash.QueueDraw();
                     btnSelPayEMV.QueueDraw();
@@ -779,17 +825,23 @@ namespace TCT_App.LaneView.MiscDlg
                        
             TCT_Lib.eCurAppPage   = AppPage.PayConvoy;     // v2.0.2: give keys back to this popup
             TCT_Lib.bActiveEMVDlg = false;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : payment step done, pay {iSelPayType}, paid {bPayCompleted}, emv detail id {iOutEmvDetailID}");
         }
 
         protected void Perform_ProcessQrCode()
         {
             if (TCT_Lib.bActiveEMVDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ PrintConvoy : QR ignored, EMV dialog already open");
                 return;
+            }
 
             //---------------------------------------
             decimal fTotalAmount = Calc_TotalAmount();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : QR start, amount {fTotalAmount}");
             if (fTotalAmount == 0)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ PrintConvoy : QR ignored, no convoy cars -> pay Cash");
                 iSelPayType = 0;
                 btnSelPayCash.QueueDraw();
                 btnSelPayEMV.QueueDraw();
@@ -803,6 +855,7 @@ namespace TCT_App.LaneView.MiscDlg
 
             if (fTotalAmount >= 1500)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ PrintConvoy : EMV/QR refused, amount {fTotalAmount} >= 1500 -> pay Cash, popup opened");
                 iSelPayType = 0;
                 btnSelPayCash.QueueDraw();
                 btnSelPayEMV.QueueDraw();
@@ -816,6 +869,7 @@ namespace TCT_App.LaneView.MiscDlg
                 UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
                 md.Run();
                 md.Destroy();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : popup 'over 1,500' closed");
                 return;
             }
 
@@ -836,7 +890,9 @@ namespace TCT_App.LaneView.MiscDlg
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog QrCode");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPayQrDlg opened, amount {fTotalAmount}");
                 ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPayQrDlg closed -> {xResult}");
 
                 if (xResult == ResponseType.Ok)
                 {
@@ -869,6 +925,7 @@ namespace TCT_App.LaneView.MiscDlg
                 else
                 {
                     //--- Back to Pay Cash
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
                     iSelPayType = 0;
                     btnSelPayCash.QueueDraw();
                     btnSelPayEMV.QueueDraw();
@@ -881,7 +938,9 @@ namespace TCT_App.LaneView.MiscDlg
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog QrCode");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPayQrDlg_V1 opened, amount {fTotalAmount}");
                 ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPayQrDlg_V1 closed -> {xResult}");
 
                 if (xResult == ResponseType.Ok)
                 {
@@ -914,6 +973,7 @@ namespace TCT_App.LaneView.MiscDlg
                 else
                 {
                     //--- Back to Pay Cash
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
                     iSelPayType = 0;
                     btnSelPayCash.QueueDraw();
                     btnSelPayEMV.QueueDraw();
@@ -923,10 +983,12 @@ namespace TCT_App.LaneView.MiscDlg
 
             TCT_Lib.eCurAppPage   = AppPage.PayConvoy;     // v2.0.2: give keys back to this popup
             TCT_Lib.bActiveEMVDlg = false;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : payment step done, pay {iSelPayType}, paid {bPayCompleted}, emv detail id {iOutEmvDetailID}");
         }
 
         protected void OnBtnConfirmPaymentClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : button Confirm Payment clicked");
             Action_BtnConfirmPayment();
         }
 
@@ -935,6 +997,7 @@ namespace TCT_App.LaneView.MiscDlg
             iOutTotalVehicle = GetTotalVehicle(ref iOutTotalClass1, ref iOutTotalClass2);
             if (iOutTotalVehicle == 0)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ PrintConvoy : confirm/print ignored, no convoy cars");
                 txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ไม่พบจำนวนรถขบวน</span>";
                 txtMsg.UseMarkup    = true;
                 return;
@@ -944,6 +1007,7 @@ namespace TCT_App.LaneView.MiscDlg
 
             LogInfo.WriteLog("+ Close Convoy from Confirm");
             LogInfo.WriteLaneEvent("+ Close Convoy from Confirm");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : popup closed (Ok), class1 x{iOutTotalClass1}, class2 x{iOutTotalClass2}, pay {iOutPayType}, emv detail id {iOutEmvDetailID}, page PayConvoy -> Main");
             this.Respond(ResponseType.Ok);
             TCT_Lib.eCurAppPage         = AppPage.Main;
             TCT_Lib.bActiveConvoyDlg    = false;
@@ -954,6 +1018,7 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnBtnPrintReceiptClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : button Print Receipt clicked");
             Action_BtnPrintReceipt();
         }
 
@@ -962,6 +1027,7 @@ namespace TCT_App.LaneView.MiscDlg
             iOutTotalVehicle = GetTotalVehicle(ref iOutTotalClass1, ref iOutTotalClass2);
             if (iOutTotalVehicle == 0)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ PrintConvoy : confirm/print ignored, no convoy cars");
                 txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ไม่พบจำนวนรถขบวน</span>";
                 txtMsg.UseMarkup    = true;
                 return;
@@ -977,6 +1043,7 @@ namespace TCT_App.LaneView.MiscDlg
                 szPayTypeName = TCT_Lib.GetPayMethodName((int)PayType.QrCode);
 
             int nTrx = TCT_Lib.nTrx;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : print {iOutTotalClass1} x class1 + {iOutTotalClass2} x class2 receipts from trx {nTrx}, {szPayTypeName}");
             for (int i = 0; i < iOutTotalClass1; i++)
             {
                 PrintUtils.PrintReceiptLib.PrintReceipt(nTrx, false, true, "1", TCT_Lib.fFareClass1.ToString("N"), szPayTypeName);
@@ -992,6 +1059,7 @@ namespace TCT_App.LaneView.MiscDlg
             }
             //---------------------------------------------
             iOutPayType = iSelPayType;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : receipts printed up to trx {nTrx - 1}, popup stays open");
 
 /*
             LogInfo.WriteLog("+ Close Convoy from PrintReceipt");

@@ -33,6 +33,10 @@ namespace TCT_App
 
             TCT_Lib.LoadTCT_Configuration();
             TCT_Lib.LoadKeyMapping();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ Main : config + key mapping loaded, LogLevel={LogInfo.eLogLevel}, FileVersion={appVersion?.FileVersion ?? "null"}, LogPath={TCT_Lib.szLogPath}");
+#if __FULL_SCREEN__
+            LogInfo.WriteLog(iTotal > 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(iTotal > 0 ? "- Warning" : "+")} Main : pid={current?.Id}, other TCT_App process found={iTotal} (killed before start)");
+#endif
 
             TCT_Lib.dtTctStartDateTime = DateTime.Now;
 
@@ -116,6 +120,7 @@ namespace TCT_App
             var tfiImagePath = Path.Combine(szLogPath, "TfiImage");
             if (!Directory.Exists(tfiImagePath))
                 Directory.CreateDirectory(tfiImagePath);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ Main : log folders ready under {szLogPath}");
 
             /*
                         if (TCT_Lib.bEnableVideoNVR)
@@ -127,9 +132,13 @@ namespace TCT_App
 
 
 
+            var swStartup = Stopwatch.StartNew();
             TCT_Lib.UpdateDatabaseStructure();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ Main : UpdateDatabaseStructure done ({swStartup.ElapsedMilliseconds} ms)");
             //------------------------------------------------------------------
+            swStartup.Restart();
             TCT_Lib.BackupLogFile();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ Main : BackupLogFile done ({swStartup.ElapsedMilliseconds} ms)");
 
             //------------------------------------------------------------------
             TCT_Lib.frmLoginWnd = win;
@@ -138,7 +147,9 @@ namespace TCT_App
 #if __FULL_SCREEN__
             win.Fullscreen();
 #endif
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ Main : GTK main loop start (Application.Run)");
             Application.Run();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ Main : GTK main loop exit");
         }
 
         public static int process_count(string application_name)

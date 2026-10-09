@@ -367,6 +367,11 @@ async def api(request):
             async with s.get(f"http://{TCT_HOST}:6081/click", params={"x": int(body["x"]), "y": int(body["y"])}, timeout=5):
                 pass
         await log("TOUCH", f"แตะจอที่ ({body['x']},{body['y']})", "key")
+    elif act == "ta":                         # ตั้งโหมด TA web service จำลอง (คูปอง) / reset=true คืนคูปองที่ขายไป
+        ta["mode"] = body.get("mode") or "ok"
+        if body.get("reset"):
+            ta_sold.clear()
+        await log("TA", f"โหมด TA = {ta['mode']}" + (" (คืนคูปองทั้งหมด)" if body.get("reset") else ""), "warn")
     elif act == "edc":                        # ตั้งโหมด EDC จำลอง
         if body.get("mode"):
             edc["mode"] = body["mode"]
@@ -400,8 +405,9 @@ async def api(request):
 
 # ------------------------------------------------------------------ TA Web Service จำลอง (คูปอง / LaneAttendance / ภาพ)
 TA_COUPONS = [{"CouponPK": (9000 if t == "35" else 9500) + i, "CouponType": t, "SerialNo": f"SIM{t}-{i:04d}", "Price": float(t)}
-              for t in ("35", "80") for i in range(1, 11)]
+              for t in ("35", "80") for i in range(1, 201)]        # 200 ใบ/ชนิด (TCT แสดงครั้งละ 10 ใบ)
 ta_sold = []
+ta = {"mode": "ok"}            # ok | error (hasError=true) | slow (หน่วง 5 วิ > timeout 2 วิ ของ TCT)
 
 
 def ta_ok(data=None):
@@ -414,6 +420,13 @@ async def ta_handler(request):
         body = await request.json()
     except Exception:
         body = {}
+    if path.endswith("/coupons/search") or path.endswith("/coupons/sold"):
+        if ta["mode"] == "slow":
+            await log("TA", f"… โหมด slow — หน่วง 5 วินาที ({path.rsplit('/', 1)[-1]})", "warn")
+            await asyncio.sleep(5)
+        elif ta["mode"] == "error":
+            await log("TA", f"✕ โหมด error — ตอบ hasError=true ({path.rsplit('/', 1)[-1]})", "warn", body)
+            return web.json_response({"errors": {"hasError": True, "errMsg": "SIM TA ERROR"}, "data": []})
     if path.endswith("/coupons/search"):
         sold = {c["serialno"] for c in ta_sold}
         data = [c for c in TA_COUPONS if c["SerialNo"] not in sold]

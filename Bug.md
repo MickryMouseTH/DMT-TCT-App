@@ -323,6 +323,52 @@ GTK เป็น single-thread การบล็อก main thread = ทั้�
 
 ---
 
+## หมวด I — พบจากการทดสอบด้วย Simulator (`TCT_Sim/`) และแก้แล้วใน v2.0.2–2.0.3
+
+| # | ระดับ | อาการ | สาเหตุ | แก้ใน |
+|---|---|---|---|---|
+| I1 | 🔴 | Popup QR (EDC V1) → **โปรแกรมดับ** (SIGSEGV ใน `gtk_dialog_run`) เช่น ลูกค้ายังไม่สแกน QR | `EdcPayQrDlg_V1` / `EdcPaymentDlg_V1` เรียก `Respond/Dispose/Destroy` จาก socket thread (ผิดกฎข้อ A/B) | 2.0.2 — `RespondOnGtk()` ผ่าน `Application.Invoke`, MainWindow เป็นคน Dispose |
+| I2 | 🟠 | จ่าย QR ไม่สำเร็จ — Popup หยุดรอผลก่อนปุ่มตรวจสอบจะเปิด | Accept timeout 3 วิ แต่ปุ่มตรวจสอบเปิดหลัง 5 วิ | 2.0.2 — รอต่อเมื่อ accept timeout |
+| I3 | 🟠 | EDC ออฟไลน์ → Popup QR ปิดไม่ได้เลย | รอคำตอบการยกเลิกจาก EDC ไม่มีกำหนด | 2.0.2 — ปิดทันที หรือภายใน 5 วิ |
+| I4 | 🟠 | Popup EMV/QR ไม่รับคีย์บอร์ด | `KeyPressEvent` ไม่ได้ผูก | 2.0.2 |
+| I5 | 🟡 | กด ENTER แล้วไปกดปุ่มบนจอที่แตะล่าสุดซ้ำ (เช่น FORCE RESET) | ปุ่มรับ focus + คีย์ที่ map แล้วถูกส่งต่อให้ GTK | 2.0.2 — ปุ่มไม่รับ focus, `RetVal = true` |
+| I6 | 🟡 | Popup รถขบวนจ่ายเงิน: หลังจ่าย EMV/QR คีย์บอร์ดใช้ไม่ได้ | `eCurAppPage` ไม่คืนค่า | 2.0.2 |
+| I7 | 🟡 | `SetLaneTypeMode` handler สะสมทุกครั้งที่เปิด | ถอด event ผิดตัว | 2.0.2 |
+| I8 | 🟠 | โหมดช่าง: เข้าเมนูแล้วจอไม่เปลี่ยน | `ModifyBg` ทุกรอบการวาด + Dispose `PangoRenderer.GetDefault()` (ตัวกลางที่ใช้ร่วมกัน) | 2.0.3 — `SetBgIfChanged`, ไม่ Dispose renderer |
+| I9 | 🟡 | Popup ขายคูปอง: เลขคูปองล้นปุ่ม ถูกตัด/ทับกัน | ข้อความยาวเกินความกว้าง + `Justify` | 2.0.3 — บรรทัดเดียว ย่อขนาดให้พอดี |
+| I10 | 🟡 | Popup ที่ขยายขนาดตอนข้อความเปลี่ยน → เส้นกรอบเก่าค้าง ขอบขาด | GTK วาดใหม่เฉพาะส่วนที่ขยาย | 2.0.3 — `ReallocateRedraws = true` |
+
+ยังค้าง (ยังไม่ได้ยืนยันที่ช่องจริง): ข้อความสถานะ "กรุณาเปิดไม้กั้นหน้า เพื่อเปิดช่องทาง" อาจค้างหลังรับชำระ
+
+---
+
+## หมวด J — ขายคูปอง (`Sales_CouponDlg` / `LaneDB` / `WebService_SalesCoupons`) และ log รั่วรหัสผ่าน — พบจากการตรวจโค้ด 2026-10-09 แก้ใน v2.0.4
+
+ทดสอบยืนยันใน `TCT_Sim` ด้วยเคส `j_sale_coupon_*` 13 เคส + แผน 1 กะ `SHIFT_TEST_PLAN.md`
+
+| # | ระดับ | อาการ | สาเหตุ (ไฟล์:บรรทัด ก่อนแก้) | แก้ใน 2.0.4 |
+|---|---|---|---|---|
+| J1 | 🔴 | กด **[EMV]/[QR] ซ้ำ** หลังบัตรอนุมัติแล้ว → **ตัดบัตรซ้ำ** ไม่มีบันทึกของครั้งแรก | `Perform_ProcessEMV/QrCode` ไม่เช็ค `bPayCompleted` (`Sales_CouponDlg.cs:958, :1134`) | `CheckCanStartCardPayment()` ปฏิเสธถ้าจ่ายแล้ว |
+| J2 | 🔴 | กด **[แก้ไข]** หลังบัตรอนุมัติแล้ว → popup ปิด **ไม่บันทึกการขาย** ไม่ void บัตร | `Action_BtnCancel` (`:1421`) ไม่เช็ค `bPayCompleted`; `Sensitive=false` กันได้แค่เมาส์ | ปฏิเสธ + แจ้ง "ชำระด้วยบัตรแล้ว กรุณากดยืนยัน/พิมพ์" |
+| J3 | 🔴 | รถจ่าย EMV แล้วยังไม่ผ่าน → ขายคูปองด้วย EMV → **EmvDetail ของรถกลายเป็นบัตรของคูปอง** | popup EDC set `TCT_Lib.xCurEMV/xCurEDC/xCurQR = new` ใน ctor (`EdcPaymentDlg_V1.cs:96-100`) แต่รายการรถเขียน EmvDetail ตอนรถผ่าน (`LaneDB.cs:2106`) และ SALE_COUPON อนุญาตหลังจ่าย (`kAllowAfterPayType`) | `RunEdcDialog()` save/restore globals รอบ popup |
+| J4 | 🟠 | TA timeout/error ตอนเปิด popup → **คูปองหายทั้งหมด** | `DELETE FROM SalesCouponList` ก่อน HTTP (`WebService_SalesCoupons.cs:71`) | ลบหลัง TA ตอบ OK เท่านั้น |
+| J5 | 🟠 | insert หัวรายการขายล้มเหลว (`Execute` คืน -1) แต่คูปองถูกมาร์กขายแล้ว + ยิง TA + พิมพ์ใบเสร็จ | `WriteSalesCouponTransaction` ไม่เช็คผล (`LaneDB.cs:1968`) และ dialog ไม่ดูค่าคืน | คืน 0 ทันที; popup ไม่ปิด แจ้งให้กดยืนยันใหม่ |
+| J6 | 🟠 | ขายคูปองตอน TA ช้า → **จอค้าง** (probe + HTTP 2 วิ **ต่อใบ** บน GTK thread) และ TA ล้มเหลวแค่ WARN | `CallWebService_SoldCoupon` ใน loop (`LaneDB.cs:1983, :1991`) | `SendSoldCouponsToTA_Async` background thread, retry 3 ครั้ง |
+| J7 | 🟠 | **Escape** บนคีย์บอร์ดปิด popup ผ่าน GTK → handler `manageProcessSalesCoupon` ไม่ถูกถอด → เปิดครั้งถัดไปคีย์ถูกส่งให้ dialog ที่ Dispose แล้ว (เสี่ยงดับ) | `OnKeyPressEvent` ไม่ตั้ง `RetVal=true` (`:229`) ต่างจาก MainWindow (I5) | `RetVal=true` + override `OnDeleteEvent` |
+| J8 | 🟠 | popup EMV/QR **ไม่ถูก Dispose** เมื่อผลไม่ใช่ Ok → window/socket ค้างสะสมทุกครั้งที่ปฏิเสธ/ยกเลิก | เส้นทาง else ไม่ Dispose (`:1070, :1118, :1230, :1278`) ขณะ MainWindow ทำทั้ง 2 กรณี | Dispose ใน `finally` ของ `RunEdcDialog()` |
+| J9 | 🟡 | `UpdateSoldCoupon` ไม่พบ serial → `dt.Rows[0]` โยน exception → `CouponPK=0` | `LaneDB.cs:2022-2024` | คืน 0 โดยไม่ throw |
+| J10 | 🟡 | MessageDialog ซ้อน (TA offline / เกิน 1,500) ยังรับคีย์ CONFIRM/RECEIPT → ปิด dialog แม่ขณะ md ยังรัน | `md.Run()` ขณะ `eCurAppPage` ยัง SalesCoupon | `bMsgOpen` ignore คีย์ |
+| J11 | 🟡 | Dispose ซ้ำ 2 ฝั่ง (dialog เอง + MainWindow), Cancel path สลับลำดับ Dispose→Destroy | `:1347, :1428` + `MainWindow.cs:3209` | dialog แค่ `Respond()` ผ่าน `CloseDialog()` |
+| J12 | 🟡 | คีย์ `PAY_QRCODE` ส่งเข้า popup แต่ไม่ handle; QR ไม่เช็ค TA; ข้อความ QR บอก "EMV"; `>= 1500` แต่ข้อความ "เกิน" | `kSalesCoupon` มี PAY_QRCODE; `:1134-1190` | handle ตามปุ่มที่มองเห็น; ข้อความ "ตั้งแต่ 1,500" |
+| J13 | 🟡 | decimal/DateTime ต่อ SQL ไม่ใช้ InvariantCulture (ปี พ.ศ./ลูกน้ำ ถ้า locale th), `decimal.Parse` ราคาไม่กัน DBNull | `LaneDB.cs:1980, :1988`, `WebService_SalesCoupons.cs:149`, `Sales_CouponDlg.cs:175` | InvC + `TryParse` |
+| J14 | 🟡 | `ModifyBg` ใน expose ทุกรอบ (รูปแบบเดียวกับ I8) | `:593, :665, :899-911` | `SetBgIfChanged` |
+| J16 | 🟡 | **พบจากทดสอบ GUI ด้วยเมาส์**: คลิกคูปองอีกชนิด (เปลี่ยน header) แล้วช่องของชนิดเดิมไม่ถูกวาดใหม่ → หลัง popup EMV ปิด ข้อความเก่า/ใหม่ซ้อนกัน ("[1]M35-0001") | เปลี่ยน `iSelHeaderCouponType` แล้ว `QueueDraw` เฉพาะ header/ช่องที่กด (`:699-702`, `:825`, `:850`) ส่วน expose ภายหลังเป็น partial region | `RedrawAllCoupons()` ทุกครั้งที่ header เปลี่ยน |
+| J15 | 🔴 | **log พิมพ์รหัสผ่าน** กล้อง 3 ตัว, RabbitMQ DC/ETC/MTS, SCP ที่ระดับ INFO ทุกครั้งที่เปิดโปรแกรม (ยืนยันในไฟล์ log ช่องจริง) + SQL ดิบใน error path (มี StaffPassword) + URL กล้องที่ฝัง user:pass + Bridge พิมพ์ Authorization ที่ TRACE | `TCT_Lib.cs:1413-1546`, `MtsRabbitMQ.cs:58`, `MocRabbitMQ.cs:137`, `LaneDB.cs:127,163`, `TCT_NVR.cs:31,100`, `LSD_Bridge.py:148` | `LogInfo.MaskSecret()/MaskUrl()`, `SqlForLog` |
+
+ยังไม่แก้ (ต้องยืนยันกับ TA): `solddate` ส่งเวลาท้องถิ่นแต่ต่อท้าย `Z` (`WebService_SalesCoupons.cs:200`) — ถ้า server ตีความเป็น UTC เวลาขายจะคลาด 7 ชม. · ประเภทคูปองตายตัว '35','80' จาก `SalesCouponType` (คูปองชนิดอื่นที่ TA ส่งมาจะไม่แสดง)
+
+---
+
 ## ตารางสรุปจัดลำดับการแก้ (แนะนำ)
 
 | ลำดับ | Bug | หมวด | เหตุผล |

@@ -65,12 +65,14 @@ namespace TCT_App
                 iSalesCouponTransID = GetSalesCouponTransactionID();
 
                 LoadConfigDB();
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneDB.Init : EventID={iEventID}, EventRtoID={iEventRtoID}, EventHqID={iEventHqID}, AlarmRtoID={iAlarmRtoID}, FareTransID={iFareTransID}, SalesCouponTransID={iSalesCouponTransID}");
                 //-----------------------------------------------------------------
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Error Connect Database : " + err.Message);
                 LogInfo.WriteLog("- Error Connect Database : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LaneDB.Init StackTrace : " + err.StackTrace);
                 conn = null;
             }
         }
@@ -82,6 +84,7 @@ namespace TCT_App
 
         public void CloseDB()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneDB.CloseDB : connOpen={conn != null}");
             if (conn != null)
             {
                 conn.Close();
@@ -94,12 +97,18 @@ namespace TCT_App
             // v2.0.0: dispose command/adapter, serialize via _dbLock, and never let a
             // DB error crash the calling thread (return empty table instead).
             var dt = new DataTable();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ LaneDB.List SQL : " + SqlForLog(szQuery));
             try
             {
                 lock (_dbLock)
                 {
                     if (conn == null)
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, "- Warning LaneDB.List : connection is null, return empty table");
                         return dt;
+                    }
                     using (var cmd = new SqliteCommand(szQuery, conn))
                     using (var dataAdapter = new SqliteDataAdapter(cmd))
                     {
@@ -107,10 +116,16 @@ namespace TCT_App
                         dataAdapter.Fill(dt);
                     }
                 }
+                long iElapsedMs = sw.ElapsedMilliseconds;
+                if (LogInfo.IsEnabled(LogLevel.DEBUG))
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneDB.List : rows={dt.Rows.Count}, {iElapsedMs} ms");
+                if (iElapsedMs > 500)
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning LaneDB.List slow query : {iElapsedMs} ms | Query : {SqlForLog(szQuery)}");
             }
             catch (Exception err)
             {
-                LogInfo.WriteLog("- Error DB List : " + err.Message + " | Query : " + szQuery);
+                LogInfo.WriteLog("- Error DB List : " + err.Message + " | Query : " + SqlForLog(szQuery));
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- LaneDB.List failed after {sw.ElapsedMilliseconds} ms, StackTrace : {err.StackTrace}");
             }
             return dt;
         }
@@ -118,24 +133,48 @@ namespace TCT_App
         public int Execute(string szQuery)
         {
             // v2.0.0: dispose command, serialize via _dbLock, swallow errors (return -1).
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ LaneDB.Execute SQL : " + SqlForLog(szQuery));
             try
             {
                 lock (_dbLock)
                 {
                     if (conn == null)
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, "- Warning LaneDB.Execute : connection is null, return -1");
                         return -1;
+                    }
                     using (var cmd = new SqliteCommand(szQuery, conn))
                     {
                         cmd.CommandTimeout = 10;
-                        return cmd.ExecuteNonQuery();
+                        int iAffected   = cmd.ExecuteNonQuery();
+                        long iElapsedMs = sw.ElapsedMilliseconds;
+                        if (LogInfo.IsEnabled(LogLevel.DEBUG))
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneDB.Execute : affected={iAffected}, {iElapsedMs} ms");
+                        if (iElapsedMs > 500)
+                            LogInfo.WriteLog(LogLevel.WARN, $"- Warning LaneDB.Execute slow query : {iElapsedMs} ms | Query : {SqlForLog(szQuery)}");
+                        return iAffected;
                     }
                 }
             }
             catch (Exception err)
             {
-                LogInfo.WriteLog("- Error DB Execute : " + err.Message + " | Query : " + szQuery);
+                LogInfo.WriteLog("- Error DB Execute : " + err.Message + " | Query : " + SqlForLog(szQuery));
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- LaneDB.Execute failed after {sw.ElapsedMilliseconds} ms, StackTrace : {err.StackTrace}");
                 return -1;
             }
+        }
+
+        //--- v2.0.4: SQL text for TRACE/WARN log, hide statements that carry staff password hash / card no
+        static string SqlForLog(string szQuery)
+        {
+            if (szQuery == null)
+                return "null";
+            if (szQuery.IndexOf("StaffPassword", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                szQuery.IndexOf("ResponseCardNo", StringComparison.OrdinalIgnoreCase) >= 0)
+                return $"<sensitive SQL hidden, {szQuery.Length} chars>";
+            return szQuery;
         }
 
         public bool ChkDbHasTable(string szTableName)
@@ -144,7 +183,9 @@ namespace TCT_App
                                 "WHERE type = 'table' AND name = '{0}'; ";
             string szQuery  = string.Format(szFmt, szTableName);
             DataTable dt    = List(szQuery);
-            return int.Parse(dt.Rows[0][0].ToString()) > 0;
+            bool bHasTable  = int.Parse(dt.Rows[0][0].ToString()) > 0;
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ChkDbHasTable : table={szTableName}, exists={bHasTable}");
+            return bHasTable;
         }
 
         public bool ChkDbHasColumnInTable(string szTableName, string szColumnName)
@@ -153,7 +194,9 @@ namespace TCT_App
                                 "(SELECT * FROM sqlite_master WHERE tbl_name = '{0}' AND sql LIKE '%{1}%');";
             string szQuery  = string.Format(szFmt, szTableName, szColumnName);
             DataTable dt    = List(szQuery);
-            return int.Parse(dt.Rows[0][0].ToString()) > 0;
+            bool bHasColumn = int.Parse(dt.Rows[0][0].ToString()) > 0;
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ChkDbHasColumnInTable : table={szTableName}, column={szColumnName}, exists={bHasColumn}");
+            return bHasColumn;
         }
 
         //----------------------------------------------------------------------------------------------
@@ -164,7 +207,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(EventID) FROM LaneEvent";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetEventID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -184,12 +229,14 @@ namespace TCT_App
                 string szQuery  = "SELECT * FROM LaneData "+
                                     $"WHERE LaneID={TCT_Lib.iLaneID}";
                 DataTable dtLane    = List(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoadConfigDB : LaneID={TCT_Lib.iLaneID}, LaneData rows={dtLane.Rows.Count}");
                 //TCT_Lib.szLaneCode  = TCT_Lib.szLaneName = dtLane.Rows[0]["LaneName"].ToString();
 
                 //--- Load Plaza Config
                 szQuery = "SELECT * FROM PlazaData " +
                             $"WHERE PlazaID='{TCT_Lib.szPlazaID}'";
                 DataTable dtPlaza   = List(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoadConfigDB : PlazaID={TCT_Lib.szPlazaID}, PlazaData rows={dtPlaza.Rows.Count}");
                 //TCT_Lib.szPlazaCode = dtPlaza.Rows[0]["PlazaCode"] == DBNull.Value ? "- x -" : dtPlaza.Rows[0]["PlazaCode"].ToString();
                 //TCT_Lib.szPlazaName = dtPlaza.Rows[0]["PlazaName"] == DBNull.Value ? "-- xxx ---" : dtPlaza.Rows[0]["PlazaName"].ToString();
 
@@ -206,7 +253,10 @@ namespace TCT_App
                 {
                     TCT_Lib.fFareClass1 = decimal.Parse(dtTariff.Rows[0]["FareClassType1"].ToString());
                     TCT_Lib.fFareClass2 = decimal.Parse(dtTariff.Rows[0]["FareClassType2"].ToString());
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoadConfigDB : Tariff rows={dtTariff.Rows.Count}, FareClass1={TCT_Lib.fFareClass1}, FareClass2={TCT_Lib.fFareClass2}");
                 }
+                else
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning LoadConfigDB : no effective Tariff for PlazaID={iPlazaID}, keep FareClass1={TCT_Lib.fFareClass1}, FareClass2={TCT_Lib.fFareClass2}");
             }
             catch (Exception err)
             {
@@ -235,7 +285,10 @@ namespace TCT_App
 
                     TCT_Lib.laneController.szAmount_Class1 = TCT_Lib.fFareClass1.ToString("0") + " บาท";
                     TCT_Lib.laneController.szAmount_Class2 = TCT_Lib.fFareClass2.ToString("0") + " บาท";
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoadTariffData : PlazaID={iPlazaID}, rows={dtTariff.Rows.Count}, FareClass1={TCT_Lib.fFareClass1}, FareClass2={TCT_Lib.fFareClass2}");
                 }
+                else
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning LoadTariffData : no effective Tariff for PlazaID={iPlazaID}, fare not changed");
             }
             catch(Exception err)
             {
@@ -257,6 +310,7 @@ namespace TCT_App
                 string szQuery = string.Format(szFmt, iPlazaID, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", InvC));
                 LogInfo.WriteLog("+ CheckUpdateTariffEffective : " + szQuery);
                 DataTable dtTariff = List(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckUpdateTariffEffective : Tariff_BAK effective rows={dtTariff.Rows.Count}");
                 if (dtTariff.Rows.Count > 0)
                 {
                     TCT_Lib.fFareClass1 = decimal.Parse(dtTariff.Rows[0]["FareClassType1"].ToString());
@@ -275,6 +329,7 @@ namespace TCT_App
                                 $"WHERE CAST(PlazaID AS INT)={iPlazaID}";
                     LogInfo.WriteLog("+ CheckUpdateTariffEffective : " + szQuery);
                     Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckUpdateTariffEffective : Tariff replaced from Tariff_BAK, FareClass1={TCT_Lib.fFareClass1}, FareClass2={TCT_Lib.fFareClass2}");
                 }
 
                 return true;
@@ -322,9 +377,12 @@ namespace TCT_App
                                         $"{TCT_Lib.iSupervisorShiftID}, '{TCT_Lib.szSupervisorID}', '{TCT_Lib.szSupervisorCode}', " +
                                         $"'{method}', '{szParams}')";
                     //LogInfo.WriteLog("+ Query : " + szQuery);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneDB.WriteLaneEvent : EventID={iEventID}, method={method}, result={result}, rows={iRows}");
                     System.Threading.Interlocked.Increment(ref iEventID);
                 }
+                else
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneDB.WriteLaneEvent : no method in message, skip insert");
             }
             catch (Exception err)
             {
@@ -337,13 +395,18 @@ namespace TCT_App
         private long GetEventHqID()
         {
             if (TCT_Lib.bMaintenanceMode)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ GetEventHqID : maintenance mode, return 0");
                 return 0;
+            }
 
             try
             {
                 string szQuery  = "SELECT MAX(EventHqID) FROM LaneEventHQ";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetEventHqID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -359,7 +422,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(EventRtoID) FROM LaneEventRTO";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetEventRtoID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -375,6 +440,7 @@ namespace TCT_App
             {
                 long iID = iEventRtoID;
                 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneEventRTO : type={eventType}, state={iEventState}, ID={iID} (no insert)");
 
                 return iID;
             }
@@ -390,7 +456,10 @@ namespace TCT_App
         public long WriteLaneEventRTO_Device(int iDeviceTypeID, int iDeviceState)
         {
             if (iEventRtoID == 0)
+            {
+                LogInfo.WriteLog(LogLevel.WARN, $"- Warning WriteLaneEventRTO_Device : EventRtoID=0 (init failed), skip device={iDeviceTypeID}, state={iDeviceState}");
                 return 0;
+            }
 
             if ((iDeviceTypeID == (int)Cmd_DI_Type.PresenceOB) ||
                 (iDeviceTypeID == (int)Cmd_DI_Type.PresenceLoop) ||
@@ -424,7 +493,8 @@ namespace TCT_App
                                     $"{(int)EventTypeRTO.DEVICE}, '{EventTypeRTO.DEVICE.ToString()}', {iDeviceTypeID}, '{GetDeviceTypeName(iDeviceTypeID)}', " +
                                     $"{iDeviceState})";
 
-                Execute(szQuery);
+                int iRows = Execute(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneEventRTO_Device : ID={iID}, device={iDeviceTypeID}({GetDeviceTypeName(iDeviceTypeID)}), state={iDeviceState}, rows={iRows}");
                 System.Threading.Interlocked.Increment(ref iEventRtoID);
 
                 return iID;
@@ -439,6 +509,7 @@ namespace TCT_App
                 {
                     szQuery = "DELETE FROM LaneEventRTO " +
                                 "WHERE EventRtoID>=" + iEventRtoID;
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning WriteLaneEventRTO_Device : constraint violation, delete LaneEventRTO rows EventRtoID>={iEventRtoID}");
                     Execute(szQuery);
                 }
 
@@ -486,7 +557,10 @@ namespace TCT_App
         public long WriteLaneEventHQ(EventTypeHQ eventType, int iEventState)
         {
             if (TCT_Lib.bMaintenanceMode)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneEventHQ : maintenance mode, skip type={eventType}, state={iEventState}");
                 return 0;
+            }
 
             try
             {
@@ -501,7 +575,8 @@ namespace TCT_App
                                     $"{TCT_Lib.iStaffShiftID}, '{TCT_Lib.szStaffID}', '{TCT_Lib.szStaffCode}', '{TCT_Lib.szStaffName}', " +
                                     $"{TCT_Lib.iSupervisorShiftID}, '{TCT_Lib.szSupervisorID}', '{TCT_Lib.szSupervisorCode}', '{TCT_Lib.szSupervisorName}', " +
                                     $"{(int)eventType}, '{eventType.ToString()}', {iEventState}, '{GetEventStateName(eventType, iEventState)}', '')";
-                Execute(szQuery);
+                int iRows = Execute(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneEventHQ : ID={iID}, type={eventType}, state={iEventState}({GetEventStateName(eventType, iEventState)}), rows={iRows}");
                 System.Threading.Interlocked.Increment(ref iEventHqID);
 
                 //------------------------------------------------------------------------------------------------------
@@ -509,7 +584,10 @@ namespace TCT_App
                 string szLaneEvent  = JsonConvert.SerializeObject(xLaneEvent, Formatting.Indented);
                 //Console.WriteLine("+ Rabbit Lane Event = " + szLaneEvent);
                 //LogInfo.WriteLog("+ Rabbit Lane Event = " + szLaneEvent);
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ WriteLaneEventHQ : RabbitMQ body = {szLaneEvent}");
                 bool bResult = TCT_Lib.mocRabbitMQ.SendLaneEventRabbitMQ($"Event-{eventType.ToString()}", szLaneEvent);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} WriteLaneEventHQ : send RabbitMQ Event-{eventType} ID={iID}, result={bResult}");
                 UpdateSendLaneEventHQ(iID, bResult ? 1 : 0);
                 //---------------------------------------------------------------------------------------------------------
                 return iID;
@@ -541,7 +619,8 @@ namespace TCT_App
             string szQuery = $"UPDATE LaneEventHQ SET SendHqStatus={iStatus}, " +
                              $"SendHqDateTime='{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}' " +
                              $"WHERE EventHqID={iEventID}";
-            Execute(szQuery);
+            int iRows = Execute(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateSendLaneEventHQ : EventHqID={iEventID}, status={iStatus}, rows={iRows}");
         }
 
         //===========================================================================
@@ -552,7 +631,9 @@ namespace TCT_App
             {
                 szQuery         = "SELECT MAX(AlarmRtoID) FROM LaneAlarmRTO";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetAlarmRtoID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -583,7 +664,8 @@ namespace TCT_App
                                     $"{TCT_Lib.iSupervisorShiftID}, '{TCT_Lib.szSupervisorID}', '{TCT_Lib.szSupervisorCode}', '{TCT_Lib.szSupervisorName}', " +
                                     $"{(int)alarmDevice}, '{alarmDevice.ToString()}', {(int)alarmType}, '{alarmType.ToString()}', " +
                                     $"'{szAlarmDetail.Replace("'", "''")}', '{szAlarmRemark.Replace("'", "''")}')";
-                Execute(szQuery);
+                int iRows = Execute(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneAlarmRTO : ID={iID}, device={alarmDevice}, type={alarmType}, detail={szAlarmDetail}, rows={iRows}");
                 System.Threading.Interlocked.Increment(ref iAlarmRtoID);
 
                 //------------------------------------------------------------------------------------------------------
@@ -612,7 +694,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(StaffShiftID) FROM StaffShift";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetStaffShiftID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -639,7 +723,8 @@ namespace TCT_App
                                     $"StaffEndShiftDateTime='{dtEndShift.ToString("yyyy-MM-dd HH:mm:ss", InvC)}' " +
                                     $"WHERE StaffEndShiftDateTime is null";
                     LogInfo.WriteLog("+ Query WriteLaneEndStaffShift : " + szQuery);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneStartStaffShift : auto end open shifts, rows={iRows}");
                 }
                 LogInfo.WriteLog("+ Success WriteLaneEndStaffShift");
             }
@@ -662,7 +747,8 @@ namespace TCT_App
                                     $"{TCT_Lib.iSupervisorShiftID}, '{TCT_Lib.szSupervisorID}', '{TCT_Lib.szSupervisorCode}', '{TCT_Lib.szSupervisorName}', "+
                                     //$"'{TCT_Lib.dtSupervisorStartShift.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}')";
                                     $"'{TCT_Lib.dtSupervisorStartShift.ToString("yyyy-MM-dd HH:mm:ss", InvC)}')";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneStartStaffShift : StaffShiftID={TCT_Lib.iStaffShiftID}, StaffID={TCT_Lib.szStaffID}, LoginType={loginType}, JobNo={TCT_Lib.iJobNo}, SupShiftID={TCT_Lib.iSupervisorShiftID}, rows={iRows}");
                     LogInfo.WriteLog("+ Success WriteLaneStartStaffShift");
                 }
             }
@@ -720,7 +806,8 @@ namespace TCT_App
                                     $"StaffEndShiftDateTime='{dtEndShift.ToString("yyyy-MM-dd HH:mm:ss", InvC)}' " +
                                     $"WHERE StaffShiftID={iStaffShiftID}";
                     LogInfo.WriteLog("+ Query WriteLaneEndStaffShift : " + szQuery);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteLaneEndStaffShift : StaffShiftID={iStaffShiftID}, method={iEndShiftMethod}, rows={iRows}");
                 }
                 LogInfo.WriteLog("+ Success WriteLaneEndStaffShift");
             }
@@ -743,8 +830,12 @@ namespace TCT_App
                                     "ORDER BY StaffShiftID DESC";
                     DataTable dt = List(szQuery);
                     if (dt.Rows.Count == 0)
+                    {
+                        LogInfo.WriteLog(LogLevel.DEBUG, "+ CheckLastShiftCompleteEndShift : no StaffShift row, return true");
                         return true;
+                    }
 
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckLastShiftCompleteEndShift : last StaffShiftID={dt.Rows[0]["StaffShiftID"]}, complete={dt.Rows[0]["StaffEndShiftDateTime"] != DBNull.Value}");
                     return dt.Rows[0]["StaffEndShiftDateTime"] != DBNull.Value;
 
                 }
@@ -776,6 +867,7 @@ namespace TCT_App
                         TCT_Lib.szSupervisorGroupID     = "";
                         TCT_Lib.szSupervisorGroupName   = "";
                         TCT_Lib.dtSupervisorStartShift  = DateTime.Now;
+                        LogInfo.WriteLog(LogLevel.DEBUG, "+ GetCurrentSupervisor : no SupervisorShift row, clear supervisor");
                     }
                     else
                     {
@@ -786,6 +878,7 @@ namespace TCT_App
                         TCT_Lib.szSupervisorGroupID     = dt.Rows[0]["SupervisorGroupID"].ToString();
                         TCT_Lib.szSupervisorGroupName   = dt.Rows[0]["SupervisorGroupName"].ToString();
                         TCT_Lib.dtSupervisorStartShift  = Convert.ToDateTime(dt.Rows[0]["StartShiftDateTime"].ToString());
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetCurrentSupervisor : SupShiftID={TCT_Lib.iSupervisorShiftID}, SupID={TCT_Lib.szSupervisorID}, SupCode={TCT_Lib.szSupervisorCode}, Start={TCT_Lib.dtSupervisorStartShift:yyyy-MM-dd HH:mm:ss}");
                     }
 
                     return true;
@@ -811,14 +904,18 @@ namespace TCT_App
                                         $"WHERE SupervisorShiftID={iSupervisorShiftID}";
                     DataTable dt = List(szQuery);
                     if (dt.Rows.Count > 0)
+                    {
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateCurrentSupervisor : SupShiftID={iSupervisorShiftID} already exists, skip");
                         return false;
+                    }
 
                     //--- Insert new SupervisorShift
                     szQuery = "INSERT INTO SupervisorShift (SupervisorShiftID, SupervisorID, SupervisorCode, SupervisorName, "+
                                 "SupervisorGroupID, SupervisorGroupName, StartShiftDateTime) VALUES "+
                                 $"({iSupervisorShiftID}, '{szSupervisorId}', '{szSupervisorCode}', '{szSupervisorName}', "+
                                 $"'{szSupervisorGroupId}', '{szSupervisorGroupName}', '{dtSupervisorStartShift.ToString(TCT_Lib.szDateTimeFormatDB)}')";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateCurrentSupervisor : insert SupShiftID={iSupervisorShiftID}, SupID={szSupervisorId}, SupCode={szSupervisorCode}, Group={szSupervisorGroupId}, rows={iRows}");
 
                     TCT_Lib.iSupervisorShiftID      = iSupervisorShiftID;
                     TCT_Lib.szSupervisorID          = szSupervisorId;
@@ -846,7 +943,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT COUNT(*) FROM LaneTransaction WHERE SendStatusDC=0";
                 DataTable dt    = List(szQuery);
-                return int.Parse(dt.Rows[0][0].ToString());
+                int iUnsend     = int.Parse(dt.Rows[0][0].ToString());
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetTotalUnsendTransToDC : unsend={iUnsend}");
+                return iUnsend;
             }
             catch (Exception err)
             {
@@ -863,7 +962,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(TransactionID) FROM LaneTransaction";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetLaneTransactionID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -930,6 +1031,7 @@ namespace TCT_App
             iListSignalCode.Add(convoyPayment);
 
             szSignalCode = string.Join(",", iListSignalCode.Select(n => n.ToString()).ToArray());
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateTransSignalCode : towing={bTowing}, SignalCode={szSignalCode}");
 
             return szSignalCode;
         }
@@ -937,8 +1039,10 @@ namespace TCT_App
         public long WriteLaneTransaction(bool bLoopBack, bool bObBack, bool bForceEndTrans=false)
         {
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction : Loop={bLoopBack}, OB={bObBack}, ForceEnd={bForceEndTrans}, LaneType={TCT_Lib.eCurLaneType}, LaneMode={TCT_Lib.eCurLaneMode}, JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}");
             if (TCT_Lib.eCurLaneType == LaneType.ETC)
             {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ WriteLaneTransaction : ETC lane, skip");
                 return 0;
             }
 
@@ -993,7 +1097,10 @@ namespace TCT_App
                     if (TCT_Lib.eCurLaneType == LaneType.DUAL)
                     {
                         if ((iTC_Class == 0) && (xPayment.payType != (int)PayType.Violation))
+                        {
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction : DUAL lane TC_Class=0 and PayType={xPayment.payType}, skip");
                             return 0;
+                        }
                     }
 
                     int iEmvDetailID = 0;
@@ -1092,6 +1199,7 @@ namespace TCT_App
                     string szLC_SignalStatus    = (bLoopBack ? "1" : "0") + "," + (bObBack ? "1" : "0") + "," + TCT_Lib.xCurAVC.avcClass + "," + TCT_Lib.xCurAVC.avcError;
 
                     LogInfo.WriteLaneEvent($"Write DB Trans : TransID={iFareTransID}, JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}, ReceiptNo={TCT_Lib.szCurFareReceiptNo}, TC_Class={iTC_Class}, Fare={fFareAmount}, PayType={xPayment.payTypeName}, AVC_Class={TCT_Lib.xCurAVC.avcClass}, Loop={bLoopBack}, OB={bObBack}, ForceEndTrans={bForceEndTrans}");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction : EmvDetailID={iEmvDetailID}, Remark={szTransRemark}, SignalCode={szTrans_SignalCode}, LC_Signal={szLC_SignalStatus}, ReceiptQueue={TCT_Lib.szListReceiptNo.Count}, Convoy={TCT_Lib.bConvoyMode}/{TCT_Lib.bAllowConvoy}, Towing={TCT_Lib.iIsTowing}/{TCT_Lib.iTowingParentID}");
 
                     LaneMode xLaneMode = TCT_Lib.eCurLaneMode;
                     if (TCT_Lib.bMaintenanceMode && TCT_Lib.eCurLaneMode == LaneMode.HPMC)
@@ -1207,7 +1315,8 @@ namespace TCT_App
                                     $"{TCT_Lib.xCurTAG.tagType}, '{TCT_Lib.xCurTAG.tagPAN}', {TCT_Lib.xCurTAG.tagBalance}, '{TCT_Lib.xCurTAG.tagSignalCode}', '{TCT_Lib.xCurTAG.tagRemark}', " +
                                     $"'{szTransRemark}', {TCT_Lib.iIsTowing}, {TCT_Lib.iTowingParentID}, '{szTrans_SignalCode}', '{szLC_SignalStatus}', {iDmtCardTransID}" +
                                     $")";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteLaneTransaction : insert TransID={iFareTransID}, JobNo={iJobNo}, nTrx={nTrx}, LaneMode={xLaneMode}, PayType={xPayment.payType}, PayAmount={xPayment.payAmount}, rows={iRows}");
                     iID = iFareTransID;
                     System.Threading.Interlocked.Increment(ref iFareTransID);
                     TCT_Lib.nTrx++;
@@ -1217,7 +1326,8 @@ namespace TCT_App
                     {
                         szQuery = $"UPDATE LaneTransaction SET PayRemark='Ref1={TCT_Lib.szQrRef1},Ref2={TCT_Lib.szQrRef2}' " +
                                     $"WHERE TransactionID={iID}";
-                        Execute(szQuery);
+                        iRows = Execute(szQuery);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction : update QR PayRemark TransID={iID}, Ref1={TCT_Lib.szQrRef1}, Ref2={TCT_Lib.szQrRef2}, rows={iRows}");
                     }
 
                     //------------------------------------------------------
@@ -1242,6 +1352,7 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error WriteLaneTransaction : " + err.Message);
                 LogInfo.WriteLog("- Error WriteLaneTransaction : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- WriteLaneTransaction StackTrace : " + err.StackTrace);
 
                 return 0;
             }
@@ -1265,8 +1376,10 @@ namespace TCT_App
                 nTrx    = 0;
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction_Towing : Loop={bLoopBack}, OB={bObBack}, ForceEnd={bForceEndTrans}, LaneType={TCT_Lib.eCurLaneType}, LaneMode={TCT_Lib.eCurLaneMode}, JobNo={iJobNo}, nTrx={nTrx}, TowingParentID={TCT_Lib.iTowingParentID}");
             if (TCT_Lib.eCurLaneType == LaneType.ETC)
             {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ WriteLaneTransaction_Towing : ETC lane, skip");
                 return 0;
             }
 
@@ -1287,7 +1400,10 @@ namespace TCT_App
                     string szTransRemark    = bForceEndTrans ? "TOWING #2 - Force End" : "TOWING #2";
 
                     if ((xPayment.payType == (int)PayType.MPass) || (xPayment.payType == (int)PayType.EasyPass))
+                    {
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction_Towing : PayType={xPayment.payType} (MPass/EasyPass), skip");
                         return 0;
+                    }
 
                     if (xPayment.payType == (int)PayType.Violation)
                     {
@@ -1375,6 +1491,7 @@ namespace TCT_App
                     string szLC_SignalStatus    = (bLoopBack ? "1" : "0") + "," + (bObBack ? "1" : "0") + "," + TCT_Lib.xTowingAVC.avcClass + "," + TCT_Lib.xTowingAVC.avcError;
 
                     LogInfo.WriteLaneEvent($"Write DB Towing : TransID={iFareTransID}, JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}, ReceiptNo={TCT_Lib.szCurFareReceiptNo}, TC_Class={iTC_Class}, Fare={fFareAmount}, PayType={xPayment.payTypeName}, AVC_Class={TCT_Lib.xTowingAVC.avcClass}, Loop={bLoopBack}, OB={bObBack}");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction_Towing : EmvDetailID={iEmvDetailID}, Remark={szTransRemark}, SignalCode={szTrans_SignalCode}, LC_Signal={szLC_SignalStatus}, ReceiptQueue={TCT_Lib.szListReceiptNo.Count}");
 
                     LaneMode xLaneMode = TCT_Lib.eCurLaneMode;
                     if (TCT_Lib.bMaintenanceMode && TCT_Lib.eCurLaneMode == LaneMode.HPMC)
@@ -1442,7 +1559,8 @@ namespace TCT_App
                                     $"{TCT_Lib.xCurTAG.tagType}, '{TCT_Lib.xCurTAG.tagPAN}', {TCT_Lib.xCurTAG.tagBalance}, '{TCT_Lib.xCurTAG.tagSignalCode}', '{TCT_Lib.xCurTAG.tagRemark}', " +
                                     $"'{szTransRemark}', 0, {TCT_Lib.iTowingParentID}, '{szTrans_SignalCode}', '{szLC_SignalStatus}', {iDmtCardTransID}" +
                                     $")";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteLaneTransaction_Towing : insert TransID={iFareTransID}, JobNo={iJobNo}, nTrx={nTrx}, LaneMode={xLaneMode}, PayType={xPayment.payType}, PayAmount={xPayment.payAmount}, rows={iRows}");
                     iID = iFareTransID;
                     System.Threading.Interlocked.Increment(ref iFareTransID);
                     TCT_Lib.nTrx++;
@@ -1452,7 +1570,8 @@ namespace TCT_App
                     {
                         szQuery = $"UPDATE LaneTransaction SET PayRemark='Ref1={TCT_Lib.szQrRef1},Ref2={TCT_Lib.szQrRef2}' " +
                                     $"WHERE TransactionID={iID}";
-                        Execute(szQuery);
+                        iRows = Execute(szQuery);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteLaneTransaction_Towing : update QR PayRemark TransID={iID}, Ref1={TCT_Lib.szQrRef1}, Ref2={TCT_Lib.szQrRef2}, rows={iRows}");
                     }
                     //--------------------------------------------
 
@@ -1463,6 +1582,7 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error WriteLaneTransaction_Towing : " + err.Message);
                 LogInfo.WriteLog("- Error WriteLaneTransaction_Towing : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- WriteLaneTransaction_Towing StackTrace : " + err.StackTrace);
 
                 return 0;
             }
@@ -1471,7 +1591,10 @@ namespace TCT_App
         public long WriteLaneTransaction_ETC_CompliedPassage(dynamic objCompiledPassage)
         {
             if (objCompiledPassage == null)
+            {
+                LogInfo.WriteLog(LogLevel.WARN, "- Warning WriteLaneTransaction_ETC_CompliedPassage : passage object is null, skip");
                 return 0;
+            }
 
             long iID = 0;
             var InvC = CultureInfo.InvariantCulture;
@@ -1554,6 +1677,7 @@ namespace TCT_App
                         szTransRemark = "Vehicle Backed Out";  // "รถถอยหลัง";
 
                     LogInfo.WriteLog("+ ETC_CompliedPassage : Signal success");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ETC_CompliedPassage : SignalCode={szSignalCode}, Remark={szTransRemark}, Fare={fFareAmount}, LaneMode={TCT_Lib.eCurLaneMode}");
                     int iAvc_Class = 0, iAvc_Wheel = 0, iAvc_Axle = 0, iAvc_DualWheel = 0;
                     if (objCompiledPassage["params"]["vehicle"]["automaticClassification"] != null)
                     {
@@ -1614,6 +1738,7 @@ namespace TCT_App
                         }
                     }
                     LogInfo.WriteLog("+ ETC_CompliedPassage : param->obuTransaction success");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ETC_CompliedPassage : TagType={szTAG_Type}({iTagType}), PayType={iPayType}, Balance={fTAG_Balance}, AVC={iAvc_Class}/W{iAvc_Wheel}/A{iAvc_Axle}/D{iAvc_DualWheel}");
 
                     if ((szSignalCode == "09") || (szSignalCode == "90"))   // Found Other OBU or Vehicle Backed Out
                     {
@@ -1684,7 +1809,8 @@ namespace TCT_App
                                     $"{iTagType}, '{szTAG_PAN}',{fTAG_Balance}, '{szSignalCode}', 'ETC', " +
                                     $"'{szTransRemark}', 0, 0, '', '', 1, '{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}'" +
                                     $")";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} ETC_CompliedPassage : insert TransID={iFareTransID}, SeqNo={seqNo}, PassageTime={szPassageTime}, LaneMode={xLaneMode}, rows={iRows}");
                     iID = iFareTransID;
                     System.Threading.Interlocked.Increment(ref iFareTransID);
 
@@ -1753,7 +1879,8 @@ namespace TCT_App
                                     $"{iTagType}, '{szTAG_PAN}',{fTAG_Balance}, '{szSignalCode}', 'ETC', " +
                                     $"'{szTransRemark}', 0, 0, '', '', 1, '{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}'" +
                                     $")";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteLaneTransaction_ETC_AutoSignalCode : insert TransID={iFareTransID}, SignalCode={szSignalCode}, Remark={szTransRemark}, LaneMode={xLaneMode}, rows={iRows}");
                     iID = iFareTransID;
                     System.Threading.Interlocked.Increment(ref iFareTransID);
 
@@ -1764,6 +1891,7 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error WriteLaneTransaction_ETC_AutoSignalCode : " + err.Message);
                 LogInfo.WriteLog("- Error WriteLaneTransaction_ETC_AutoSignalCode : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- WriteLaneTransaction_ETC_AutoSignalCode StackTrace : " + err.StackTrace);
 
                 return 0;
             }
@@ -1776,7 +1904,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(TransactionID) FROM SalesCouponTransaction";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetSalesCouponTransactionID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -1800,6 +1930,7 @@ namespace TCT_App
             else if (iPayType == 2)
                 szPayTypeName = "QR CODE";
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteSalesCouponTransaction : TransID={iSalesCouponTransID}, Type1={szCouponType1} x{iTotalCoupon_Type1} @{fCouponPrice_Type1} (sel={szSelCouponType1?.Count}), Type2={szCouponType2} x{iTotalCoupon_Type2} @{fCouponPrice_Type2} (sel={szSelCouponType2?.Count}), PayType={iPayType}({szPayTypeName}), card={xCreditCard != null}, ReceiptNo={TCT_Lib.szCurSalesCouponReceiptNo}");
             try
             {
                 using (SqliteCommand command = new SqliteCommand(conn))
@@ -1834,30 +1965,43 @@ namespace TCT_App
                                     $"'{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}', '', {iEmvDetailID}, '{TCT_Lib.szCurSalesCouponReceiptNo}', " +
                                     $"'', '{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}' " +
                                     $")";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    if (iRows <= 0)
+                    {
+                        //--- v2.0.4: before, a failed header INSERT still marked the coupons sold, called TA and
+                        //--- let the popup print a receipt. Now nothing else happens and the caller keeps the popup.
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error WriteSalesCouponTransaction : insert TransID={iSalesCouponTransID} failed (rows={iRows}), coupons NOT marked sold, ReceiptNo={TCT_Lib.szCurSalesCouponReceiptNo}");
+                        return 0;
+                    }
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteSalesCouponTransaction : insert TransID={iSalesCouponTransID}, EmvDetailID={iEmvDetailID}, rows={iRows}");
                     iID = iSalesCouponTransID;
 
                     //--- Insert SalesCouponDetail
                     string szFmt = "INSERT INTO SalesCouponDetail (TransactionID, CouponPK, SerialNo, CouponType, CouponPrice, UpdateDateTime) " +
                                     "VALUES ({0}, {1}, '{2}', {3}, {4}, '{5}')";
 
-                    string szErrMsg = "";
+                    var xSoldList = new List<SoldCouponItem>();
                     foreach (string szCouponNo in szSelCouponType1.ToList())
                     {
                         int iCouponPK   = UpdateSoldCoupon(szCouponNo, iSalesCouponTransID);
-                        szQuery         = string.Format(szFmt, iSalesCouponTransID, iCouponPK, szCouponNo, 1, fCouponPrice_Type1, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-                        Execute(szQuery);
-                        WebService_SalesCoupons.CallWebService_SoldCoupon(szCouponType1, szCouponNo, fCouponPrice_Type1, DateTime.Now, iPayType, szPayTypeName, xCreditCard, ref szErrMsg);
+                        szQuery         = string.Format(InvC, szFmt, iSalesCouponTransID, iCouponPK, szCouponNo, 1, fCouponPrice_Type1, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC));
+                        iRows           = Execute(szQuery);
+                        LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteSalesCouponTransaction : detail Type1 SerialNo={szCouponNo}, CouponPK={iCouponPK}, rows={iRows}");
+                        xSoldList.Add(new SoldCouponItem { szCouponType = szCouponType1, szSerialNo = szCouponNo, fPrice = fCouponPrice_Type1, dtSold = DateTime.Now });
                     }
                     foreach (string szCouponNo in szSelCouponType2.ToList())
                     {
                         int iCouponPK   = UpdateSoldCoupon(szCouponNo, iSalesCouponTransID);
-                        szQuery         = string.Format(szFmt, iSalesCouponTransID, iCouponPK, szCouponNo, 2, fCouponPrice_Type2, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-                        Execute(szQuery);
-                        WebService_SalesCoupons.CallWebService_SoldCoupon(szCouponType2, szCouponNo, fCouponPrice_Type2, DateTime.Now, iPayType, szPayTypeName, xCreditCard, ref szErrMsg);
+                        szQuery         = string.Format(InvC, szFmt, iSalesCouponTransID, iCouponPK, szCouponNo, 2, fCouponPrice_Type2, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC));
+                        iRows           = Execute(szQuery);
+                        LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteSalesCouponTransaction : detail Type2 SerialNo={szCouponNo}, CouponPK={iCouponPK}, rows={iRows}");
+                        xSoldList.Add(new SoldCouponItem { szCouponType = szCouponType2, szSerialNo = szCouponNo, fPrice = fCouponPrice_Type2, dtSold = DateTime.Now });
                     }
 
                     System.Threading.Interlocked.Increment(ref iSalesCouponTransID);
+
+                    //--- TA is told in the background (see SendSoldCouponsToTA_Async)
+                    SendSoldCouponsToTA_Async(iID, xSoldList, iPayType, szPayTypeName, xCreditCard);
 
                     return iID;
                 }
@@ -1866,9 +2010,57 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error WriteSalesCouponTransaction : " + err.Message);
                 LogInfo.WriteLog("- Error WriteSalesCouponTransaction : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- WriteSalesCouponTransaction StackTrace : " + err.StackTrace);
 
                 return 0;
             }
+        }
+
+        class SoldCouponItem
+        {
+            public string szCouponType;
+            public string szSerialNo;
+            public decimal fPrice;
+            public DateTime dtSold;
+        }
+
+        //--- v2.0.4: the TA "sold" calls used to run on the GTK thread: port probe + HTTP (2 s timeout) per
+        //--- coupon -> the lane screen froze for the whole batch when TA was slow, and a failed call was only
+        //--- logged once. Now: background thread, up to 3 attempts per coupon, the screen never waits.
+        void SendSoldCouponsToTA_Async(long iTransID, List<SoldCouponItem> xList, int iPayType, string szPayTypeName, objCreditCardInfo xCreditCard)
+        {
+            if (!TCT_Lib.bEnableLaneWebService || xList.Count == 0)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendSoldCouponsToTA : skip, enable={TCT_Lib.bEnableLaneWebService}, coupons={xList.Count}");
+                return;
+            }
+            var th = new System.Threading.Thread(() =>
+            {
+                foreach (var x in xList)
+                {
+                    bool bOk        = false;
+                    string szErrMsg = "";
+                    for (int iTry = 1; iTry <= 3 && !bOk; iTry++)
+                    {
+                        if (iTry > 1)
+                            System.Threading.Thread.Sleep(2000);
+                        try
+                        {
+                            bOk = WebService_SalesCoupons.CallWebService_SoldCoupon(x.szCouponType, x.szSerialNo, x.fPrice, x.dtSold, iPayType, szPayTypeName, xCreditCard, ref szErrMsg);
+                        }
+                        catch (Exception err)
+                        {
+                            szErrMsg = err.Message;
+                        }
+                        LogInfo.WriteLog(bOk ? LogLevel.DEBUG : LogLevel.WARN, $"{(bOk ? "+" : "- Warning")} SendSoldCouponsToTA : TransID={iTransID}, SerialNo={x.szSerialNo}, try {iTry}/3, ok={bOk}{(bOk ? "" : ", err=" + szErrMsg)}");
+                    }
+                    if (!bOk)
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error SendSoldCouponsToTA : TransID={iTransID}, SerialNo={x.szSerialNo} not reported to TA after 3 attempts ({szErrMsg})");
+                }
+            });
+            th.IsBackground = true;
+            th.Name         = "SoldCouponTA";
+            th.Start();
         }
 
         private int UpdateSoldCoupon(string szSerialNo, long iSaleTransID)
@@ -1882,13 +2074,19 @@ namespace TCT_App
                                         $"WHERE SerialNo='{szSerialNo}'";
                     LogInfo.WriteLog("Query = " + szQuery);
                     DataTable dt    = List(szQuery);
+                    if (dt.Rows.Count == 0)
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning UpdateSoldCoupon : SerialNo={szSerialNo} not found in SalesCouponList");
+                        return 0;
+                    }
                     int iCouponPK   = int.Parse(dt.Rows[0]["CouponPK"].ToString());
 
                     szQuery = $"UPDATE SalesCouponList SET CouponStatus=1, SalesTransID={iSaleTransID}, " +
                                 $"SalesDateTime='{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}' " +
                                 $"WHERE CouponPK={iCouponPK}";
                     LogInfo.WriteLog("Query = " + szQuery);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateSoldCoupon : SerialNo={szSerialNo}, CouponPK={iCouponPK}, SaleTransID={iSaleTransID}, rows={iRows}");
 
                     return iCouponPK;
                 }
@@ -1934,7 +2132,8 @@ namespace TCT_App
                                         $"'{xCreditCard.szAmount}', '{xCreditCard.szRef1}', '{xCreditCard.szRef2}', '{xCreditCard.szRef3}', " +
                                         $"'{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}')";
                     LogInfo.WriteLog("+ Insert EmvDetail #2: " + szQuery);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} InsertEmvDetailData : EmvDetailID={iEmvDetailID}, EmvType={iEmvType}, Approve={xCreditCard.szApprovalCode}, Amount={xCreditCard.szAmount}, rows={iRows}");
 
                     return iEmvDetailID;
                 }
@@ -1950,6 +2149,7 @@ namespace TCT_App
 
         public int WriteEdcDetail(int iPayType, bool bTowing=false)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteEdcDetail : PayType={iPayType}, Towing={bTowing}");
             try
             {
                 int iEmvDetailID    = 0;
@@ -2026,7 +2226,8 @@ namespace TCT_App
                     }
                     LogInfo.WriteLog("+ Insert EmvDetail #1 : " + szQuery);
                     LogInfo.WriteLogEDC("+ Insert EmvDetail #1 : " + szQuery);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteEdcDetail : EmvDetailID={iEmvDetailID}, PayType={iPayType}, Towing={bTowing}, rows={iRows}");
 
                     //--------------------------------------------------------------
 /*
@@ -2093,7 +2294,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(EmvDetailID) FROM EmvDetail";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 0 : long.Parse(dt.Rows[0][0].ToString());
+                long iCurID     = dt.Rows[0][0] == DBNull.Value ? 0 : long.Parse(dt.Rows[0][0].ToString());
+                LogInfo.WriteLog(iCurID == 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(iCurID == 0 ? "- Warning" : "+")} GetCurEmvDetailID : cur={iCurID}");
+                return iCurID;
             }
             catch (Exception err)
             {
@@ -2109,7 +2312,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(EmvDetailID) FROM EmvDetail";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxEmvDetailID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -2127,7 +2332,9 @@ namespace TCT_App
             string szQuery = "SELECT MAX(MaxReceiptID) FROM MaxReceiptNo " +
                             $"WHERE ReceiptType=0 AND ReceiptYear={iYear} AND ReceiptMonth={iMonth}";
             DataTable dt    = List(szQuery);
-            return dt.Rows[0][0] == DBNull.Value ? 0 : int.Parse(dt.Rows[0][0].ToString());
+            int iMaxReceiptID = dt.Rows[0][0] == DBNull.Value ? 0 : int.Parse(dt.Rows[0][0].ToString());
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxRunningReceiptNo : {iYear}-{iMonth:00}, max={iMaxReceiptID}");
+            return iMaxReceiptID;
         }
 
         public void SetMaxRunningReceiptNo(int iMaxReceiptID)
@@ -2146,7 +2353,8 @@ namespace TCT_App
                 szQuery = $"UPDATE MaxReceiptNo SET MaxReceiptID={iMaxReceiptID} "+
                             $"WHERE ReceiptType=0 AND ReceiptYear={iYear} AND ReceiptMonth={iMonth}";
             }
-            Execute(szQuery);
+            int iRows = Execute(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SetMaxRunningReceiptNo : {iYear}-{iMonth:00}, max={iMaxReceiptID} ({(iMaxReceiptID == 0 ? "delete" : "update")}), rows={iRows}");
         }
 
         public string GetRunningReceiptNo(PrintReceiptType eReceiptType)
@@ -2170,12 +2378,15 @@ namespace TCT_App
                 szQuery = "UPDATE MaxReceiptNo SET MaxReceiptID=MaxReceiptID+1 "+
                             $"WHERE ReceiptType={(int)eReceiptType} AND ReceiptYear={iYear} AND ReceiptMonth={iMonth}";
             }
-            Execute(szQuery);
+            int iRows = Execute(szQuery);
+            if (iRows <= 0)
+                LogInfo.WriteLog(LogLevel.WARN, $"- Warning GetRunningReceiptNo : MaxReceiptNo {(iMaxReceipt == 0 ? "insert" : "update")} rows={iRows}, type={eReceiptType}, {iYear}-{iMonth:00}");
 
             iMaxReceipt += 1;
             string szRunningNo = (eReceiptType == PrintReceiptType.FareType)
                                     ? TCT_Lib.szLaneName + "-" + iYear.ToString("0000") + iMonth.ToString("00") + iMaxReceipt.ToString("000000")
                                     : "CP-" + TCT_Lib.szLaneName + "-" + iYear.ToString("0000") + iMonth.ToString("00") + iMaxReceipt.ToString("000000");
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetRunningReceiptNo : type={eReceiptType}, running={iMaxReceipt}, ReceiptNo={szRunningNo}");
 
             return szRunningNo;
         }
@@ -2202,7 +2413,9 @@ namespace TCT_App
 
         public int GetStartJobNo()
         {
-            return TCT_Lib.bMaintenanceMode ? GetStartJobNo_Maintenance() : GetStartJobNo_Normal();
+            int iStartJobNo = TCT_Lib.bMaintenanceMode ? GetStartJobNo_Maintenance() : GetStartJobNo_Normal();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetStartJobNo : maintenance={TCT_Lib.bMaintenanceMode}, JobNo={iStartJobNo}");
+            return iStartJobNo;
         }
 
         private int GetStartJobNo_Normal()
@@ -2213,10 +2426,14 @@ namespace TCT_App
                                 "WHERE JobNo>0 AND JobNo<900";
             DataTable dt    = List(szQuery);
             if (dt.Rows[0]["LastShiftDateTime"] == DBNull.Value)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ GetStartJobNo_Normal : no previous shift, JobNo=1");
                 return 1;
+            }
 
             //--- > 00:00 is new reset JobNo=1
             DateTime lastShiftDate = Convert.ToDateTime(dt.Rows[0]["LastShiftDateTime"].ToString());
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetStartJobNo_Normal : last shift {lastShiftDate:yyyy-MM-dd HH:mm:ss}, last JobNo={dt.Rows[0]["JobNo"]}, sameDay={lastShiftDate.Date == DateTime.Today}");
             return (lastShiftDate.Date == DateTime.Today) ? int.Parse(dt.Rows[0]["JobNo"].ToString()) + 1 : 1;
         }
 
@@ -2227,10 +2444,14 @@ namespace TCT_App
                                 "WHERE JobNo > 900";
             DataTable dt    = List(szQuery);
             if (dt.Rows[0]["LastShiftDateTime"] == DBNull.Value)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ GetStartJobNo_Maintenance : no previous maintenance shift, JobNo=901");
                 return 900 + 1;
+            }
 
             //--- > 00:00 is new reset JobNo=1
             DateTime lastShiftDate = Convert.ToDateTime(dt.Rows[0]["LastShiftDateTime"].ToString());
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetStartJobNo_Maintenance : last shift {lastShiftDate:yyyy-MM-dd HH:mm:ss}, last JobNo={dt.Rows[0]["JobNo"]}, sameDay={lastShiftDate.Date == DateTime.Today}");
             return (lastShiftDate.Date == DateTime.Today) ? int.Parse(dt.Rows[0]["JobNo"].ToString()) + 1 : 900 + 1;
         }
 
@@ -2328,6 +2549,9 @@ namespace TCT_App
             DataTable dt = List(szQuery);
 
             LogInfo.WriteLog("+ Check not End Shift : Found = " + dt.Rows.Count);
+            if (dt.Rows.Count > 0 && LogInfo.IsEnabled(LogLevel.DEBUG))
+                foreach (DataRow row in dt.Rows)
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetShiftNotCloseEndShift : StaffShiftID={row["StaffShiftID"]}, StaffID={row["StaffID"]}, JobNo={row["JobNo"]}, Start={row["StaffStartShiftDateTime"]}");
         }
 
         public int ChkAutoEndOfLastJob()
@@ -2336,8 +2560,12 @@ namespace TCT_App
                                 "ORDER BY StaffShiftID DESC LIMIT 1";
             DataTable dt = List(szQuery);
             if (dt.Rows.Count == 0)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ ChkAutoEndOfLastJob : no StaffShift row, return 0");
                 return 0;
+            }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ChkAutoEndOfLastJob : last StaffShiftID={dt.Rows[0]["StaffShiftID"]}, notEnded={dt.Rows[0]["StaffEndShiftDateTime"] == DBNull.Value}");
             return (dt.Rows[0]["StaffEndShiftDateTime"] == DBNull.Value) ?  int.Parse(dt.Rows[0]["StaffShiftID"].ToString()) : 0;
         }
 
@@ -2346,6 +2574,8 @@ namespace TCT_App
             string szQuery = "SELECT Trans_SignalCode FROM LaneTransaction " +
                                 $"WHERE TransactionID={iTransID}";
             DataTable dt            = List(szQuery);
+            if (dt.Rows.Count == 0)
+                LogInfo.WriteLog(LogLevel.WARN, $"- Warning UpdateClearTowing : TransID={iTransID} not found");
             string szSignalCode     = dt.Rows[0][0].ToString();
             List<int> xSignalCode   = szSignalCode.Split(',').Select(int.Parse).ToList();
             xSignalCode[6] = 0;
@@ -2353,7 +2583,8 @@ namespace TCT_App
 
             szQuery = $"UPDATE LaneTransaction SET TransRemark='', IsTowing=0, Trans_SignalCode='{szSignalCode}' " +
                         $"WHERE TransactionID={iTransID}";
-            Execute(szQuery);
+            int iRows = Execute(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateClearTowing : TransID={iTransID}, SignalCode={szSignalCode}, rows={iRows}");
         }
 
         public void UpdateClearReClass(int iTransID)
@@ -2361,6 +2592,8 @@ namespace TCT_App
             string szQuery = "SELECT Trans_SignalCode FROM LaneTransaction " +
                                 $"WHERE TransactionID={iTransID}";
             DataTable dt        = List(szQuery);
+            if (dt.Rows.Count == 0)
+                LogInfo.WriteLog(LogLevel.WARN, $"- Warning UpdateClearReClass : TransID={iTransID} not found");
             string szSignalCode = dt.Rows[0][0].ToString();
             List<int> xSignalCode = szSignalCode.Split(',').Select(int.Parse).ToList();
             xSignalCode[1]  = 0;
@@ -2368,7 +2601,8 @@ namespace TCT_App
 
             szQuery = $"UPDATE LaneTransaction SET Trans_SignalCode='{szSignalCode}' " +
                         $"WHERE TransactionID={iTransID}";
-            Execute(szQuery);
+            int iRows = Execute(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateClearReClass : TransID={iTransID}, SignalCode={szSignalCode}, rows={iRows}");
         }
 
 
@@ -2382,7 +2616,8 @@ namespace TCT_App
                     //--- Create new TransactionStatistic
                     string szQuery = "INSERT INTO TransactionStatistic (StaffShiftID) VALUES " +
                             $"({TCT_Lib.iStaffShiftID})";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} WriteNewTransactionStatistic : StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -2409,7 +2644,9 @@ namespace TCT_App
                 {
                     string szQuery = "UPDATE TransactionStatistic SET ShiftTotalSumVehicles=ShiftTotalSumVehicles+1 " +
                                     $"WHERE StaffShiftID={TCT_Lib.iStaffShiftID}";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    if (iRows <= 0)
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning UpdateTransStatistic_TotalSum : no TransactionStatistic row for StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
 
                     //--------------------------------------------------------------------
                     szQuery = "SELECT * FROM TransactionSummary " +
@@ -2429,7 +2666,8 @@ namespace TCT_App
                         iTotalSum = 1;
                     }
 
-                    Execute(szQuery);
+                    iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_TotalSum : StaffShiftID={TCT_Lib.iStaffShiftID}, today total={iTotalSum}, newDay={dt.Rows.Count == 0}, rows={iRows}");
 
                     return iTotalSum;
                 }
@@ -2457,7 +2695,8 @@ namespace TCT_App
                     else
                         szQuery = "UPDATE TransactionStatistic SET TotalMIS=TotalMIS+1, TotalMIS_ClassType=TotalMIS_PayType+1 " +
                                     $"WHERE StaffShiftID={TCT_Lib.iStaffShiftID}";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_MIS : MisType={iMisType}, StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -2470,7 +2709,10 @@ namespace TCT_App
         public void UpdateTransStatistic_Violation()
         {
             if (TCT_Lib.eCurLaneType == LaneType.ETC)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateTransStatistic_Violation : ETC lane, skip");
                 return;
+            }
 
             try
             {
@@ -2478,7 +2720,8 @@ namespace TCT_App
                 {
                     string szQuery = "UPDATE TransactionStatistic SET TotalTransViolation=TotalTransViolation+1 " +
                                     $"WHERE StaffShiftID={TCT_Lib.iStaffShiftID}";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_Violation : StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -2504,7 +2747,8 @@ namespace TCT_App
                 {
                     string szQuery = "UPDATE TransactionStatistic SET TotalTransExempt=TotalTransExempt+1 " +
                                     $"WHERE StaffShiftID={TCT_Lib.iStaffShiftID}";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_Exempt : StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -2522,7 +2766,8 @@ namespace TCT_App
                 {
                     string szQuery = "UPDATE TransactionStatistic SET TotalTransHPMC=TotalTransHPMC+1 " +
                                     $"WHERE StaffShiftID={TCT_Lib.iStaffShiftID}";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_HPMC : StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -2540,7 +2785,8 @@ namespace TCT_App
                 {
                     string szQuery = "UPDATE TransactionStatistic SET TotalTransDIS=TotalTransDIS+1 " +
                                     $"WHERE StaffShiftID={TCT_Lib.iStaffShiftID}";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_DIS : StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -2577,7 +2823,8 @@ namespace TCT_App
                                 $"WHERE StaffShiftID={TCT_Lib.iStaffShiftID}";
                     }
 
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_AVC : AvcClass={iAvcClass}, StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -2658,7 +2905,12 @@ namespace TCT_App
                     }
 
                     if (szQuery != "")
-                        Execute(szQuery);
+                    {
+                        int iRows = Execute(szQuery);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_Transaction : TC_Class={iTC_Class}, PayType={xPayment.payType}, PayAmount={xPayment.payAmount}, StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
+                    }
+                    else
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateTransStatistic_Transaction : no counter for TC_Class={iTC_Class}, PayType={xPayment.payType}, skip");
                 }
             }
             catch (Exception err)
@@ -2678,6 +2930,7 @@ namespace TCT_App
                     string szQuery = "SELECT TotalSumVehicles FROM TransactionSummary " +
                                         $"WHERE TransactionDate='{DateTime.Today.ToString(TCT_Lib.szDateFormatDB)}'";
                     DataTable dt = List(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetTotalTransSumVehicles : today rows={dt.Rows.Count}");
                     return (dt.Rows.Count > 0) ? int.Parse(dt.Rows[0][0].ToString()) : 0;
                 }
             }
@@ -2699,7 +2952,10 @@ namespace TCT_App
                                         $"WHERE StaffShiftID={iStaffShiftID}";
                     DataTable dt = List(szQuery);
                     if (dt.Rows.Count == 0)
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning GetCurrentStatistic : no TransactionStatistic row for StaffShiftID={iStaffShiftID}");
                         return null;
+                    }
 
                     object objStat = new
                     {
@@ -2740,6 +2996,9 @@ namespace TCT_App
                         TotalMIS_ClassType      = int.Parse(dt.Rows[0]["TotalMIS_ClassType"].ToString()),
                         TotalMIS_PayType        = int.Parse(dt.Rows[0]["TotalMIS_PayType"].ToString()),
                     };
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetCurrentStatistic : StaffShiftID={iStaffShiftID}, ShiftTotalSum={dt.Rows[0]["ShiftTotalSumVehicles"]}");
+                    if (LogInfo.IsEnabled(LogLevel.TRACE))
+                        LogInfo.WriteLog(LogLevel.TRACE, "+ GetCurrentStatistic : " + JsonConvert.SerializeObject(objStat));
 
                     return objStat;
                 }
@@ -2755,6 +3014,7 @@ namespace TCT_App
         //=========================================================================================
         async public Task<bool> ImportStaffListToDB(JArray staffList, int staffVersion, string timeStamp)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportStaffListToDB : count={staffList?.Count}, version={staffVersion}, timeStamp={timeStamp}");
             try
             {
                 if (staffList.Count == 0)
@@ -2767,11 +3027,13 @@ namespace TCT_App
                 using (SqliteCommand command = new SqliteCommand(conn))
                 {
                     string szQuery = "DELETE FROM Staff_BAK";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportStaffListToDB : clear Staff_BAK rows={iRows}");
 
                     szQuery = "INSERT INTO Staff_Bak " +
                                 "SELECT * FROM Staff";
-                    Execute(szQuery);
+                    iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportStaffListToDB : backup Staff -> Staff_BAK rows={iRows}");
 
                     //szQuery = "DELETE FROM Staff";
                     //Execute(szQuery);
@@ -2798,10 +3060,14 @@ namespace TCT_App
                             szQuery         = string.Format(szFmt, staff["staffId"] ?? "", staff["group"], staff["staffId"] ?? "", szStaffName.Trim().Replace("'", "''"),
                                                 staff["password"] ?? "", staff["cardSerialNo"] ?? "", Convert.ToDateTime(timeStamp).ToString(TCT_Lib.szDateTimeFormatDB),
                                                 DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB));
-                            Execute(szQuery);
+                            iRows = Execute(szQuery);
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportStaffListToDB : {(dt.Rows.Count == 0 ? "insert" : "update")} StaffID={szStaffId}, group={staff["group"]}, rows={iRows}");
                         }
+                        else
+                            LogInfo.WriteLog(LogLevel.WARN, "- Warning ImportStaffListToDB : staff item without staffId, skip");
                         await Task.Delay(50);
                     }
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportStaffListToDB : done, items={objStaffs.Length}");
 
 /*
                     string szFmt = "INSERT INTO Staff (StaffID, StaffGroupID, StaffCode, StaffName, StaffPassword, " +
@@ -2832,6 +3098,7 @@ namespace TCT_App
 
         public bool ImportTariffToDB(JArray tariffList, int tariffVersion, string timeStamp)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportTariffToDB : count={tariffList?.Count}, version={tariffVersion}, timeStamp={timeStamp}");
             try
             {
                 if (tariffList.Count == 0)
@@ -2848,7 +3115,8 @@ namespace TCT_App
                                         //$"WHERE PlazaID='{TCT_Lib.szPlazaID}' " +
                                         //$"AND TariffVersion={tariffVersion}";
                                         $"WHERE TariffVersion={tariffVersion}";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportTariffToDB : delete Tariff_BAK version={tariffVersion}, rows={iRows}");
 
 /*
                     szQuery = "DELETE FROM Tariff_BAK " +
@@ -2906,8 +3174,10 @@ namespace TCT_App
                                     ((string)tariff["Price5"]) == "0" ? "0" : ((string)tariff["Price5"]).Insert(((string)tariff["Price5"]).Length - 2, "."),
                                     tariffVersion, Convert.ToDateTime(timeStamp).ToString(TCT_Lib.szDateTimeFormatDB),
                                     DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB));
-                        Execute(szQuery);
+                        iRows = Execute(szQuery);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportTariffToDB : Plaza={tariff["ExitPlaza"]}, {szFromDateTime} - {szToDateTime}, Price1={tariff["Price1"]}, Price2={tariff["Price2"]}, rows={iRows}");
                     }
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportTariffToDB : done, items={objTariff.Length}");
 
                     return true;
                 }
@@ -2923,6 +3193,7 @@ namespace TCT_App
 
         public bool ImportPlazaToDB(JArray plazaList, int plazaVersion, string timeStamp)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportPlazaToDB : count={plazaList?.Count}, version={plazaVersion}, timeStamp={timeStamp}");
             try
             {
                 if (plazaList.Count == 0)
@@ -2935,7 +3206,8 @@ namespace TCT_App
                 using (SqliteCommand command = new SqliteCommand(conn))
                 {
                     string szQuery = "DELETE FROM PlazaData ";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportPlazaToDB : clear PlazaData rows={iRows}");
                     //-------------------------------------------
                     string szFmt = "INSERT INTO PlazaData (PlazaID, PlazaCode, PlazaName) " +
                                     "VALUES ('{0}', '{1}', '{2}')";
@@ -2946,7 +3218,8 @@ namespace TCT_App
                         string szPlazaCode = plaza["abbrevation"];
 
                         szQuery = string.Format(szFmt, szPlazaID, szPlazaCode, szPlazaCode);
-                        Execute(szQuery);
+                        iRows = Execute(szQuery);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportPlazaToDB : PlazaID={szPlazaID}, Code={szPlazaCode}, rows={iRows}");
                     }
 
                     return true;
@@ -2966,6 +3239,7 @@ namespace TCT_App
             var InvC = CultureInfo.InvariantCulture;
             string szQuery  = "SELECT MAX(StaffTimeStamp) FROM Staff";
             DataTable dt    = List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetStaffDbTimeStamp : max={(dt.Rows.Count > 0 ? dt.Rows[0][0] : "no row")}");
             if (dt.Rows[0][0] == DBNull.Value)
                 return "";
             else
@@ -2977,6 +3251,7 @@ namespace TCT_App
             var InvC = CultureInfo.InvariantCulture;
             string szQuery  = "SELECT SendDateTime FROM DMTCardData";
             DataTable dt    = List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetDmtCardDbTimeStamp : rows={dt.Rows.Count}, first={(dt.Rows.Count > 0 ? dt.Rows[0][0] : "")}");
             if (dt.Rows.Count == 0)
                 return "";
             else
@@ -2988,6 +3263,7 @@ namespace TCT_App
             var InvC        = CultureInfo.InvariantCulture;
             string szQuery  = "SELECT SendDateTime FROM PromotionData";
             DataTable dt    = List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetPromotionDbTimeStamp : rows={dt.Rows.Count}, first={(dt.Rows.Count > 0 ? dt.Rows[0][0] : "")}");
             if (dt.Rows.Count == 0)
                 return "";
             else
@@ -2996,15 +3272,18 @@ namespace TCT_App
 
         public bool CheckStaffManualUserPassword(string szUserID, string szPassword, ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckStaffManualUserPassword : UserID={szUserID}, passwordLen={szPassword?.Length ?? 0}");
             if (szUserID.Trim() == "")
             {
                 szErrMsg = "ไม่พบรหัสพนักงาน. โปรดตรวจสอบรหัสใหม่อีกครั้ง.";
+                LogInfo.WriteLog(LogLevel.WARN, "- Warning CheckStaffManualUserPassword : empty UserID");
                 return false;
             }
 
             if (szPassword.Trim() == "")
             {
                 szErrMsg = "ไม่พบรหัสผ่าน. โปรดตรวจสอบรหัสผ่านใหม่อีกครั้ง.";
+                LogInfo.WriteLog(LogLevel.WARN, $"- Warning CheckStaffManualUserPassword : empty password, UserID={szUserID}");
                 return false;
             }
 
@@ -3019,6 +3298,7 @@ namespace TCT_App
                     if (dt.Rows.Count == 0)
                     {
                         szErrMsg = "ไม่พบรหัสพนักงาน. โปรดตรวจสอบรหัสใหม่อีกครั้ง.";
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning CheckStaffManualUserPassword : StaffID={szUserID.Trim()} not found");
                         return false;
                     }
 
@@ -3038,12 +3318,14 @@ namespace TCT_App
                         TCT_Lib.szStaffName         = dt.Rows[0]["StaffName"].ToString();
                         TCT_Lib.szStaffGroupID      = dt.Rows[0]["StaffGroupID"].ToString();
                         TCT_Lib.szStaffGroupName    = dt.Rows[0]["StaffGroupLocal"] == DBNull.Value ? "- Unknown Staff Group -" : dt.Rows[0]["StaffGroupLocal"].ToString();
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckStaffManualUserPassword : OK StaffID={TCT_Lib.szStaffID}, Code={TCT_Lib.szStaffCode}, Group={TCT_Lib.szStaffGroupID}({TCT_Lib.szStaffGroupName})");
 
                         return true;
                     }
                     else
                     {
                         szErrMsg                    = "รหัสผ่านไม่ถูกต้อง. โปรดตรวจสอบใหม่อีกครั้ง.";
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning CheckStaffManualUserPassword : wrong password, StaffID={szUserID.Trim()}");
 
                         TCT_Lib.szStaffID           = "";
                         TCT_Lib.szStaffCode         = "";
@@ -3058,15 +3340,19 @@ namespace TCT_App
             catch (Exception err)
             {
                 Console.WriteLine("- Fail PasswordMD5 : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error CheckStaffManualUserPassword : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, "- CheckStaffManualUserPassword StackTrace : " + err.StackTrace);
                 return false;
             }
         }
 
         public bool CheckStaffWithSmartCard(string szCardSerialNo, ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckStaffWithSmartCard : CardSerialNo={szCardSerialNo}");
             if (szCardSerialNo.Trim() == "")
             {
                 szErrMsg = "ไม่พบข้อมูลบัตร. โปรดตรวจสอบใหม่อีกครั้ง.";
+                LogInfo.WriteLog(LogLevel.WARN, "- Warning CheckStaffWithSmartCard : empty card serial no");
                 return false;
             }
 
@@ -3081,6 +3367,7 @@ namespace TCT_App
                     if (dt.Rows.Count == 0)
                     {
                         szErrMsg                    = "ไม่พบรหัสพนักงาน. โปรดตรวจสอบรหัสใหม่อีกครั้ง.";
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning CheckStaffWithSmartCard : no staff for CardSerialNo={szCardSerialNo.Trim()}");
 
                         TCT_Lib.szStaffID           = "";
                         TCT_Lib.szStaffCode         = "";
@@ -3097,6 +3384,7 @@ namespace TCT_App
                         TCT_Lib.szStaffName         = dt.Rows[0]["StaffName"].ToString();
                         TCT_Lib.szStaffGroupID      = dt.Rows[0]["StaffGroupID"].ToString();
                         TCT_Lib.szStaffGroupName    = dt.Rows[0]["StaffGroupLocal"] == DBNull.Value ? "- Unknown Staff Group -" : dt.Rows[0]["StaffGroupLocal"].ToString();
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckStaffWithSmartCard : OK StaffID={TCT_Lib.szStaffID}, Code={TCT_Lib.szStaffCode}, Group={TCT_Lib.szStaffGroupID}({TCT_Lib.szStaffGroupName})");
 
                         return true;
                     }
@@ -3105,6 +3393,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 Console.WriteLine("- Fail CheckStaffWithSmartCard : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error CheckStaffWithSmartCard : {err.Message}");
                 LogInfo.WriteLaneEvent("- Fail CheckStaffWithSmartCard : " + err.Message);
                 return false;
             }
@@ -3112,9 +3401,11 @@ namespace TCT_App
 
         public bool CheckStaffRemoteStaff(string szStaffCode, ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckStaffRemoteStaff : StaffCode={szStaffCode}");
             if (szStaffCode.Trim() == "")
             {
                 szErrMsg = "ไม่พบรหัสพนักงาน. โปรดตรวจสอบใหม่อีกครั้ง.";
+                LogInfo.WriteLog(LogLevel.WARN, "- Warning CheckStaffRemoteStaff : empty StaffCode");
                 return false;
             }
 
@@ -3129,6 +3420,7 @@ namespace TCT_App
                     if (dt.Rows.Count == 0)
                     {
                         szErrMsg                    = "ไม่พบรหัสพนักงาน. โปรดตรวจสอบรหัสใหม่อีกครั้ง.";
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning CheckStaffRemoteStaff : StaffCode={szStaffCode.Trim()} not found");
 
                         TCT_Lib.szStaffID           = "";
                         TCT_Lib.szStaffCode         = "";
@@ -3145,6 +3437,7 @@ namespace TCT_App
                         TCT_Lib.szStaffName         = dt.Rows[0]["StaffName"].ToString();
                         TCT_Lib.szStaffGroupID      = dt.Rows[0]["StaffGroupID"].ToString();
                         TCT_Lib.szStaffGroupName    = dt.Rows[0]["StaffGroupLocal"] == DBNull.Value ? "- Unknown Staff Group -" : dt.Rows[0]["StaffGroupLocal"].ToString();
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckStaffRemoteStaff : OK StaffID={TCT_Lib.szStaffID}, Code={TCT_Lib.szStaffCode}, Group={TCT_Lib.szStaffGroupID}");
 
                         return true;
                     }
@@ -3153,6 +3446,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail CheckStaffWithSmartCard : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error CheckStaffRemoteStaff : {err.Message}");
                 return false;
             }
         }
@@ -3166,12 +3460,14 @@ namespace TCT_App
                 {
                     string szQuery  = "SELECT MAX(StaffEndShiftDateTime) FROM StaffShift";
                     DataTable dt    = List(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetLastStaffEndShift : max={(dt.Rows.Count > 0 ? dt.Rows[0][0] : "no row")}");
                     return (dt.Rows[0][0] == DBNull.Value) ? "" : Convert.ToDateTime(dt.Rows[0][0].ToString()).ToString("HH:mm:ss", InvC);
                 }
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetLastStaffEndShift : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetLastStaffEndShift : {err.Message}");
                 return "";
             }
         }
@@ -3182,6 +3478,7 @@ namespace TCT_App
                                 "LEFT JOIN StaffGroup B ON A.StaffGroupID=B.DMT_StaffGroupID " +
                                 $"WHERE CardSerialNo='{szCardSerialNo.Trim()}'";
             DataTable dt = List(szQuery);
+            LogInfo.WriteLog(dt.Rows.Count == 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(dt.Rows.Count == 0 ? "- Warning" : "+")} GetStaffIdFromSmartCard : CardSerialNo={szCardSerialNo}, StaffID={(dt.Rows.Count == 0 ? "not found" : dt.Rows[0]["StaffID"])}");
             return (dt.Rows.Count == 0) ? "" : dt.Rows[0]["StaffID"].ToString();
         }
 
@@ -3190,13 +3487,17 @@ namespace TCT_App
             String szQuery  = "SELECT * FROM StaffShift ORDER BY StaffStartShiftDateTime DESC";
             DataTable dt    = List(szQuery);
             if (dt.Rows.Count == 0)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ CheckDuplicateStaffShift : no StaffShift row, return false");
                 return false;
+            }
 
             DateTime dtStaffShift   = DateTime.Parse(dt.Rows[0]["StaffStartShiftDateTime"].ToString());
             TimeSpan dtSpan         = DateTime.Now.Subtract(dtStaffShift);
             int iDiffSec            = (int)dtSpan.TotalSeconds;
 
             String szStaffID        = dt.Rows[0]["StaffID"].ToString();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckDuplicateStaffShift : cur={szCurStaffID}, last={szStaffID}, ended={dt.Rows[0]["StaffEndShiftDateTime"] != DBNull.Value}, diffSec={iDiffSec}");
             if ((szCurStaffID == szStaffID) && (dt.Rows[0]["StaffEndShiftDateTime"] == DBNull.Value) && (iDiffSec < 2))
                 return true;
             else
@@ -3209,11 +3510,15 @@ namespace TCT_App
                                 "WHERE StaffShiftID=" + iStaffShiftID;
             DataTable dt = List(szQuery);
             if (dt.Rows.Count == 0)
+            {
+                LogInfo.WriteLog(LogLevel.WARN, $"- Warning SetStaffFromStaffShift : StaffShiftID={iStaffShiftID} not found");
                 return false;
+            }
 
             TCT_Lib.szStaffID   = dt.Rows[0]["StaffID"].ToString();
             TCT_Lib.szStaffCode = dt.Rows[0]["StaffCode"].ToString();
             TCT_Lib.szStaffName = dt.Rows[0]["StaffName"].ToString();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SetStaffFromStaffShift : StaffShiftID={iStaffShiftID}, StaffID={TCT_Lib.szStaffID}, Code={TCT_Lib.szStaffCode}");
 
             return true;
         }
@@ -3227,12 +3532,14 @@ namespace TCT_App
                 {
                     string szQuery  = "SELECT MAX(ClearBatchDateTime) FROM EdcClearBatch";
                     DataTable dt    = List(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetLastClearBatch : max={(dt.Rows.Count > 0 ? dt.Rows[0][0] : "no row")}");
                     return (dt.Rows[0][0] == DBNull.Value) ? DateTime.MinValue : Convert.ToDateTime(dt.Rows[0][0].ToString());
                 }
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetLastClearBatch : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetLastClearBatch : {err.Message}");
                 return DateTime.MinValue;
             }
         }
@@ -3243,11 +3550,14 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(ClearBatchID) FROM EdcClearBatch";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxClearBatchID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetMaxClearBatchID : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetMaxClearBatchID : {err.Message}");
                 return 0;
             }
         }
@@ -3263,7 +3573,8 @@ namespace TCT_App
                     string szQuery = "INSERT INTO EdcClearBatch (ClearBatchID, JobNo, StaffShiftID, ClearBatchDateTime) VALUES " +
                                         $"({iClearBatchID}, {TCT_Lib.iJobNo}, {TCT_Lib.iStaffShiftID}, " +
                                         $"'{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}')";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLastClearBatch : ClearBatchID={iClearBatchID}, JobNo={TCT_Lib.iJobNo}, StaffShiftID={TCT_Lib.iStaffShiftID}, rows={iRows}");
                 }
             }
             catch (Exception err)
@@ -3279,11 +3590,14 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(ImageCaptureID) FROM ImageCaptureCamera";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxImageCaptureID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetMaxImageCaptureID : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetMaxImageCaptureID : {err.Message}");
                 return 0;
             }
         }
@@ -3297,19 +3611,22 @@ namespace TCT_App
                 if (dt.Rows.Count == 0)
                 {
                     szQuery = "INSERT INTO CaptureRunningNo (MaxCaptureRunningNo) VALUES (1)";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxCaptureRunningNo : first row created, next=1, rows={iRows}");
                     return 1;
                 }
                 else
                 {
                     szQuery = "UPDATE CaptureRunningNo SET MaxCaptureRunningNo=MaxCaptureRunningNo+1";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxCaptureRunningNo : prev={dt.Rows[0][0]}, rows={iRows}");
                     return long.Parse(dt.Rows[0][0].ToString())+1;
                 }
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetMaxImageCaptureID : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetMaxCaptureRunningNo : {err.Message}");
                 return 0;
             }
         }
@@ -3320,11 +3637,13 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MaxCaptureRunningNo FROM CaptureRunningNo";
                 DataTable dt    = List(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetCurMaxCaptureRunningNo : {(dt.Rows.Count == 0 ? "no row -> 0" : "cur=" + dt.Rows[0][0])}");
                 return (dt.Rows.Count == 0) ? 0 : long.Parse(dt.Rows[0][0].ToString());
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetMaxImageCaptureID : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetCurMaxCaptureRunningNo : {err.Message}");
                 return 0;
             }
         }
@@ -3337,6 +3656,7 @@ namespace TCT_App
             	                $"AND CameraIndex=1 AND DATE(UpdateDateTime)='{DateTime.Today.ToString("yyyy-MM-dd", InvC)}' " +
             	                "ORDER BY UpdateDateTime DESC";
             DataTable dt    = List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetCurCaptureRunningNo : JobNo={iJobNo}, nTrx={nTrx}, {(dt.Rows.Count == 0 ? "not found -> use current max" : "found=" + dt.Rows[0][0])}");
             return (dt.Rows.Count == 0) ? GetCurMaxCaptureRunningNo() : int.Parse(dt.Rows[0][0].ToString());
         }
 
@@ -3353,12 +3673,14 @@ namespace TCT_App
                 int iCaptureRunningNo = (dt.Rows.Count == 0) ? 0 : int.Parse(dt.Rows[0][0].ToString());
                 szQuery = $"UPDATE ImageCaptureCamera SET LaneTransactionID={iTransID} " +
                             $"WHERE CaptureRunningNo={iCaptureRunningNo} AND JobNo={iJobNo} AND nTrx={nTrx}";
-                Execute(szQuery);
+                int iRows = Execute(szQuery);
+                LogInfo.WriteLog(iCaptureRunningNo == 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(iCaptureRunningNo == 0 ? "- Warning" : "+")} GetCaptureRunningNoOfTrans : JobNo={iJobNo}, nTrx={nTrx}, TransID={iTransID}, CaptureRunningNo={iCaptureRunningNo}, linked rows={iRows}");
                 return iCaptureRunningNo;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetCaptureRunningNoOfTrans : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetCaptureRunningNoOfTrans : {err.Message}");
                 return 0;
             }
         }
@@ -3380,12 +3702,14 @@ namespace TCT_App
                     else if (int.Parse(dt.Rows[i]["CameraIndex"].ToString()) == 3)
                         szImgFileName3 = dt.Rows[i]["ImageCameraFileName"] == DBNull.Value ? "" : dt.Rows[i]["ImageCameraFileName"].ToString();
                 }
+                LogInfo.WriteLog(dt.Rows.Count == 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(dt.Rows.Count == 0 ? "- Warning" : "+")} GetCaptureImageFileName : JobNo={iJobNo}, nTrx={nTrx}, TransID={iTransID}, rows={dt.Rows.Count}, img1={szImgFileName1}, img2={szImgFileName2}, img3={szImgFileName3}");
 
                 return true;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLaneEvent("- Fail GetCaptureImageFileName : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error GetCaptureImageFileName : {err.Message}");
                 return false;
             }
         }
@@ -3393,6 +3717,7 @@ namespace TCT_App
         //------------------------
         public bool ImportPromotionToDB(JArray promotionList, int version, string timeStamp)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportPromotionToDB : count={promotionList?.Count}, version={version}, timeStamp={timeStamp}");
             try
             {
                 if (promotionList.Count == 0)
@@ -3405,7 +3730,8 @@ namespace TCT_App
                 using (SqliteCommand command = new SqliteCommand(conn))
                 {
                     string szQuery = "DELETE FROM PromotionData ";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportPromotionToDB : clear PromotionData rows={iRows}");
                     //-------------------------------------------
                     string szFmt = "INSERT INTO PromotionData (PromotionID, Version, SendDateTime, " +
                                     "EffectiveFromDate, EffectiveToDate, PromotionTypeID, " +
@@ -3432,7 +3758,8 @@ namespace TCT_App
                                             promotionTypeId, messageLine1, messageLine2, messageLine3, messageLine4,
                                             qrCodeData, status, DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB));
                         LogInfo.WriteLog("+ Query ImportPromotionToDB : " + szQuery);
-                        Execute(szQuery);
+                        iRows = Execute(szQuery);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportPromotionToDB : PromotionID={idx}, type={promotionTypeId}, status={status}, rows={iRows}");
                         idx++;
                     }
 
@@ -3458,7 +3785,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(PromotionID) FROM PromotionData";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxPromotionID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -3478,6 +3807,7 @@ namespace TCT_App
                 string szQuery  = string.Format(szFmt, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", InvC));
                 LogInfo.WriteLog("+ Load promotion data Query : " + szQuery);
                 DataTable dt    = List(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoadPromotionData : active rows={dt.Rows.Count}");
 
                 if (dt.Rows.Count > 0)
                 {
@@ -3520,6 +3850,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLog("- Error LoadPromotionData : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LoadPromotionData StackTrace : " + err.StackTrace);
                 return false;
             }
         }
@@ -3527,6 +3858,7 @@ namespace TCT_App
         //---------------------------------------
         public bool ImportDmtCardToDB(JArray dmtCardList, int version, string timeStamp)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportDmtCardToDB : count={dmtCardList?.Count}, version={version}, timeStamp={timeStamp}");
             try
             {
                 if (dmtCardList.Count == 0)
@@ -3539,7 +3871,8 @@ namespace TCT_App
                 using (SqliteCommand command = new SqliteCommand(conn))
                 {
                     string szQuery = "DELETE FROM DmtCardData ";
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportDmtCardToDB : clear DmtCardData rows={iRows}");
                     //-------------------------------------------
                     string szFmt = "INSERT INTO DmtCardData (DmtCardID, Version, SendDateTime, " +
                                     "CardSerialNo, DmtCarNo, DmtLicensePlate, " +
@@ -3568,7 +3901,8 @@ namespace TCT_App
                                             status, DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB));
                                                                                       
                         LogInfo.WriteLog("+ Query ImportDmtCardToDB : " + szQuery);
-                        Execute(szQuery);
+                        iRows = Execute(szQuery);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportDmtCardToDB : DmtCardID={idx}, CarNo={dmtCarNo}, allowPass={allowPass}, status={status}, rows={iRows}");
                         idx++;
                     }
 
@@ -3601,7 +3935,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(DmtCardID) FROM DmtCardData";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxDmtCardID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -3628,6 +3964,7 @@ namespace TCT_App
                     szDepartment        = dt.Rows[0]["Department"] == DBNull.Value ? "" : dt.Rows[0]["Department"].ToString();
                     szAffiliation       = dt.Rows[0]["Affiliation"] == DBNull.Value ? "" : dt.Rows[0]["Affiliation"].ToString();
                     iClassType          = dt.Rows[0]["Affiliation"] == DBNull.Value ? 0 : int.Parse(dt.Rows[0]["VehicleClass"].ToString());
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckAllowDmtCanPass : allowed CarNo={szDmtCardNo}, Plate={szDmtLicensePlate}, Class={iClassType}, Dept={szDepartment}");
 
                     return true;
                 }
@@ -3656,7 +3993,8 @@ namespace TCT_App
                                                     szDepartment.Replace("'", "''"), szAffiliation.Replace("'", "''"), 
                                                     DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB));
                 LogInfo.WriteLog("+ Query InsertDmtCardTransaction : " + szQuery);
-                Execute(szQuery);
+                int iRows = Execute(szQuery);
+                LogInfo.WriteLog(iRows > 0 ? LogLevel.DEBUG : LogLevel.WARN, $"{(iRows > 0 ? "+" : "- Warning")} InsertDmtCardTransaction : DmtCardTransID={iDmtCardTransID}, CarNo={szDmtCardNo}, Class={iClassType}, rows={iRows}");
                 return true;
             }
             catch (Exception err)
@@ -3672,7 +4010,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(DmtCardTransID) FROM DmtCardTrans";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxDmtCardTransID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -3687,7 +4027,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(DmtCardTransID) FROM DmtCardTrans";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 0 : long.Parse(dt.Rows[0][0].ToString());
+                long iCurID     = dt.Rows[0][0] == DBNull.Value ? 0 : long.Parse(dt.Rows[0][0].ToString());
+                LogInfo.WriteLog(iCurID == 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(iCurID == 0 ? "- Warning" : "+")} GetCurDmtCardTransID : cur={iCurID}");
+                return iCurID;
             }
             catch (Exception err)
             {
@@ -3700,6 +4042,7 @@ namespace TCT_App
         //---------------------------------------
         public bool ImportTfiToDB(dynamic tfiData, int version, string timeStamp)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportTfiToDB : version={version}, timeStamp={timeStamp}, hasData={tfiData != null}");
             try
             {
                 using (SqliteCommand command = new SqliteCommand(conn))
@@ -3721,7 +4064,8 @@ namespace TCT_App
                                         0, DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB));
                                                                                   
                     LogInfo.WriteLog("+ Query ImportTfiToDB : " + szQuery);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportTfiToDB : TfiID={iTfiID}, file={imageFileName}, effective={effectiveDateTime}, imageDataLen={imageData.Length}, rows={iRows}");
 
 
                     //--------------------------------------------------------------------------
@@ -3729,6 +4073,7 @@ namespace TCT_App
                     Image tfiImg        = ConvertStringBase64ToImage(imageData);
                     var tfiImagePath    = Path.Combine(TCT_Lib.szLogPath, "TfiImage");
                     tfiImg.Save(Path.Combine(tfiImagePath, imageFileName));
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ImportTfiToDB : image saved {Path.Combine(tfiImagePath, imageFileName)}");
                     //LoadDmtCardData();
 
                     return true;
@@ -3739,6 +4084,7 @@ namespace TCT_App
 
                 Console.WriteLine("- Error ImportTfiToDB : " + err.Message);
                 LogInfo.WriteLog("- Error ImportTfiToDB : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- ImportTfiToDB StackTrace : " + err.StackTrace);
                 return false;
             }
         }
@@ -3749,7 +4095,9 @@ namespace TCT_App
             {
                 string szQuery  = "SELECT MAX(TfiID) FROM TfiData";
                 DataTable dt    = List(szQuery);
-                return dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                long iNextID    = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetMaxTfiID : next={iNextID}");
+                return iNextID;
             }
             catch (Exception err)
             {
@@ -3761,6 +4109,7 @@ namespace TCT_App
         private Image ConvertStringBase64ToImage(string base64)
         {
             byte[] bytes    = Convert.FromBase64String(base64);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ConvertStringBase64ToImage : base64Len={base64.Length}, bytes={bytes.Length}");
             Image image     = null;
             using (MemoryStream ms = new MemoryStream(bytes))
             {
@@ -3795,6 +4144,7 @@ namespace TCT_App
                         //--- Send TFI file by SCP
                         string szErrMsg = "";
                         bool bResult    = TCT_Lib.TransferTfiFile(szTfiFileName, ref szErrMsg);
+                        LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} TfiTransferImageFile : transfer TfiID={szTfiID}, file={szTfiFileName}, result={bResult}, err={szErrMsg}");
                         if (bResult)
                         {
                             szFmt = "UPDATE TfiData SET SendTfiStatus=1, SendTfiDateTime='{1}' " +
@@ -3813,6 +4163,7 @@ namespace TCT_App
                             catch (Exception err)
                             {
                                 LogInfo.WriteLog("- Error move TFI image to BAK Path : " + err.Message);
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"- TfiTransferImageFile : delete source file {szTfiFileName} after move failure");
                                 File.Delete(Path.Combine(Path.Combine(TCT_Lib.szLogPath, "TfiImage"), szTfiFileName));
                             }
                         }
@@ -3835,7 +4186,8 @@ namespace TCT_App
                                 "WHERE ImageFileName='{0}' " +
                                 "AND TfiID <> {1}";
                     szQuery = string.Format(szFmt, szTfiFileName, szTfiID);
-                    Execute(szQuery);
+                    int iRows = Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ TfiTransferImageFile : mark other rows of {szTfiFileName} as exempt (90), rows={iRows}");
                 }
 
                 return true;
@@ -3844,6 +4196,7 @@ namespace TCT_App
             {
                 LogInfo.WriteLog("- Error TfiTransferImageFile : " + err.Message);
                 LogInfo.WriteLaneEvent("- Error TfiTransferImageFile : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- TfiTransferImageFile StackTrace : " + err.StackTrace);
 
                 return false;
             }

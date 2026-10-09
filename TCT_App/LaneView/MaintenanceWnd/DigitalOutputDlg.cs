@@ -18,6 +18,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
             this.Title = "Test Digital Output";
 
             TCT_Lib.webSocketLane.deviceOutputLaneEvent += LaneSocket_DeviceOuputLaneEvent;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : popup opened, request DI/DO");
             TCT_Lib.webSocketLane.SendRequest_DigitalInputOutput();
 
             btn01_OFF.Sensitive = false;
@@ -37,11 +38,13 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnButtonOkClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button OK clicked");
             Process_Exit();
         }
 
         private void Process_Exit()
         { 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : popup closed");
             TCT_Lib.webSocketLane.deviceOutputLaneEvent -= LaneSocket_DeviceOuputLaneEvent;
 
             Destroy();
@@ -50,6 +53,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         private void LaneSocket_DeviceOuputLaneEvent(int[] values)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DigitalOutputDlg : DO update [{string.Join(",", values ?? new int[0])}]");
 /*
             img_D1.Pixbuf = Gdk.Pixbuf.LoadFromResource(values[0] == 1 ? "TCT_App.Images.OK-48.png" : "TCT_App.Images.Fail-48.png");    // Register Bell
             img_D2.Pixbuf = Gdk.Pixbuf.LoadFromResource(values[1] == 1 ? "TCT_App.Images.OK-48.png" : "TCT_App.Images.Fail-48.png");    // Siren
@@ -65,6 +69,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn01ONClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button Register Bell ON clicked");
             try
             {
                 //--- Register Bell ON
@@ -78,12 +83,14 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn01OFFClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button Register Bell OFF (no action) clicked");
             //--- Register Bell OFF
 
         }
 
         protected void OnBtn02ONClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button Siren ON clicked");
             try 
             {
                 // Siren ON
@@ -97,6 +104,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn02OFFClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button Siren OFF clicked");
             try 
             {
                 //--- Siren OFF
@@ -110,6 +118,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn03ONClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button ASB ON clicked");
             try 
             { 
                 //--- ASB ON
@@ -123,6 +132,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn03OFFClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button ASB OFF clicked");
             try
             {
                 //--- ASB OFF
@@ -136,6 +146,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn04ONClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button LTL ON clicked");
             try
             {
                 //--- LTL ON
@@ -149,6 +160,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn04OFFClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button LTL OFF clicked");
             try
             {
                 //--- LTL OFF
@@ -162,6 +174,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn05ONClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button ALB Open (pulse 300 ms) clicked");
             try 
             {
                 //--- ALB ON
@@ -177,6 +190,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn05OFFClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button ALB Close (pulse 300 ms) clicked");
             try 
             {
                 //--- ALB OFF
@@ -192,6 +206,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn06ONClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button OTL ON clicked");
             try 
             {
                 //--- OTL ON
@@ -205,6 +220,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void OnBtn06OFFClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalOutputDlg : button OTL OFF clicked");
             try 
             {
                 //--- OTL OFF
@@ -220,6 +236,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
         {
             try
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DigitalOutputDlg : key {args.Event.Key}, selected device {iSelDevice}");
                 if ((int)args.Event.KeyValue == (int)'p')           // ESC, Cancel
                     Process_Exit();
                 else if ((int)args.Event.KeyValue == (int)'0')
@@ -247,6 +264,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void Process_DeviceOn()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DigitalOutputDlg : device {iSelDevice} ON (2=RBell 3=Siren 4=ASB 5=LTL 6=ALB 7=OTL)");
             try
             { 
                 if (iSelDevice == 2)
@@ -275,6 +293,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void Process_DeviceOff()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DigitalOutputDlg : device {iSelDevice} OFF (3=Siren 4=ASB 5=LTL 6=ALB 7=OTL)");
             try 
             {
                 if (iSelDevice == 3)
@@ -301,6 +320,7 @@ namespace TCT_App.LaneView.MaintenanceWnd
 
         protected void Process_SelectDevice(int iDevice)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DigitalOutputDlg : select device {iSelDevice} -> {iDevice}");
             iSelDevice = iDevice;
             txt_2.Text = "<span font_size='large' fgcolor='#ffffff'>2.</span>";
             txtDevice_2.Text = "<span font_size='large' fgcolor='#FFFFFF'>Register Bell (GONG)</span>";

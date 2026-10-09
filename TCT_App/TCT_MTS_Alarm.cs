@@ -14,6 +14,7 @@ namespace TCT_App
         {
             LogInfo.WriteLogMTS("+ MTS-Alarm : Start Process");
             //--- No setting send MTS Alarm
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ SendJsonMsgMtsAlarmToRabbitMQ : AlarmDeviceList=[{TCT_Lib.szMTS_AlarmDeviceList}]");
             if (TCT_Lib.szMTS_AlarmDeviceList.Trim() == "")
             {
                 LogInfo.WriteLogMTS("+ MTS-Alarm : End Process (No config)");
@@ -23,7 +24,9 @@ namespace TCT_App
             string szQuery = "SELECT * FROM LaneAlarmRTO " +
                                 "WHERE SendStatusDC = 0 " +
                                 $"AND AlarmDevice IN ({TCT_Lib.szMTS_AlarmDeviceList})";
+            LogInfo.WriteLogMTS(LogLevel.TRACE, $"+ SendJsonMsgMtsAlarmToRabbitMQ : SQL={szQuery}");
             DataTable dtAlarm = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ SendJsonMsgMtsAlarmToRabbitMQ : pending alarms={dtAlarm?.Rows.Count ?? -1}");
             if (dtAlarm.Rows.Count == 0)
             {
                 LogInfo.WriteLogMTS("+ MTS-Alarm : End Process (No alarm)");
@@ -33,7 +36,10 @@ namespace TCT_App
             for (int i = 0; i < dtAlarm.Rows.Count; i++)
             {
                 if (!await SendAlarmToRabbitMQ(dtAlarm.Rows[i]))
+                {
+                    LogInfo.WriteLogMTS(LogLevel.WARN, $"- Warning SendJsonMsgMtsAlarmToRabbitMQ : send failed at {i + 1}/{dtAlarm.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
                 Thread.Sleep(200);
             }
 
@@ -70,13 +76,16 @@ namespace TCT_App
                 LogInfo.WriteLogMTS("+ MTS-Alarm : " + szMtsAlarm);
 
                 int iAlarmID = int.Parse(drAlarm["AlarmRtoID"].ToString());
+                var swSend = System.Diagnostics.Stopwatch.StartNew();
                 if (TCT_Lib.mtsRabbitMQ.SendMtsMsgToRabbitMQ("MTS-Alarm", szMtsAlarm))
                 {
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ SendAlarmToRabbitMQ : AlarmRtoID={iAlarmID} sent OK ({swSend.ElapsedMilliseconds} ms)");
                     UpdateAlarmSendDcStatus(iAlarmID, true);
                     return true;
                 }
                 else
                 {
+                    LogInfo.WriteLogMTS(LogLevel.WARN, $"- Warning SendAlarmToRabbitMQ : AlarmRtoID={iAlarmID} send failed ({swSend.ElapsedMilliseconds} ms) -> SendRetryDC+1");
                     UpdateAlarmSendDcStatus(iAlarmID, false);
                     return false;
                 }
@@ -84,6 +93,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail SendJsonMsgMtsAlarmToRabbitMQ : " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- SendAlarmToRabbitMQ : AlarmRtoID={drAlarm?["AlarmRtoID"]}, stack={err.StackTrace}");
                 int iAlarmID = int.Parse(drAlarm["AlarmRtoID"].ToString());
                 UpdateAlarmSendDcStatus(iAlarmID, false);
 
@@ -153,6 +163,8 @@ namespace TCT_App
             int iAlarmID                = int.Parse(drAlarm["AlarmRtoID"].ToString());
 
             if (iAlarmDevice == 0)
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetAlermData : AlarmRtoID={iAlarmID}, AlarmDevice=0 -> alarm=null");
+            if (iAlarmDevice == 0)
                 return null;
             try
             {
@@ -168,13 +180,15 @@ namespace TCT_App
             }
             catch (Exception err)
             {
-                LogInfo.WriteLogMTS($"+ GetAlarmData : AlarmRtoID={iAlarmID}, AlarmDevice={szAlarmDeviceName}, AlarmDetail={szAlarmDetail}, AlarmRemark={szAlarmRemark}\r\nError : {err.Message}");
+                LogInfo.WriteLogMTS(LogLevel.ERROR, $"+ GetAlarmData : AlarmRtoID={iAlarmID}, AlarmDevice={szAlarmDeviceName}, AlarmDetail={szAlarmDetail}, AlarmRemark={szAlarmRemark}\r\nError : {err.Message}");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetAlermData : AlarmRtoID={iAlarmID}, stack={err.StackTrace}");
                 return null;
             }
         }
 
         private static void UpdateAlarmSendDcStatus(int iAlarmID, bool bResult)
         {
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ UpdateAlarmSendDcStatus : AlarmRtoID={iAlarmID}, result={bResult}");
             if (iAlarmID == 0)
                 return;
 
@@ -192,6 +206,7 @@ namespace TCT_App
                         $"WHERE AlarmRtoID={iAlarmID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLogMTS(LogLevel.TRACE, $"+ UpdateAlarmSendDcStatus : SQL={szQuery}");
             TCT_Lib.LaneDB.Execute(szQuery);
         }
     }

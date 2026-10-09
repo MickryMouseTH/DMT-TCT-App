@@ -29,6 +29,26 @@ namespace TCT_App.PrintUtils
 
         public static char[] cmd_FontBold = {'\x1B', 'E', '1'};
 
+        //--- v2.0.4: printable form of an ESC/POS string for TRACE log (control bytes -> <XX>, newline -> \n)
+        public static string ToLogText(string szData)
+        {
+            if (szData == null)
+                return "null";
+            var sb = new StringBuilder(szData.Length + 32);
+            foreach (char c in szData)
+            {
+                if (c == '\n')
+                    sb.Append("\\n");
+                else if (c == '\r')
+                    sb.Append("\\r");
+                else if (c < 0x20 || c == 0x7F)
+                    sb.Append('<').Append(((int)c).ToString("X2")).Append('>');
+                else
+                    sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
         public static string InitPrint()
         {
             string szInit = "";
@@ -380,8 +400,10 @@ namespace TCT_App.PrintUtils
             // char < 122 can print, char > 250 can print 
             // char > 122 and < 250  cannot print
 
+            int iOrgQrLen = qrSource.Length;
             if ((qrSource.Length >= 122) && (qrSource.Length <= 255))
                 qrSource += "&refno=" + RandomString(250 - qrSource.Length);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClassEscPOS.PrintQrCode : len={iOrgQrLen} -> {qrSource.Length}{(iOrgQrLen != qrSource.Length ? " (padded &refno)" : "")}, QrSize={TCT_Lib.iPrinter_PrintQrSize}");
 
             LogInfo.WriteLog("+ Print QR Code : " + qrSource);
 

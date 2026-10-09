@@ -15,7 +15,10 @@ namespace TCT_App.LaneSocket
         public LaneSocketSupAdjust()
         {
             if (!TCT_Lib.bEnableSupAdjust)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneSocketSupAdjust : disabled (bEnableSupAdjust=false), server not started");
                 return;
+            }
 
             Console.WriteLine("+ Start LaneSocketServer : ServerPort = " + TCT_Lib.iSupAdjust_SocketPort);
             LogInfo.WriteLog("+ Start LaneSocketServer : ServerPort = " + TCT_Lib.iSupAdjust_SocketPort);
@@ -60,15 +63,20 @@ namespace TCT_App.LaneSocket
                     laneServer.NewMessageReceived   += LaneServer_NewMessageReceived;
                     laneServer.SessionClosed        += LaneServer_SessionClosed;
 
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketSupAdjust.SetupSocketServer : listen Any:{TCT_Lib.iSupAdjust_SocketPort}, name=WebSocket-Sup{TCT_Lib.iLaneID}, sendTimeout=1000ms");
                     return true;
                 }
                 else
+                {
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- LaneSocketSupAdjust.SetupSocketServer : Setup failed, port={TCT_Lib.iSupAdjust_SocketPort}");
                     return false;
+                }
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Error Setup ServerWebSocket - SupAdjust: " + err.Message);
                 LogInfo.WriteLog("- Error Setup ServerWebSocket - SupAdjust : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LaneSocketSupAdjust.SetupSocketServer : stack=" + err.StackTrace);
                 return false;
             }
         }
@@ -80,6 +88,7 @@ namespace TCT_App.LaneSocket
 
             Console.WriteLine("+ Find new session socket - SupAdjust : IP=" + session.Host + ", SessionID=" + session.SessionID);
             LogInfo.WriteLog("+ Find new session socket - SupAdjust : IP=" + session.Host + ", SessionID=" + session.SessionID);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketSupAdjust.NewSessionConnected : remote={session.RemoteEndPoint?.ToString() ?? "null"}, sessions={laneServer?.SessionCount}, send lane state");
             TCT_Lib.laneController.SendLaneCurrentState();
         }
 
@@ -90,6 +99,7 @@ namespace TCT_App.LaneSocket
 
             Console.WriteLine("+ Close session socket - SupAdjust : " + session.Host + ", SessionID=" + session.Host);
             LogInfo.WriteLog("+ Close session socket - SupAdjust : " + session.Host + ", SessionID=" + session.Host);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketSupAdjust.SessionClosed : remote={session.RemoteEndPoint?.ToString() ?? "null"}, sessionId={session.SessionID}, reason={value}, sessions={laneServer?.SessionCount}");
         }
 
         void LaneServer_NewMessageReceived(WebSocketSession session, string value)
@@ -98,6 +108,8 @@ namespace TCT_App.LaneSocket
                 return;
 
             Console.WriteLine("+ SocketServer : " + session.Method + ", Mesage : " + value);
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ LaneSocketSupAdjust.NewMessageReceived : from={session.RemoteEndPoint?.ToString() ?? "null"}, msg={value}");
             ClassifyServerMessage(value);
         }
 
@@ -139,6 +151,9 @@ namespace TCT_App.LaneSocket
                 if (szMethod != "IODO")
                 {
                     Console.WriteLine("+ Send LaneMessage to SupAdjust : " + szJsonCmd);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketSupAdjust.SendLaneMessageToClient : method={szMethod}, sessions={laneServer?.SessionCount}, len={szJsonCmd.Length}");
+                    if (LogInfo.IsEnabled(LogLevel.TRACE))
+                        LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketSupAdjust.SendLaneMessageToClient : " + szJsonCmd);
                     foreach (WebSocketSession session in laneServer.GetAllSessions().ToList())
                         session.Send(szJsonCmd);
                 }
@@ -147,6 +162,7 @@ namespace TCT_App.LaneSocket
             {
                 Console.WriteLine($"- Error SendLaneMessage to SupAdjust : Method={szMethod}, Error={err.Message}");
                 LogInfo.WriteLog($"- Error SendLaneMessage to SupAdjust : Method={szMethod}, Error={err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LaneSocketSupAdjust.SendLaneMessageToClient : stack=" + err.StackTrace);
                 TCT_Lib.bSupAdjust_Connected = false;
                 //----------------------------------------------
 /*
@@ -172,10 +188,16 @@ namespace TCT_App.LaneSocket
         {
             //LogInfo.WriteLog("+ SupAdjust IP : " + TCT_Lib.szSupAdjust_IPAddress);
             if (TCT_Lib.szSupAdjust_IPAddress == "")
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketSupAdjust.SendLaneMessageToSupAdjust : skip method={szMethod}, SupAdjust IP not configured");
                 return false;
+            }
 
             if (!TCT_Lib.bEnableSupAdjust)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketSupAdjust.SendLaneMessageToSupAdjust : skip method={szMethod}, SupAdjust disabled");
                 return false;
+            }
 
             string szJsonCmd = JsonConvert.SerializeObject(
                 new
@@ -203,6 +225,7 @@ namespace TCT_App.LaneSocket
                 }
 
                 //LogInfo.WriteLog("+ SupAdjust Not found IP Connected");
+                LogInfo.WriteLog(LogLevel.WARN, $"- LaneSocketSupAdjust.SendLaneMessageToSupAdjust : no connected session from SupAdjust IP={TCT_Lib.szSupAdjust_IPAddress}, dropped method={szMethod}");
                 return false;
             }
             catch (Exception err)
@@ -212,6 +235,7 @@ namespace TCT_App.LaneSocket
                 LogInfo.WriteLog("- Error Send LaneMessage to SupAdjust : " + err.Message);
                 LogInfo.WriteLog("- Error Send LaneMessage to SupAdjust : " + err.StackTrace);
                 LogInfo.WriteLog("+ Restart SupAdjust WebSocket");
+                LogInfo.WriteLog(LogLevel.WARN, $"- LaneSocketSupAdjust.SendLaneMessageToSupAdjust : restart SupAdjust server port={TCT_Lib.iSupAdjust_SocketPort}, method={szMethod}");
 
                 TCT_Lib.bSupAdjust_Connected = false;
                 laneServer.Stop();
@@ -247,6 +271,7 @@ namespace TCT_App.LaneSocket
                 string result       = msg["result"];
                 string method       = msg["method"];
                 JObject jParams     = msg["params"];
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketSupAdjust.ClassifyServerMessage : id={id}, method={method ?? "null"}, result={result ?? "null"} (no handler, ignored)");
 
                 if (result != null)
                 {
@@ -333,6 +358,8 @@ namespace TCT_App.LaneSocket
             {
                 Console.WriteLine("- Error ClassifyServerMessage : " + err.Message);
                 Console.WriteLine("- Error ClassifyServerMessage : " + err.StackTrace);
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error LaneSocketSupAdjust.ClassifyServerMessage : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LaneSocketSupAdjust.ClassifyServerMessage : stack=" + err.StackTrace);
             }
         }
     }

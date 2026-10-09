@@ -11,9 +11,13 @@ namespace TCT_App.PrintUtils
         public static void PrintSalesCoupon(string szCouponType1, int iTotalCoupon_Type1, decimal fCouponPrice_Type1, string szCouponType2, int iTotalCoupon_Type2, decimal fCouponPrice_Type2, string szPayTypeName)
         {
             bool bReprint = false;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintSalesCoupon : ReceiptNo={TCT_Lib.szCurSalesCouponReceiptNo}, Type1={szCouponType1} x{iTotalCoupon_Type1} @{fCouponPrice_Type1}, Type2={szCouponType2} x{iTotalCoupon_Type2} @{fCouponPrice_Type2}, PayType={szPayTypeName}, port={TCT_Lib.szPrinter_PrinterPort}");
             try
             {
                 string szPrinterPort = TCT_Lib.szPrinter_PrinterPort;
+                if (!System.IO.File.Exists(szPrinterPort))
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning PrintSalesCoupon : printer device not found : {szPrinterPort}");
                 if (TCT_Lib.iPrinter_PrintFontSize > 2)
                     TCT_Lib.iPrinter_PrintFontSize = 2;
                 if (TCT_Lib.iPrinter_PrintFontSize <= 0)
@@ -99,11 +103,16 @@ namespace TCT_App.PrintUtils
                 byte[] byteRequest = enc.GetBytes(szStr);
                 //byte[] byteRequest = Encoding.UTF8.GetBytes(szStr);
                 //byteRequest.Add(COMMAND);
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLog(LogLevel.TRACE, "+ PrintSalesCoupon ESC/POS : " + ClassEscPOS.ToLogText(szStr));
                 byteRequest.Print(szPrinterPort);
+                LogInfo.WriteLog(LogLevel.INFO, $"+ PrintSalesCoupon : sent {byteRequest.Length} bytes to {szPrinterPort}, amount={szCouponAmount}, {sw.ElapsedMilliseconds} ms");
             }
             catch (Exception err)
             {
                 Console.WriteLine(err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error PrintSalesCoupon : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- PrintSalesCoupon : failed after {sw.ElapsedMilliseconds} ms, StackTrace : {err.StackTrace}");
             }
         }
     }

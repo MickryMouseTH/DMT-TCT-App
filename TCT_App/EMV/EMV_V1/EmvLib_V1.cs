@@ -149,6 +149,7 @@ namespace TCT_App.EMV.EMV_V1
 
                 string szCharList = GenHexCharList(byteMsg);
                 Console.WriteLine("+ EDC Payment : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GeneratePaymentEdcMessage_V1 : cmd=20(Purchase), amount={szAmount}, ref1={szRef1}, ref2={szRef2}, ref3={szRef3}, ref4={szRef4}, frameLen={byteMsg?.Length ?? 0}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 Console.WriteLine("Byte Data : " + szCharList);
                 szDataMsg           = szCharList;
@@ -158,6 +159,8 @@ namespace TCT_App.EMV.EMV_V1
             catch (Exception err)
             {
                 Console.WriteLine("- Error GeneratePaymentEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error GeneratePaymentEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GeneratePaymentEdcMessage_V1 : stack=" + err.StackTrace);
                 //LogInfo.WriteLogEDC("- Error GeneratePaymentEdcMessage : " + err.Message);
                 szErrMsg = err.Message;
 
@@ -267,6 +270,7 @@ namespace TCT_App.EMV.EMV_V1
 
                 string szCharList = GenHexCharList(byteMsg);
                 Console.WriteLine("+ EDC Cancel : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateCancelEdcMessage_V1 : cmd=CP(Cancel), frameLen={byteMsg?.Length ?? 0}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 Console.WriteLine("Byte Data : " + szCharList);
                 szDataMsg = szCharList;
@@ -276,6 +280,8 @@ namespace TCT_App.EMV.EMV_V1
             catch (Exception err)
             {
                 Console.WriteLine("- Error GeneratCancelEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error GenerateCancelEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateCancelEdcMessage_V1 : stack=" + err.StackTrace);
                 //LogInfo.WriteLogEDC("- Error GeneratePaymentEdcMessage : " + err.Message);
                 szErrMsg = err.Message;
 
@@ -329,6 +335,7 @@ namespace TCT_App.EMV.EMV_V1
 
                 string szCharList   = GenHexCharList(byteMsg);
                 Console.WriteLine("+ EDC SumReport : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateSumReporttEdcMessage_V1 : cmd=S1(Sum Report), ref1={szRef1}, ref2={szRef2}, ref3={szRef3}, frameLen={byteMsg?.Length ?? 0}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 Console.WriteLine("Byte Data : " + szCharList);
                 szDataMsg           = szCharList;
@@ -338,6 +345,8 @@ namespace TCT_App.EMV.EMV_V1
             catch (Exception err)
             {
                 Console.WriteLine("- Error GenerateSumReporttEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error GenerateSumReporttEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateSumReporttEdcMessage_V1 : stack=" + err.StackTrace);
                 //LogInfo.WriteLogEDC("- Error GeneratePaymentEdcMessage : " + err.Message);
                 szErrMsg = err.Message;
 
@@ -414,6 +423,7 @@ namespace TCT_App.EMV.EMV_V1
 
                 string szCharList   = GenHexCharList(byteMsg);
                 Console.WriteLine("+ EDC Handshaking : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateHandshakingEdcMessage_V1 : cmd=H1(Handshaking), frameLen={byteMsg?.Length ?? 0}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 Console.WriteLine("Byte Data : " + szCharList);
                 szDataMsg           = szCharList;
@@ -423,6 +433,8 @@ namespace TCT_App.EMV.EMV_V1
             catch (Exception err)
             {
                 Console.WriteLine("- Error GenerateHandshakingEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error GenerateHandshakingEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateHandshakingEdcMessage_V1 : stack=" + err.StackTrace);
                 //LogInfo.WriteLogEDC("- Error GeneratePaymentEdcMessage : " + err.Message);
                 szErrMsg = err.Message;
 
@@ -479,6 +491,7 @@ namespace TCT_App.EMV.EMV_V1
 
                 string szCharList = GenHexCharList(byteMsg);
                 Console.WriteLine("+ EDC GenQR : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateGenQrCodeEdcMessage_V1 : cmd=QR(Sales QR), amount={szAmount}, ref1={szRef1}, ref2={szRef2}, frameLen={byteMsg?.Length ?? 0}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 Console.WriteLine("Byte Data : " + szCharList);
                 szDataMsg           = szCharList;
@@ -488,6 +501,8 @@ namespace TCT_App.EMV.EMV_V1
             catch (Exception err)
             {
                 Console.WriteLine("- Error GenerateGenQrCodeEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error GenerateGenQrCodeEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateGenQrCodeEdcMessage_V1 : stack=" + err.StackTrace);
                 //LogInfo.WriteLogEDC("- Error GeneratePaymentEdcMessage : " + err.Message);
                 szErrMsg = err.Message;
 
@@ -575,6 +590,7 @@ namespace TCT_App.EMV.EMV_V1
 
                 string szCharList = GenHexCharList(byteMsg);
                 Console.WriteLine("+ EDC InquiryQR : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ GenerateInquiryQrEdcMessage_V1 : cmd=IQ(Inquiry QR), invoice=000000(current), frameLen={byteMsg?.Length ?? 0}");
                 //LogInfo.WriteLogInfo("+ Send String : " + szMsg);
                 Console.WriteLine("Byte Data : " + szCharList);
                 szDataMsg           = szCharList;
@@ -584,6 +600,8 @@ namespace TCT_App.EMV.EMV_V1
             catch (Exception err)
             {
                 Console.WriteLine("- Error GenerateInquiryQrEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error GenerateInquiryQrEdcMessage_V1 : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ GenerateInquiryQrEdcMessage_V1 : stack=" + err.StackTrace);
                 //LogInfo.WriteLogEDC("- Error GeneratePaymentEdcMessage : " + err.Message);
                 szErrMsg = err.Message;
 
@@ -880,6 +898,8 @@ namespace TCT_App.EMV.EMV_V1
             if (xCreditCardInfo.szResponseText == null)
                 xCreditCardInfo.szResponseText = "";
 
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLogEDC(LogLevel.TRACE, "+ EncodeFormatEDC_V1 : " + ClassLibEDC.CardInfoFields(xCreditCardInfo));
             return xCreditCardInfo;
         }
     }

@@ -66,6 +66,8 @@ namespace TCT_App.EMV.V0
             btnCancel.Sensitive     = false;
 
             LogInfo.WriteLogEDC("+------------------ Start QR Payment --------------------");
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ EdcPayQrDlg : open, amount={fPayAmount}, towing={bTowing}, edc={TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}, recvPort={TCT_Lib.iEdcRecvPort}, qrWait={TCT_Lib.iEdcQrWaitTimeSec}s");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ QR popup opened : amount={fPayAmount}, towing={bTowing}");
             TCT_Lib.laneController.manageProcessEMV += LaneController_ManageProcessEMV;
 
             //this.DeleteEvent += new DeleteEventHandler(OnDlgDelete);
@@ -85,6 +87,7 @@ namespace TCT_App.EMV.V0
             if (!TCT_Lib.TestConnection(TCT_Lib.szEdcIPAddress, TCT_Lib.iEdcSendPort))
             {
                 Console.WriteLine("- Fail Connect Send EDC Socket");
+                LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning EdcPayQrDlg : EDC test connection failed, QR request not sent");
                 txtMsg.ModifyFont(FontDescription.FromString("Ubuntu 24"));
                 txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
                 txtMsg.Text         = "ไม่สามารถเชื่อมต่ออุปกรณ์";
@@ -113,6 +116,7 @@ namespace TCT_App.EMV.V0
             else
             {
                 Console.WriteLine("- Fail Connect Send EDC Socket");
+                LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning EdcPayQrDlg : EDC not connected, QR request not sent");
                 txtMsg.ModifyFont(FontDescription.FromString("Ubuntu 24"));
                 txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
                 txtMsg.Text         = "ไม่สามารถเชื่อมต่ออุปกรณ์";
@@ -124,6 +128,7 @@ namespace TCT_App.EMV.V0
 
         void OnDlgDelete(object sender, DeleteEventArgs a)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ OnDlgDelete : dialog delete event");
             Application.Invoke(delegate
             {
                 TCT_Lib.bActiveEMVDlg = false;
@@ -145,9 +150,12 @@ namespace TCT_App.EMV.V0
                 //if (!TCT_Lib.TestConnection(TCT_Lib.szEdcIPAddress, TCT_Lib.iEdcSendPort))
                 //    return false;
 
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ InitSocketSendEDC : connect {TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}, timeout=500ms");
+                var swEdc   = System.Diagnostics.Stopwatch.StartNew();
                 client      = new TcpClient();
                 var result  = client.BeginConnect(TCT_Lib.szEdcIPAddress, TCT_Lib.iEdcSendPort, null, null);
                 result.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(500));
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ InitSocketSendEDC : connected={client.Connected}, elapsed={swEdc.ElapsedMilliseconds}ms");
                 if (client.Connected)
                 {
                     stream = client.GetStream();
@@ -171,6 +179,7 @@ namespace TCT_App.EMV.V0
                 txtMsg.Text = err.Message;
                 Console.WriteLine("- Error InitSocket : " + err.Message);
                 LogInfo.WriteLogEDC("- Error InitSocketSendEDC : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ InitSocketSendEDC : socketError={err.SocketErrorCode}");
                 return false;
             }
         }
@@ -181,10 +190,12 @@ namespace TCT_App.EMV.V0
             eventThread.Priority        = ThreadPriority.Normal;
             eventThread.IsBackground    = true;
             eventThread.Start();
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ InitSocketRecvEDC : recv thread started");
         }
 
         private void StartInquiryCommand(bool bDisableCancel = true)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ StartInquiryCommand : disable buttons for {TCT_Lib.iEdcQrWaitTimeSec}s, disableCancel={bDisableCancel}");
             bStartInquiry           = true;
             btnInquiry.Sensitive    = false;
             if (bDisableCancel)
@@ -195,6 +206,7 @@ namespace TCT_App.EMV.V0
 
         private bool Process_EnableInquiryBtn()
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_EnableInquiryBtn : inquiry/cancel buttons enabled");
             btnInquiry.Sensitive    = true;
             btnCancel.Sensitive     = true;
             iTimerIdWaitInquiry     = 0;
@@ -221,6 +233,7 @@ namespace TCT_App.EMV.V0
                 LogInfo.WriteLogEDC("Warning TcpListener : " + err.Message);
             }
 
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : start loop, port={TCT_Lib.iEdcRecvPort}, read timeout={TCT_Lib.iEdcWaitTimeOutSec}s");
             bool bRunning = true;
             while (bRunning)
             {
@@ -237,6 +250,7 @@ namespace TCT_App.EMV.V0
                     }
 
                     TcpClient clientSocket      = netServer.AcceptTcpClient();
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : accepted " + ClassLibEDC.SafeEndPoint(clientSocket?.Client));
                     clientSocket.ReceiveTimeout = TCT_Lib.iEdcWaitTimeOutSec * 1000;
                     clientSocket.SendTimeout    = TCT_Lib.iEdcWaitTimeOutSec * 1000;
                     sendStream                  = clientSocket.GetStream();
@@ -254,11 +268,13 @@ namespace TCT_App.EMV.V0
                     }
                     clientSocket.Close();
                     bRunning = false;
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : reply handled, loop end, bCancel={bCancel}");
                 }
                 catch (Exception err)
                 {
                     Console.WriteLine("Warning!...ThreadEventRecv error : " + err.Message);
                     LogInfo.WriteLogEDC("Warning ThreadEventRecv : " + err.Message);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadEventRecvServer : {err.GetType().Name}, bCancel={bCancel}, restart listener");
                     Thread.Sleep(1000);
                     if (sendStream != null)
                     {
@@ -306,6 +322,7 @@ namespace TCT_App.EMV.V0
                 }
             }
 
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadEventRecvServer : thread exit");
             //netServer.Stop();
         }
 
@@ -316,6 +333,7 @@ namespace TCT_App.EMV.V0
                 {
                     //--- Send Ack
                     Encoding enc    = new ASCIIEncoding();
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ AnalysisEdcMsg : send ACK 06 to EDC, frameBuf={byteMsg?.Length ?? 0}, towing={bTowing}, inquiryCount={iCurCountInquiry}");
                     sendStream.Write(enc.GetBytes(ClassLibEDC.GenHexChar(0x06).ToString()), 0, 1);
                     //---------------------------------------------------------------------------
                     string szResponse = Encoding.ASCII.GetString(byteMsg);
@@ -344,12 +362,14 @@ namespace TCT_App.EMV.V0
                     Console.WriteLine("+ Response Code : " + szRespCode);
                     Console.WriteLine("-");
                     LogInfo.WriteLogEDC("+ EDC Response Code (Pay QR) : " + szRespCode);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ AnalysisEdcMsg : transCode={szResponse.Substring(15, 2)}, respCode={szRespCode} ({ClassLibEDC.GetResponseMsg(szRespCode)})");
                     if (szRespCode != "00")
                     {
                         string szErrCodeMsg     = ClassLibEDC.GetResponseMsg(szRespCode);
                         string szErrorShowMsg   = ClassLibEDC.ShowResponseMsg(szRespCode);
                         //Console.WriteLine($"Error Code : {szRespCode}, Error Text : "+ szErrCodeMsg);
                         LogInfo.WriteLogEDC($"Error Code : {szRespCode}, Error Text : " + szErrCodeMsg);
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning QR not approved : code={szErrCodeMsg}, amount={fPayAmount}");
                         //txtMsg.Text         = $"{szErrorShowMsg}";
                         Application.Invoke(delegate {
                             txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
@@ -390,6 +410,7 @@ namespace TCT_App.EMV.V0
                     //LogInfo.WriteLogEDC("+ Response EMV QR : " + szResponse);
                     xOutCreditCard      = ClassLibEDC.EncodeFormatEDC(szResponse);
                     LogInfo.WriteLogEDC("+ Sucess Encode QR Format.");
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : parsed " + ClassLibEDC.CardInfoSummary(xOutCreditCard));
                     //txtCardNo.Text      = xCreditCard.szCardNo;
                     //txtAmount.Text      = xCreditCard.szAmount;
                     //txtTerminalID.Text  = xCreditCard.szTerminalID;
@@ -398,6 +419,7 @@ namespace TCT_App.EMV.V0
 
                     if (xOutCreditCard.szResponseText.Trim() == "")
                     {
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : empty response text -> not paid yet, wait next inquiry");
                         LogInfo.WriteLaneEvent($"QR CODE - Response : CardNo={xOutCreditCard.szCardNo ?? ""}, Amount={xOutCreditCard.szAmount ?? ""}, ApproveCode={xOutCreditCard.szApprovalCode ?? ""}. TransRef={xOutCreditCard.szRef3 ?? ""}, InvoiceNo={xOutCreditCard.szInvoiceNo ?? ""}");
                         Application.Invoke(delegate {
                             txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(0, 255, 0));
@@ -410,6 +432,7 @@ namespace TCT_App.EMV.V0
                     if ((xOutCreditCard.szInvoiceNo ?? "") == "")
                     {
                         LogInfo.WriteLogEDC($"- Warning...Not found invoice no.)");
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, "- Warning QR result rejected : invoice no not found");
 
                         //----------------
                         int iAlarmID = (int)TCT_Lib.LaneDB.WriteLaneAlarmRTO(AlarmDevice.EDC_WARNING, AlarmType.Occurred, $"QR payment not found InvoiceNo", $"");
@@ -421,6 +444,7 @@ namespace TCT_App.EMV.V0
                     if ((xOutCreditCard.szCardNo ?? "") != "")
                     {
                         LogInfo.WriteLogEDC($"- Warning...Found Card No={xOutCreditCard.szCardNo.Trim()}, then this is EMV, (Not QR)");
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, "- Warning QR result rejected : card no present (EMV result)");
                         //----------------
 
                         int iAlarmID = (int)TCT_Lib.LaneDB.WriteLaneAlarmRTO(AlarmDevice.EDC_WARNING, AlarmType.Occurred, $"QR payment is not match (Found CardNo={xOutCreditCard.szCardNo.Trim()})", $"Found CardNo of QR Payment");
@@ -483,6 +507,7 @@ namespace TCT_App.EMV.V0
 
                         if (TCT_Lib.xCurQR.responseMessage.Trim() == "")
                         {
+                            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : empty response message -> wait next inquiry");
                             Application.Invoke(delegate {
                                 txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(0, 255, 0));
                                 txtMsg.Text = szConfirmInquiry;
@@ -557,6 +582,7 @@ namespace TCT_App.EMV.V0
 
                         if (TCT_Lib.xTowingQR.responseMessage.Trim() == "")
                         {
+                            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : towing empty response message -> wait next inquiry");
                             Application.Invoke(delegate {
                                 txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(0, 255, 0));
                                 txtMsg.Text = szConfirmInquiry;
@@ -582,6 +608,8 @@ namespace TCT_App.EMV.V0
                     });
                     
                     //-------------------------------------
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : approved -> respond Ok");
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ QR popup closed : Ok, amount={fPayAmount}");
                     this.Respond(ResponseType.Ok);
 
                     //Console.WriteLine("Start 1");
@@ -622,9 +650,9 @@ namespace TCT_App.EMV.V0
                         if (eventThread != null)
                             eventThread.Abort();
                     }
-                    catch(Exception)
+                    catch(Exception err)
                     {
-
+                        LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error AnalysisEdcMsg (cleanup) : " + err.Message);
                     }
                     finally
                     {
@@ -649,6 +677,7 @@ namespace TCT_App.EMV.V0
                 {
                     Console.WriteLine("- Error AnalysisEdcMsg QR Payment : " + err.Message);
                     LogInfo.WriteLogEDC("- Error AnalysisEdcMsg QR Payment : " + err.Message);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : stack=" + err.StackTrace);
                 }
             //});
         }
@@ -670,6 +699,8 @@ namespace TCT_App.EMV.V0
                 bool bResult        = ClassLibEDC.GenerateQrCodeEdcMessage(fAmount, ref byteMsg, ref szReqMsg, ref szEdcRef1, ref szEdcRef2, ref szErrMsg);
                 TCT_Lib.szQrRef1    = szEdcRef1;
                 TCT_Lib.szQrRef2    = szEdcRef2;
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartGenerateQrCodeEDC : build cmd=QR result={bResult}, err={szErrMsg}, amount={fAmount}, frameLen={byteMsg?.Length ?? 0}");
+                var swEdc = System.Diagnostics.Stopwatch.StartNew();
 
                 if (!bTowing)
                     TCT_Lib.xCurQR.requestText = "";
@@ -687,9 +718,11 @@ namespace TCT_App.EMV.V0
                 //-----------------------------------------
                 string szCharList = GenHexCharList(bAck);
                 LogInfo.WriteLogEDC("+ EDC Ack Generate QR Code : " + szCharList);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_StartGenerateQrCodeEDC : ack bytes={iDataLen}, ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}), elapsed={swEdc.ElapsedMilliseconds}ms");
                 //-----------------------------------------
                 if (iAck != 0x06) // Ack
                 {
+                    LogInfo.WriteLogEDC(LogLevel.WARN, $"- Warning Process_StartGenerateQrCodeEDC : ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}) is not ACK(06), QR not started");
                     if (iAck == 0x15)
                     {
                         Application.Invoke(delegate {
@@ -729,6 +762,7 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error Generate QR Code Payment : " + err.Message);
                 LogInfo.WriteLogEDC("- Error Generate QR Code Payment : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_StartGenerateQrCodeEDC : stack=" + err.StackTrace);
                 Application.Invoke(delegate {
                     txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
                     txtMsg.Text = err.Message;
@@ -739,6 +773,7 @@ namespace TCT_App.EMV.V0
         protected void OnBtnInquiryClicked(object sender, EventArgs e)
         {
             iCurCountInquiry++;
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ OnBtnInquiryClicked : inquiry #{iCurCountInquiry}, bStartInquiry={bStartInquiry}");
             /*
                         iCurCountInquiry++;
                         if (iCurCountInquiry > iTotalMaxInquiry)
@@ -754,6 +789,7 @@ namespace TCT_App.EMV.V0
             {
                 bRetryRecv  = true;
                 Console.WriteLine("- Fail Connect Send EDC Socket");
+                LogInfo.WriteLogEDC(LogLevel.WARN, $"- Warning OnBtnInquiryClicked : EDC test connection failed, inquiry #{iCurCountInquiry} not sent");
                 Application.Invoke(delegate {
                     txtMsg.ModifyFont(FontDescription.FromString("Ubuntu 24"));
                     txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
@@ -789,6 +825,8 @@ namespace TCT_App.EMV.V0
                     byte[] byteMsg  = new byte[300];
                     string szErrMsg = "", szReqMsg = "";
                     bool bResult    = ClassLibEDC.InquiryQrCodeEdcMessage(ref byteMsg, ref szReqMsg, ref szErrMsg);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_InquiryQrCodeEDC : attempt #{iCurCountInquiry}, build cmd=IQ result={bResult}, err={szErrMsg}, frameLen={byteMsg?.Length ?? 0}");
+                    var swEdc       = System.Diagnostics.Stopwatch.StartNew();
                     if (!bTowing)
                         TCT_Lib.xCurQR.requestText     = "";
                     else
@@ -805,9 +843,11 @@ namespace TCT_App.EMV.V0
                     //-----------------------------------------
                     string szCharList = GenHexCharList(bAck);
                     LogInfo.WriteLogEDC("+ EDC Ack Inquiry : " + szCharList);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_InquiryQrCodeEDC : attempt #{iCurCountInquiry} ack bytes={iDataLen}, ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}), elapsed={swEdc.ElapsedMilliseconds}ms");
                     //-----------------------------------------
                     if (iAck != 0x06) // Ack
                     {
+                        LogInfo.WriteLogEDC(LogLevel.WARN, $"- Warning Process_InquiryQrCodeEDC : ack=0x{iAck:X2} ({ClassLibEDC.AckName(iAck)}) is not ACK(06)");
                         if (iAck == 0x15)
                         {
                             Application.Invoke(delegate {
@@ -854,6 +894,8 @@ namespace TCT_App.EMV.V0
                     stream.Flush();
                     //Console.WriteLine("- Error Inquiry QR Code Payment : " + err.Message);
                     LogInfo.WriteLogEDC("- Error Inquiry QR Code Payment : " + err.Message);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_InquiryQrCodeEDC : stack=" + err.StackTrace);
+                    LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning Process_InquiryQrCodeEDC : fallback -> re-init send socket and recv thread");
                     LogInfo.WriteLaneEvent($"QR Code - Error Inquiry = {err.Message}");
                     Application.Invoke(delegate {
                         txtMsg.ModifyFg(StateType.Normal, new Gdk.Color(255, 0, 0));
@@ -891,6 +933,7 @@ namespace TCT_App.EMV.V0
                 byte[] byteMsg  = new byte[300];
                 string szErrMsg = "", szCmdMsg = "";
                 bool bResult    = ClassLibEDC.GenerateCancelEdcMessage(ref byteMsg, ref szCmdMsg, ref szErrMsg);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelPayEDC : build cmd=CP(Cancel) result={bResult}, err={szErrMsg}, frameLen={byteMsg?.Length ?? 0}, no ack wait");
 
                 stream.Write(byteMsg, 0, byteMsg.Length);
 /*
@@ -942,16 +985,19 @@ namespace TCT_App.EMV.V0
             {
                 Console.WriteLine("- Error Send Cancel QR Code : " + err.Message);
                 LogInfo.WriteLogEDC("- Error Cancel QR Code : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_CancelPayEDC : stack=" + err.StackTrace);
             }
         }
 
         protected void OnBtnCancelClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ OnBtnCancelClicked : operator cancel");
             Process_CancelEMV();
         }
 
         protected void Process_CancelEMV()
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelEMV : bStartCmd={bStartCmd}, bRetryRecv={bRetryRecv}, inquiries={iCurCountInquiry}");
             if (!bRetryRecv)
             {
                 if (bStartCmd)
@@ -1016,13 +1062,15 @@ namespace TCT_App.EMV.V0
                     eventThread = null;
                 }
             }
-            catch (Exception)
+            catch (Exception err)
             {
-
+                LogInfo.WriteLogEDC(LogLevel.ERROR, "- Error Process_CancelEMV : " + err.Message);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ Process_CancelEMV : stack=" + err.StackTrace);
             }
             finally
             {
                 TCT_Lib.bActiveEMVDlg = false;
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ QR popup closed : Cancel, amount={fPayAmount}");
                 this.Respond(ResponseType.Cancel);
                 TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
                 Dispose();
@@ -1038,6 +1086,7 @@ namespace TCT_App.EMV.V0
 
         void LaneController_ManageProcessEMV(int iKey)
         {
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ LaneController_ManageProcessEMV : key={iKey}");
             Application.Invoke(delegate
             {
                 if (iKey == (int)KeyPressedType.EDIT)

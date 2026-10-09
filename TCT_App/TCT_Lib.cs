@@ -474,7 +474,7 @@ namespace TCT_App
     //-------------------------------------------------------------
     public class TCT_Lib
     {
-        public static string szAppVersion               = "2.0.3";
+        public static string szAppVersion               = "2.0.4";
         public static string szAppBuild                 = "2026/10/07 18:00:00";         // 2.0.3 GUI review fixes; 2.0.2 keyboard + GUI restyle; 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
         public static string szSysUserName              = WindowsIdentity.GetCurrent().Name;
         public static string szSysUserName2             = Environment.UserName;
@@ -865,8 +865,10 @@ namespace TCT_App
 
         public static void LoopCarClear()
         {
+            int iCountBefore = LoopCarCount();
             lock (xListLoopCarLock)
                 xListLoopCar?.Clear();
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoopCarClear : xListLoopCar {iCountBefore} -> 0");
         }
 
         public static void LoopCarAdd(objLoopInfo car)
@@ -877,6 +879,7 @@ namespace TCT_App
                     xListLoopCar = new List<objLoopInfo>();
                 xListLoopCar.Add(car);
             }
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoopCarAdd : car={(car == null ? "null" : "ok")}, xListLoopCar count={LoopCarCount()}");
         }
 
         // Snapshot copy for safe iteration without holding the lock during long work.
@@ -984,6 +987,7 @@ namespace TCT_App
             {
                 //string curPath                  = new FileInfo(Assembly.GetEntryAssembly().Location).Directory.ToString();
                 string configFile                   = TCT_Lib.baseConfigFolder + @"/TCT.config";
+                var xListCfgWarn                    = new List<string>();      // v2.0.4: config fallback/clamp warnings, written after log path is ready
                 szLogPath                           = LogInfo.szLogPath;
                 Console.WriteLine("+ Config File : " + configFile);
                 Console.WriteLine("+ Log Folder : " + szLogPath);
@@ -1071,19 +1075,35 @@ namespace TCT_App
                 iVideoNVR_JpegQuality               = xTctConfig["VideoNVR"]["JpegQuality"] ?? 85;
                 if (iVideoNVR_ResizeWidth < 320 || iVideoNVR_ResizeHeight < 180)
                 {
+                    xListCfgWarn.Add($"VideoNVR ResizeWidth/Height={iVideoNVR_ResizeWidth}x{iVideoNVR_ResizeHeight} too small (min 320x180) -> 1280x720");
                     iVideoNVR_ResizeWidth  = 1280;
                     iVideoNVR_ResizeHeight = 720;
                 }
                 if (iVideoNVR_JpegQuality < 30 || iVideoNVR_JpegQuality > 100)
+                {
+                    xListCfgWarn.Add($"VideoNVR JpegQuality={iVideoNVR_JpegQuality} out of 30..100 -> 85");
                     iVideoNVR_JpegQuality = 85;
+                }
                 if (iVideoNVR_Img3TimeLapseMilliSec < 100)
+                {
+                    xListCfgWarn.Add($"VideoNVR Image3TimeLapseMilliSec={iVideoNVR_Img3TimeLapseMilliSec} < 100 -> 2000");
                     iVideoNVR_Img3TimeLapseMilliSec = 2000;
+                }
                 if (iVideoNVR_TowingTimeLapseMillisec < 1000)
+                {
+                    xListCfgWarn.Add($"VideoNVR TowingTimeLapseMilliSec={iVideoNVR_TowingTimeLapseMillisec} < 1000 -> 3000");
                     iVideoNVR_TowingTimeLapseMillisec = 3000;
+                }
                 if (iVideoNVR_TimeoutSec < 5)
+                {
+                    xListCfgWarn.Add($"VideoNVR TimeoutSec={iVideoNVR_TimeoutSec} < 5 -> 5");
                     iVideoNVR_TimeoutSec = 5;
+                }
                 if (iVideoNVR_CachePolicy > 8)
+                {
+                    xListCfgWarn.Add($"VideoNVR CachePolicy={iVideoNVR_CachePolicy} > 8 -> 6 (NoCacheNoStore)");
                     iVideoNVR_CachePolicy = 6;
+                }
 
 /*
         public static string szVideoLane_CaptureImagePath = "";
@@ -1114,6 +1134,8 @@ namespace TCT_App
                     szVideoLane_IPCamera1               = xTctConfig["VideoLaneCapture"]["IPCamera1"] ?? "";
                     szVideoLane_IPCamera2               = xTctConfig["VideoLaneCapture"]["IPCamera2"] ?? "";
                 }
+                if (xTctConfig["VideoLaneCapture"] == null)
+                    xListCfgWarn.Add("section VideoLaneCapture not found -> defaults used");
 
                 bEnableEtcRabbitMQ                          = (xTctConfig["ETC_RabbitMQ"]["Enable"] ?? 0) == 1;
                 szETC_RabbitMQ_ServerHostName               = xTctConfig["ETC_RabbitMQ"]["ServerHostName"] ?? "";
@@ -1174,6 +1196,8 @@ namespace TCT_App
 
                     szMTS_AlarmDeviceList       = szMTS_AlarmDeviceList.Replace("\r", "").Replace("\n", "").Replace("\t", "");
                 }
+                if (xTctConfig["MTS_RabbitMQ"] == null)
+                    xListCfgWarn.Add("section MTS_RabbitMQ not found -> defaults used (MTS disabled)");
 
                 if (xTctConfig["MTS_Monitor"] != null)
                 {
@@ -1201,6 +1225,8 @@ namespace TCT_App
                     iMTS_Monitor_IntervalSecAlertLoopNoOB       = xTctConfig["MTS_Monitor"]["IntervalSecAlertLoopNoOB"] ?? 10;
                     iMTS_Monitor_IntervalSecGetEtcStatus        = xTctConfig["MTS_Monitor"]["IntervalSecGetEtcStatus"] ?? 60;
                 }
+                if (xTctConfig["MTS_Monitor"] == null)
+                    xListCfgWarn.Add("section MTS_Monitor not found -> defaults used");
 
                 bEnableLaneWebService                       = (xTctConfig["LaneWebService"]["Enable"] ?? 0) == 1;
                 szLaneWebService_BaseURL                    = xTctConfig["LaneWebService"]["WebServiceBaseUrl"] ?? "";
@@ -1237,6 +1263,10 @@ namespace TCT_App
                 iSaveLogEtcRabbitMQ                         = xTctConfig["Config"]["SaveLogEtcRabbitMQ"] ?? 0;
                 iTimerSecCheckDeviceStatus                  = xTctConfig["Config"]["TimerSecCheckDeviceStatus"] ?? 120;
                 szLogPath                                   = xTctConfig["Config"]["LogPath"] ?? "";
+                LogInfo.eLogLevel                           = LogInfo.ParseLevel(Convert.ToString(xTctConfig["Config"]["LogLevel"] ?? "INFO"));     // v2.0.4
+                string szCfgLogLevel                        = Convert.ToString(xTctConfig["Config"]["LogLevel"] ?? "INFO");
+                if (LogInfo.ParseLevel(szCfgLogLevel, (LogLevel)0) == (LogLevel)0)
+                    xListCfgWarn.Add($"Config LogLevel='{szCfgLogLevel}' invalid -> INFO");
                 iKeepLogMonth                               = xTctConfig["Config"]["KeepLogMonth"] ?? 3;
                 iKeepDbDay                                  = xTctConfig["Config"]["KeepDatabaseDay"] ?? 90;
                 iDevMode                                    = xTctConfig["Config"]["DevMode"] ?? 0;
@@ -1376,15 +1406,15 @@ namespace TCT_App
                 LogInfo.WriteLog($"+ VideoNVR_ResendFileDay \t\t= {iVideoNVR_ResendFileDay}");
                 LogInfo.WriteLog($"+ VideoNVR_ResizeImage \t\t= {iVideoNVR_ResizeImage} ({iVideoNVR_ResizeWidth}x{iVideoNVR_ResizeHeight}, JPEG Q={iVideoNVR_JpegQuality})");
                 LogInfo.WriteLog($"+ VideoLane_CaptureImagePath \t\t= {szVideoLane_CaptureImagePath}");
-                LogInfo.WriteLog($"+ VideoLane_FrontCameraUrl \t\t= {szVideoLane_FrontCameraUrl}");
-                LogInfo.WriteLog($"+ VideoLane_RearCameraUrl \t\t= {szVideoLane_RearCameraUrl}");
-                LogInfo.WriteLog($"+ VideoLane_ThirdCameraUrl \t\t= {szVideoLane_ThirdCameraUrl}");
+                LogInfo.WriteLog($"+ VideoLane_FrontCameraUrl \t\t= {LogInfo.MaskUrl(szVideoLane_FrontCameraUrl)}");
+                LogInfo.WriteLog($"+ VideoLane_RearCameraUrl \t\t= {LogInfo.MaskUrl(szVideoLane_RearCameraUrl)}");
+                LogInfo.WriteLog($"+ VideoLane_ThirdCameraUrl \t\t= {LogInfo.MaskUrl(szVideoLane_ThirdCameraUrl)}");
                 LogInfo.WriteLog($"+ VideoLane_FrontCamera_UserName \t= {szVideoLane_FrontCamera_UserName}");
-                LogInfo.WriteLog($"+ VideoLane_FrontCamera_Password \t= {szVideoLane_FrontCamera_Password}");
+                LogInfo.WriteLog($"+ VideoLane_FrontCamera_Password \t= {LogInfo.MaskSecret(szVideoLane_FrontCamera_Password)}");
                 LogInfo.WriteLog($"+ VideoLane_RearCamera_UserName \t= {szVideoLane_RearCamera_UserName}");
-                LogInfo.WriteLog($"+ VideoLane_RearCamera_Password \t= {szVideoLane_RearCamera_Password}");
+                LogInfo.WriteLog($"+ VideoLane_RearCamera_Password \t= {LogInfo.MaskSecret(szVideoLane_RearCamera_Password)}");
                 LogInfo.WriteLog($"+ VideoLane_ThirdCamera_UserName \t= {szVideoLane_ThirdCamera_UserName}");
-                LogInfo.WriteLog($"+ VideoLane_ThirdCamera_Password \t= {szVideoLane_ThirdCamera_Password}");
+                LogInfo.WriteLog($"+ VideoLane_ThirdCamera_Password \t= {LogInfo.MaskSecret(szVideoLane_ThirdCamera_Password)}");
                 LogInfo.WriteLog($"+ VideoLane_IPCamera1 \t\t\t= {szVideoLane_IPCamera1}");
                 LogInfo.WriteLog($"+ VideoLane_IPCamera2 \t\t\t= {szVideoLane_IPCamera2}");
 
@@ -1403,6 +1433,9 @@ namespace TCT_App
                 LogInfo.WriteLog($"+ DevMode \t\t\t\t\t= {iDevMode}");
                 LogInfo.WriteLog($"+ KeyStrokeTimeMilliSec \t\t\t= {iKeyStrokeTimeMilliSec}");
                 LogInfo.WriteLog($"+ LogPath \t\t\t\t\t= {szLogPath}");
+                LogInfo.WriteLog(LogLevel.WARN, $"+ LogLevel \t\t\t\t\t= {LogInfo.eLogLevel}");     // WARN -> always visible unless ERROR only
+                foreach (string szCfgWarn in xListCfgWarn)
+                    LogInfo.WriteLog(LogLevel.WARN, "- Warning LoadTCT_Configuration : " + szCfgWarn);
                 LogInfo.WriteLog($"+ AvcStatusType \t\t\t\t= {iAvcStatusType}");
                 LogInfo.WriteLog($"+ ManualImportPath \t\t\t\t= {szManualImportPath}");
                 LogInfo.WriteLog($"+ DmtCardType \t\t\t\t= {iDmtCardType}");
@@ -1417,7 +1450,7 @@ namespace TCT_App
                 LogInfo.WriteLog($"+ DC_RabbitMQ_VirtualHost \t\t\t= {szDC_RabbitMQ_VirtualHost}");
                 LogInfo.WriteLog($"+ DC_RabbitMQ_Port \t\t\t\t= {iDC_RabbitMQ_Port}");
                 LogInfo.WriteLog($"+ DC_RabbitMQ_User \t\t\t\t= {szDC_RabbitMQ_User}");
-                LogInfo.WriteLog($"+ DC_RabbitMQ_Password \t\t\t= {szDC_RabbitMQ_Password}");
+                LogInfo.WriteLog($"+ DC_RabbitMQ_Password \t\t\t= {LogInfo.MaskSecret(szDC_RabbitMQ_Password)}");
                 LogInfo.WriteLog($"+ DC_RabbitMQ_TransQueueName \t\t\t= {szDC_RabbitMQ_TransQueueName}");
                 LogInfo.WriteLog($"+ DC_RabbitMQ_TransExchangeName \t\t= {szDC_RabbitMQ_TransExchangeName}");
                 LogInfo.WriteLog($"+ DC_RabbitMQ_EventQueueName \t\t\t= {szDC_RabbitMQ_EventQueueName}");
@@ -1432,7 +1465,7 @@ namespace TCT_App
                 LogInfo.WriteLog($"+ ETC_RabbitMQ_VirtualHost \t\t\t= {szETC_RabbitMQ_VirtualHost}");
                 LogInfo.WriteLog($"+ ETC_RabbitMQ_Port \t\t\t\t= {iETC_RabbitMQ_Port}");
                 LogInfo.WriteLog($"+ ETC_RabbitMQ_User \t\t\t\t= {szETC_RabbitMQ_User}");
-                LogInfo.WriteLog($"+ ETC_RabbitMQ_Password \t\t\t= {szETC_RabbitMQ_Password}");
+                LogInfo.WriteLog($"+ ETC_RabbitMQ_Password \t\t\t= {LogInfo.MaskSecret(szETC_RabbitMQ_Password)}");
                 LogInfo.WriteLog($"+ ETC_RabbitMQ_LaneStateQueueName \t\t= {szETC_RabbitMQ_LaneStateQueueName}");
                 LogInfo.WriteLog($"+ ETC_RabbitMQ_LaneStateExchangeName \t\t= {szETC_RabbitMQ_LaneStateExchangeName}");
                 LogInfo.WriteLog($"+ ETC_RabbitMQ_CompilePassageQueueName \t= {szETC_RabbitMQ_CompilePassageQueueName}");
@@ -1449,7 +1482,7 @@ namespace TCT_App
                 LogInfo.WriteLog($"+ MTS_RabbitMQ_VirtualHost \t\t\t= {szMTS_RabbitMQ_VirtualHost}");
                 LogInfo.WriteLog($"+ MTS_RabbitMQ_Port \t\t\t\t= {iMTS_RabbitMQ_Port}");
                 LogInfo.WriteLog($"+ MTS_RabbitMQ_User \t\t\t\t= {szMTS_RabbitMQ_User}");
-                LogInfo.WriteLog($"+ MTS_RabbitMQ_Password \t\t\t= {szMTS_RabbitMQ_Password}");
+                LogInfo.WriteLog($"+ MTS_RabbitMQ_Password \t\t\t= {LogInfo.MaskSecret(szMTS_RabbitMQ_Password)}");
                 LogInfo.WriteLog($"+ MTS_RabbitMQ_MtsQueueName \t\t\t= {szMTS_RabbitMQ_MtsQueueName}");
                 LogInfo.WriteLog($"+ MTS_RabbitMQ_MtsExchangeName \t\t= {szMTS_RabbitMQ_MtsExchangeName}");
                 LogInfo.WriteLog($"+ MTS_RabbitMQ_MtsMtsRoutingKey \t\t= {szMTS_RabbitMQ_MtsRoutingKey}");
@@ -1510,7 +1543,7 @@ namespace TCT_App
                 //LogInfo.WriteLog($"+ TFI_ScpSourcePath \t\t\t= {szTfiScpSourcePath}");
                 LogInfo.WriteLog($"+ TFI_ScpDestPath \t\t\t= {szTfiScpDestPath}");
                 LogInfo.WriteLog($"+ TFI_ScpUserName \t\t\t= {szTfiScpUserName}");
-                LogInfo.WriteLog($"+ TFI_ScpPassword \t\t\t= {szTfiScpPassword}");
+                LogInfo.WriteLog($"+ TFI_ScpPassword \t\t\t= {LogInfo.MaskSecret(szTfiScpPassword)}");
 
                 //----------------------------------------------------------------------------------
                 if (iLaneConfigType == 0)
@@ -1519,6 +1552,7 @@ namespace TCT_App
                     LogInfo.WriteLog("+ LaneConfigType = MTC, then Auto disalbe Enable ETC Rabbit MQ.");
                 }
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoadTCT_Configuration : file={configFile}, eCurLaneType={eCurLaneType}, eLaneDirection={eLaneDirection}, EtcRabbitMQ={bEnableEtcRabbitMQ}, warnings={xListCfgWarn.Count}");
                 LogInfo.WriteLog("-----------------------------------------------");
                 LogInfo.WriteLog("+ Success LoadTCT_Configuration");
 
@@ -1529,6 +1563,8 @@ namespace TCT_App
                 Console.WriteLine("- Error Load TCT_Configuration : " + err.Message);
                 //LogInfo.CreateLogPath();
                 LogInfo.WriteLog("- Error Load TCT_Configuration : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- LoadTCT_Configuration : stack={err.StackTrace}");
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error LoadTCT_Configuration : application exit(1)");
 
                 Application.Quit();
                 Environment.Exit(1);
@@ -1544,6 +1580,7 @@ namespace TCT_App
                 //string curPath          = new FileInfo(Assembly.GetEntryAssembly().Location).Directory.ToString();
                 //string configFile       = curPath + @"/TCT.config";
                 string configFile       = TCT_Lib.baseConfigFolder + @"/TCT.config";
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteTCT_Configuration : [{szMainEntity}][{szEntity}] = {iValue}, file={configFile}");
                 string configJson       = File.ReadAllText(configFile);
 
                 //----------------------------------------------------------------------------
@@ -1566,6 +1603,7 @@ namespace TCT_App
                 //File.WriteAllText(configFile, JsonConvert.SerializeObject(xTctConfig).Replace(",", ",\n\t").Replace("},\n\t", "},\n").Replace(":{", ":{\n\t").Replace("},", "\n\t},").Replace("}}", "\n\t}\n}"));
                 //File.WriteAllText(configFile, JsonConvert.SerializeObject(xTctConfig).Replace(",", ",\n\t").Replace(":{", ":{\n\t").Replace("},", "\n\t},").Replace("}}", "\n\t}\n}"));
                 File.WriteAllText(configFile, JsonConvert.SerializeObject(xTctConfig, Formatting.Indented).Replace(@"\r\n\t", ""));
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ WriteTCT_Configuration : saved, LaneConfigType={iLaneConfigType}, LaneType={iLaneCurrentType} -> eCurLaneType={eCurLaneType}");
                 //-------------------------------------------------------------------
                 //File.WriteAllText(configFile, configJson.Replace(@"\n", "").Replace(@"\t", ""));
 
@@ -1575,12 +1613,15 @@ namespace TCT_App
             catch (Exception err)
             {
                 Console.WriteLine("- Error LoadTCT_Configuration : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error WriteTCT_Configuration : [{szMainEntity}][{szEntity}]={iValue} : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- WriteTCT_Configuration : stack={err.StackTrace}");
                 return false;
             }
         }
 
         public static void SetCurrentLaneType(int iLaneType)
         {
+            LaneType eOldLaneType = TCT_Lib.eCurLaneType;
             if (TCT_Lib.iLaneConfigType == 2)
             {
                 if (iLaneType == 0)
@@ -1598,6 +1639,7 @@ namespace TCT_App
                 TCT_Lib.eCurLaneType = LaneType.ETC;
             else
                 TCT_Lib.eCurLaneType = LaneType.MTC;
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SetCurrentLaneType : LaneConfigType={TCT_Lib.iLaneConfigType}, LaneType={iLaneType}, eCurLaneType {eOldLaneType} -> {TCT_Lib.eCurLaneType}");
         }
 
         public static void SetCurrentLaneDirection(int iLaneDirection)
@@ -1608,6 +1650,7 @@ namespace TCT_App
                 TCT_Lib.eLaneDirection = LaneDirection.REVERSE;
             else
                 TCT_Lib.eLaneDirection = LaneDirection.NORMAL;
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SetCurrentLaneDirection : LaneDirection={iLaneDirection} -> {TCT_Lib.eLaneDirection}");
         }
 
         public static string GetCurLaneTypeName()
@@ -1745,6 +1788,7 @@ namespace TCT_App
 
         public static void ClearCurTransData()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearCurTransData : clear TC_Class={iCurTC_Class}, PayType={xCurPayment?.payType}, Fare={fCurFareAmount}, ReceiptNo={szCurFareReceiptNo}, IsTowing={iIsTowing}, TowingState={eTowingState}");
             //xCurAVC                 = new AVC_Info();
             xCurTAG                 = new TAG_Info();
 
@@ -1780,6 +1824,7 @@ namespace TCT_App
             if (szIPAddress.Trim() == "")
             {
                 Console.WriteLine("- Fail TestConnection : No IPAddress");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ TestConnection : no IPAddress (Port={iPort}) -> false");
                 return false;
             }
 
@@ -1794,9 +1839,11 @@ namespace TCT_App
                 socket.SendTimeout              = 1 * 1000;
                 socket.ReceiveTimeout           = 1 * 1000;
 
+                var swConnect = System.Diagnostics.Stopwatch.StartNew();
                 socket.Connect(sendEndPoint);
                 bConnect = socket.Connected;
                 //socket.Disconnect(true);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ TestConnection : IP={szIPAddress}, Port={iPort} (connects EDC {TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}) -> connected={bConnect} ({swConnect.ElapsedMilliseconds} ms)");
 
                 socket.Close();
                 socket.Dispose();
@@ -1807,12 +1854,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Fail SocketException : " + err.Message);
                 LogInfo.WriteLaneEvent($"- Fail SocketException TestConnection IP={szIPAddress}, Port={iPort} : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- TestConnection : EDC {TCT_Lib.szEdcIPAddress}:{TCT_Lib.iEdcSendPort}, SocketErrorCode={err.SocketErrorCode}");
                 return false;
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Fail Connection : " + err.Message);
                 LogInfo.WriteLaneEvent($"- Fail TestConnection IP={szIPAddress}, Port={iPort} : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- TestConnection : stack={err.StackTrace}");
                 return false;
             }
         }
@@ -1831,6 +1880,7 @@ namespace TCT_App
                 var client = new TcpClient();
                 if (!client.ConnectAsync(szIPAddress, iPort).Wait(100))
                 {
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ TestConnection_V0 : IP={szIPAddress}, Port={iPort} -> not connected within 100 ms");
                     Console.WriteLine("- Fail Connection");
                     client.Close();
                     return false;
@@ -1838,6 +1888,7 @@ namespace TCT_App
                 else
                 {
                     Console.WriteLine("+ Success Connection");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ TestConnection_V0 : IP={szIPAddress}, Port={iPort} -> connected");
                     client.Close();
                     client.Dispose();
                     client = null;
@@ -1864,6 +1915,7 @@ namespace TCT_App
                 var client = new TcpClient();
                 var result = client.BeginConnect(szIPAddress, iPort, null, null);
                 result.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(timeoutMs));
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ TestNetworkConnectionAsync : IP={szIPAddress}, Port={iPort}, timeout={timeoutMs} ms -> connected={client.Connected}");
                 if (client.Connected)
                 {
                     client.Close();
@@ -1880,6 +1932,8 @@ namespace TCT_App
             catch (Exception err)
             {
                 Console.WriteLine("- Fail TestNetworkConnection : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error TestNetworkConnectionAsync : IP={szIPAddress}, Port={iPort} : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- TestNetworkConnectionAsync : stack={err.StackTrace}");
                 return false;
             }
         }
@@ -1905,8 +1959,10 @@ namespace TCT_App
                     };
 
                     clientDone.Reset();
+                    var swConnect = System.Diagnostics.Stopwatch.StartNew();
                     socket.ConnectAsync(socketEventArg);
                     clientDone.WaitOne(msTimeout);
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ IsPortReachable : {host}:{port} -> {reachable} ({swConnect.ElapsedMilliseconds} ms, timeout={msTimeout})");
 
                     return reachable;
                 }
@@ -1925,7 +1981,10 @@ namespace TCT_App
                 {
                     PingReply reply     = pingSender.Send(ipAddress, msTimeout);
                     connectionExists    = reply.Status == IPStatus.Success ? true : false;
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckConnectivity : ping {ipAddress} -> {reply?.Status} ({reply?.RoundtripTime} ms)");
                 }
+                else
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ CheckConnectivity : no IP address -> false");
             }
             catch (PingException err)
             {
@@ -1946,6 +2005,7 @@ namespace TCT_App
                     connectionExists    = reply.Status == IPStatus.Success ? true : false;
                     return connectionExists;
                 });
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CheckAsyncPing : ping {ipAddress} -> {connectionExists}");
                 return connectionExists;
             }
             catch (PingException err)
@@ -1958,6 +2018,7 @@ namespace TCT_App
         //---------------------------------------------------------------------------------------------------
         public static bool SendLaneEventObjToRTO(int iEventID)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneEventObjToRTO : EventRtoID={iEventID}");
             if (iEventID == 0)
                 return false;
 
@@ -1967,7 +2028,9 @@ namespace TCT_App
                 string szLaneEvent  = JsonConvert.SerializeObject(xLaneEvent, Formatting.Indented);
                 //Console.WriteLine("+ RTO Lane Event = " + szLaneEvent);
                 //LogInfo.WriteLog($"+ RTO Lane Event : EventID={iEventID}");
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendLaneEventObjToRTO : EventRtoID={iEventID}, json={szLaneEvent}");
                 bool bResult        = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_EVENT", xLaneEvent);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendLaneEventObjToRTO : EventRtoID={iEventID}, sent={bResult}, obj={(xLaneEvent == null ? "null" : "ok")}");
                 UpdateLaneEventToRTO(iEventID, bResult);
 
                 return true;
@@ -1976,12 +2039,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendLaneEventObjToRTO : " + err.Message);
                 LogInfo.WriteLog("- Error SendLaneEventObjToRTO : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendLaneEventObjToRTO : EventRtoID={iEventID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneEventToRTO(int iEventID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneEventToRTO : EventRtoID={iEventID}, result={bResult}");
             if (iEventID == 0)
                 return;
 
@@ -1999,11 +2064,13 @@ namespace TCT_App
                         $"WHERE EventRTOID={iEventID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneEventToRTO : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
         
         public static bool SendLaneAlarmObjToRTO(int iAlarmID)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneAlarmObjToRTO : AlarmRtoID={iAlarmID}");
             if (iAlarmID == 0)
                 return false;
 
@@ -2014,6 +2081,7 @@ namespace TCT_App
                 //Console.WriteLine("+ RTO Lane Alarm = " + szLaneAlarm);
                 LogInfo.WriteLog($"+ RTO Lane Alarm ={szLaneAlarm}");
                 bool bResult = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_ALARM", xLaneAlarm);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendLaneAlarmObjToRTO : AlarmRtoID={iAlarmID}, sent={bResult}, obj={(xLaneAlarm == null ? "null" : "ok")}");
                 UpdateLaneAlarmToRTO(iAlarmID, bResult);
 
                 return true;
@@ -2022,12 +2090,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendLaneAlarmObjToRTO : " + err.Message);
                 LogInfo.WriteLog("- Error SendLaneAlarmObjToRTO : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendLaneAlarmObjToRTO : AlarmRtoID={iAlarmID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneAlarmToRTO(int iAlarmID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneAlarmToRTO : AlarmRtoID={iAlarmID}, result={bResult}");
             if (iAlarmID == 0)
                 return;
 
@@ -2045,6 +2115,7 @@ namespace TCT_App
                         $"WHERE AlarmRtoID={iAlarmID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneAlarmToRTO : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
@@ -2059,6 +2130,7 @@ namespace TCT_App
                                 $"AND DATE(TransactionDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "ORDER BY TransactionID";
 
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendLaneTransactionToRTO : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ AutoResendLaneTransactionToRTO : Total=" + dtLaneTrans.Rows.Count);
 
@@ -2068,11 +2140,15 @@ namespace TCT_App
                 int iTransID = int.Parse(dtLaneTrans.Rows[i]["TransactionID"].ToString());
                 bResult      = SendLaneTransObjToRTO(iTransID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendLaneTransactionToRTO : send TransID={iTransID} failed at {i + 1}/{dtLaneTrans.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
                 //Thread.Sleep(100);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneTransactionToRTO : done result={bResult}");
             return bResult;
 
 /*
@@ -2100,6 +2176,7 @@ namespace TCT_App
 
         public static bool SendFromReqLaneTransactionToRTO(string szDate, int iJobNo, int iStart_nTrx, int iEnd_nTrx)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendFromReqLaneTransactionToRTO : Date={szDate}, JobNo={iJobNo}, nTrx={iStart_nTrx}..{iEnd_nTrx}, RTO connected={TCT_Lib.bRTO_Connected}");
             if (!TCT_Lib.bRTO_Connected)
                 return false;
 
@@ -2109,6 +2186,7 @@ namespace TCT_App
                                 $"AND DATE(TransactionDateTime)>='{szDate}' " +   // Dummy Date, Take out when production
                                 "ORDER BY TransactionID";
 
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ SendFromReqLaneTransactionToRTO : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ SendFromReqLaneTransactionToRTO : Total=" + dtLaneTrans.Rows.Count);
             for (int i = 0; i < dtLaneTrans.Rows.Count; i++)
@@ -2116,7 +2194,10 @@ namespace TCT_App
                 int iTransID    = int.Parse(dtLaneTrans.Rows[i]["TransactionID"].ToString());
                 bResult         = SendLaneTransObjToRTO(iTransID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning SendFromReqLaneTransactionToRTO : send TransID={iTransID} failed at {i + 1}/{dtLaneTrans.Rows.Count} -> stop");
                     break;
+                }
 
                 Thread.Sleep(100);
             }
@@ -2126,6 +2207,7 @@ namespace TCT_App
 
         public static bool SendLaneTransObjToRTO(int iTransID, bool bResend=false)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneTransObjToRTO : TransID={iTransID}, resend={bResend}");
             if (iTransID == 0)
                 return false;
 
@@ -2135,6 +2217,8 @@ namespace TCT_App
                 string szLaneTrans  = JsonConvert.SerializeObject(xLaneTrans, Formatting.Indented);
                 //Console.WriteLine("+ RTO Lane Transaction = " + szLaneTrans);
                 LogInfo.WriteLog($"+ RTO Send Lane Transaction : TransID={iTransID}");
+                if (xLaneTrans == null)
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning SendLaneTransObjToRTO : TransID={iTransID} message is null (not found / build failed)");
                 bool bResult        = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_TRANSACTION", xLaneTrans);
                 UpdateLaneTransToRTO(iTransID, bResult);
                 LogInfo.WriteLog($"+ RTO Result Send Lane Transaction : TransID={iTransID}, Result={bResult}");
@@ -2145,12 +2229,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendLaneTransObjToRTO : " + err.Message);
                 LogInfo.WriteLog("- Error SendLaneTransObjToRTO : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendLaneTransObjToRTO : TransID={iTransID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneTransToRTO(int iTransID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneTransToRTO : TransID={iTransID}, result={bResult}");
             if (iTransID == 0)
                 return;
 
@@ -2168,6 +2254,7 @@ namespace TCT_App
                         $"WHERE TransactionID={iTransID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneTransToRTO : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
@@ -2182,6 +2269,7 @@ namespace TCT_App
                                 $"AND DATE(TransactionDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "AND Tag_SignalCode='' " +
                                 "ORDER BY TransactionID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendLaneTransactionToSupAdjust : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ AutoResendLaneTransactionToSupAdjust : Total=" + dtLaneTrans.Rows.Count);
             for (int i = 0; i < dtLaneTrans.Rows.Count; i++)
@@ -2190,13 +2278,17 @@ namespace TCT_App
                 if (iTransID > 0)
                 {
                     if (!SendLaneTransObjToSupAdjust(iTransID, true))
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendLaneTransactionToSupAdjust : send TransID={iTransID} failed at {i + 1}/{dtLaneTrans.Rows.Count} -> stop, retry next cycle");
                         return false;
+                    }
                 }
 
                 //Thread.Sleep(100);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ AutoResendLaneTransactionToSupAdjust : done result=True");
             return true;
         }
 
@@ -2210,6 +2302,8 @@ namespace TCT_App
                                 $"AND DATE(TransactionDateTime)>='{szDate}' " +   
                                 "ORDER BY TransactionID";
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendFromRequestLaneTransactionToSupAdjust : Date={szDate}, JobNo={iJobNo}, nTrx={iStart_nTrx}..{iEnd_nTrx}");
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ SendFromRequestLaneTransactionToSupAdjust : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ Found Request LaneTrans to SupAdjust = " + dtLaneTrans.Rows.Count);
             for (int i = 0; i < dtLaneTrans.Rows.Count; i++)
@@ -2218,7 +2312,10 @@ namespace TCT_App
                 if (iTransID > 0)
                 {
                     if (!SendLaneTransObjToSupAdjust(iTransID, true))
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning SendFromRequestLaneTransactionToSupAdjust : send TransID={iTransID} failed at {i + 1}/{dtLaneTrans.Rows.Count} -> stop");
                         return false;
+                    }
                 }
                 Thread.Sleep(100);
                 //await Task.Delay(100);
@@ -2229,6 +2326,7 @@ namespace TCT_App
 
         public static bool SendLaneTransObjToSupAdjust(int iTransID, bool bResend=false)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneTransObjToSupAdjust : TransID={iTransID}, resend={bResend}");
             if (iTransID == 0)
                 return false;
 
@@ -2239,6 +2337,7 @@ namespace TCT_App
                 //Console.WriteLine("+ SCW Lane Transaction = " + szLaneTrans);
                 LogInfo.WriteLog($"+ SupAdjust Lane Transaction : TransID={iTransID}");
                 bool bResult        = TCT_Lib.webSocketLane.laneSockeSupAdjust.SendLaneMessageToSupAdjust("LANE_TRANSACTION", xLaneTrans);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendLaneTransObjToSupAdjust : TransID={iTransID}, sent={bResult}, obj={(xLaneTrans == null ? "null" : "ok")}");
                 UpdateLaneTransToSupAdjust(iTransID, bResult);
 
                 return bResult;
@@ -2247,12 +2346,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendLaneTransObjToSupAdjust : " + err.Message);
                 LogInfo.WriteLog("- Error SendLaneTransObjToSupAdjust : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendLaneTransObjToSupAdjust : TransID={iTransID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneTransToSupAdjust(int iTransID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneTransToSupAdjust : TransID={iTransID}, result={bResult}");
             if (iTransID == 0)
                 return;
 
@@ -2270,11 +2371,13 @@ namespace TCT_App
                         $"WHERE TransactionID={iTransID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneTransToSupAdjust : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
         public static bool SendFromReqLaneTransactionToDC(string szDate, int iJobNo, int iStart_nTrx, int iEnd_nTrx)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendFromReqLaneTransactionToDC : Date={szDate}, JobNo={iJobNo}, nTrx={iStart_nTrx}..{iEnd_nTrx}, DC connected={TCT_Lib.bDC_Connected}");
             if (!TCT_Lib.bDC_Connected)
                 return false;
                 
@@ -2283,6 +2386,7 @@ namespace TCT_App
                                 $"AND DATE(TransactionDateTime)>='{szDate}' " +  
                                 "ORDER BY TransactionID";
 
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ SendFromReqLaneTransactionToDC : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ Found SendFromReqLaneTransactionToDC : Total=" + dtLaneTrans.Rows.Count);
             bool bResult = false;
@@ -2291,7 +2395,10 @@ namespace TCT_App
                 int iTransID    = int.Parse(dtLaneTrans.Rows[i]["TransactionID"].ToString());
                 bResult         = SendLaneTransObjToDC(iTransID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning SendFromReqLaneTransactionToDC : send TransID={iTransID} failed at {i + 1}/{dtLaneTrans.Rows.Count} -> stop");
                     break;
+                }
 
                 Thread.Sleep(100);
             }
@@ -2301,6 +2408,7 @@ namespace TCT_App
 
         public static bool SendLaneTransObjToDC(int iTransID, bool bResend=false)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneTransObjToDC : TransID={iTransID}, resend={bResend}");
             if (iTransID == 0)
                 return false;
 
@@ -2319,7 +2427,9 @@ namespace TCT_App
 
                 if (!bResend)
                     LogInfo.WriteLaneTransaction(iTransID, szLaneTrans);
+                var swSend          = System.Diagnostics.Stopwatch.StartNew();
                 bool bResult        = TCT_Lib.mocRabbitMQ.SendLaneTransactionRabbitMQ("", szLaneTrans);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendLaneTransObjToDC : TransID={iTransID}, sent={bResult} ({swSend.ElapsedMilliseconds} ms), obj={(xLaneTrans == null ? "null" : "ok")}");
                 UpdateLaneTransToDC(iTransID, bResult);
                     
                 return bResult;
@@ -2328,12 +2438,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendLaneTransObjToDC : " + err.Message);
                 LogInfo.WriteLog("- Error SendLaneTransObjToDC : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendLaneTransObjToDC : TransID={iTransID}, mocRabbitMQ={(TCT_Lib.mocRabbitMQ == null ? "null" : "ok")}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneTransToDC(int iTransID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneTransToDC : TransID={iTransID}, result={bResult}");
             if (iTransID == 0)
                 return;
 
@@ -2351,12 +2463,14 @@ namespace TCT_App
                         $"WHERE TransactionID={iTransID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneTransToDC : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
         //-----------------------------------------
         async public static Task<bool> AutoResendBeginJobToDC(int iStaffShiftID)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendBeginJobToDC : exclude StaffShiftID={iStaffShiftID}, DC connected={TCT_Lib.bDC_Connected}");
             if (!TCT_Lib.bDC_Connected)
                 return false;
 
@@ -2367,6 +2481,7 @@ namespace TCT_App
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 $"AND StaffShiftID <> {iStaffShiftID} " +
                                 "ORDER BY StaffShiftID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendBeginJobToDC : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ AutoResendBeginJobToDC : Total=" + dtStaffShift.Rows.Count);
             for (int i = 0; i < dtStaffShift.Rows.Count; i++)
@@ -2374,11 +2489,15 @@ namespace TCT_App
                 int iShiftID   = int.Parse(dtStaffShift.Rows[i]["StaffShiftID"].ToString());
                 bResult             = SendLaneBeginJobObjToDC(iShiftID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendBeginJobToDC : StaffShiftID={iShiftID} failed at {i + 1}/{dtStaffShift.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
                 //Thread.Sleep(100);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendBeginJobToDC : done result={bResult}");
             return bResult;
         }
 
@@ -2398,7 +2517,9 @@ namespace TCT_App
                 else
                     LogInfo.WriteLog($"+ Rabbit Lane SendLaneBeginJobObjToDC : StaffShiftID={iStaffShiftID}");
                 LogInfo.WriteLaneBeginJob(iStaffShiftID, szLaneBOJ);
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendLaneBeginJobObjToDC : StaffShiftID={iStaffShiftID}, json={szLaneBOJ}");
                 bool bResult = TCT_Lib.mocRabbitMQ.SendLaneTransactionRabbitMQ("", szLaneBOJ);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendLaneBeginJobObjToDC : StaffShiftID={iStaffShiftID}, resend={bResend}, sent={bResult}, obj={(xLaneBOJ == null ? "null" : "ok")} (returns true anyway)");
                 UpdateLaneBeginJobToDC(iStaffShiftID, bResult);
 
                 return true;
@@ -2407,12 +2528,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendLaneBeginJobObjToDC : " + err.Message);
                 LogInfo.WriteLog("- Error SendLaneBeginJobObjToDC : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendLaneBeginJobObjToDC : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneBeginJobToDC(int iStaffShiftID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneBeginJobToDC : StaffShiftID={iStaffShiftID}, result={bResult}");
             string szQuery = "";
             if (bResult)
             {
@@ -2427,11 +2550,13 @@ namespace TCT_App
                         $"WHERE StaffShiftID={iStaffShiftID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneBeginJobToDC : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
         async public static Task<bool> AutoResendEndJobToDC(int iStaffShiftID)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendEndJobToDC : exclude StaffShiftID={iStaffShiftID}, DC connected={TCT_Lib.bDC_Connected}");
             if (!TCT_Lib.bDC_Connected)
                 return false;
                 
@@ -2442,6 +2567,7 @@ namespace TCT_App
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 $"AND StaffShiftID <> {iStaffShiftID} "+
                                 "ORDER BY StaffShiftID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendEndJobToDC : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ AutoResendEndJobToDC : Total=" + dtStaffShift.Rows.Count);
             for (int i = 0; i < dtStaffShift.Rows.Count; i++)
@@ -2449,12 +2575,16 @@ namespace TCT_App
                 int iShiftID    = int.Parse(dtStaffShift.Rows[i]["StaffShiftID"].ToString());
                 bResult         = SendEndJobObjToDC(iShiftID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendEndJobToDC : StaffShiftID={iShiftID} failed at {i + 1}/{dtStaffShift.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
 
                 //Thread.Sleep(200);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendEndJobToDC : done result={bResult}");
             return bResult;
         }
 
@@ -2480,7 +2610,9 @@ namespace TCT_App
                 else
                     LogInfo.WriteLog($"+ Rabbit Lane SendEndJobObjToDC : StaffShiftID={iStaffShiftID}");
                 LogInfo.WriteLaneEndJob(iStaffShiftID, szLaneEOJ);
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendEndJobObjToDC : StaffShiftID={iStaffShiftID}, json={szLaneEOJ}");
                 bool bResult        = TCT_Lib.mocRabbitMQ.SendLaneTransactionRabbitMQ("", szLaneEOJ);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendEndJobObjToDC : StaffShiftID={iStaffShiftID}, resend={bResend}, sent={bResult} (returns true anyway)");
                 UpdateLaneEndJobToDC(iStaffShiftID, bResult);
 
                 return true;
@@ -2489,12 +2621,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendEndJobObjToDC : " + err.Message);
                 LogInfo.WriteLog("- Error SendEndJobObjToDC : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendEndJobObjToDC : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneEndJobToDC(int iStaffShiftID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneEndJobToDC : StaffShiftID={iStaffShiftID}, result={bResult}");
             string szQuery = "";
             if (bResult)
             {
@@ -2509,12 +2643,14 @@ namespace TCT_App
                         $"WHERE StaffShiftID={iStaffShiftID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneEndJobToDC : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
         //--------------------------------------------------------------
         public static bool SendLaneTransObjToMTS(int iTransID)
         {
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ SendLaneTransObjToMTS : TransID={iTransID}");
             if (iTransID == 0)
                 return false;
 
@@ -2525,12 +2661,14 @@ namespace TCT_App
                 LogInfo.WriteLogMTS("+ MTS-Trans : " + szMtsTransMsg);
 
                 bool bResult = TCT_Lib.mtsRabbitMQ.SendMtsMsgToRabbitMQ("MTS-Trans", szMtsTransMsg);
+                LogInfo.WriteLogMTS(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendLaneTransObjToMTS : TransID={iTransID}, sent={bResult} (returns true anyway)");
                 return true;
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Error SendLaneTransObjToMTS : " + err.Message);
                 LogInfo.WriteLog("- Error SendLaneTransObjToMTS : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendLaneTransObjToMTS : TransID={iTransID}, stack={err.StackTrace}");
                 return false;
             }
         }
@@ -2538,6 +2676,7 @@ namespace TCT_App
         //-------------------------------------
         async public static Task<bool> AutoResendBeginJobToRTO()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendBeginJobToRTO : RTO connected={TCT_Lib.bRTO_Connected}");
             if (!TCT_Lib.bRTO_Connected)
                 return false;
 
@@ -2547,19 +2686,25 @@ namespace TCT_App
                                 //$"AND DATE(TransactionDateTime)='{DateTime.Today.ToString("yyyy-MM-dd")}' " +
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "ORDER BY StaffShiftID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendBeginJobToRTO : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendBeginJobToRTO : pending={dtStaffShift?.Rows.Count ?? -1}");
             //LogInfo.WriteLaneEvent("+ Found AutoResendBeginJobToRTO : Total=" + dtStaffShift.Rows.Count);
             for (int i = 0; i < dtStaffShift.Rows.Count; i++)
             {
                 int iStaffShiftID   = int.Parse(dtStaffShift.Rows[i]["StaffShiftID"].ToString());
                 bResult             = SendBeginJobObjToRTO(iStaffShiftID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendBeginJobToRTO : StaffShiftID={iStaffShiftID} failed at {i + 1}/{dtStaffShift.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
 
                 //Thread.Sleep(100);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendBeginJobToRTO : done result={bResult}");
             return bResult;
         }
 
@@ -2576,6 +2721,8 @@ namespace TCT_App
                 else
                     LogInfo.WriteLog($"+ RTO Lane Begin of Job : StaffShiftID={iStaffShiftID}");
                 bool bResult        = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_BEGINJOB", xLaneBOJ);
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendBeginJobObjToRTO : StaffShiftID={iStaffShiftID}, json={szLaneBOJ}");
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendBeginJobObjToRTO : StaffShiftID={iStaffShiftID}, resend={bResend}, sent={bResult}, obj={(xLaneBOJ == null ? "null" : "ok")} (returns true anyway)");
                 UpdateLaneBeginJobToRTO(iStaffShiftID, bResult);
 
                 return true;
@@ -2584,12 +2731,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendBeginJobObjToRTO : " + err.Message);
                 LogInfo.WriteLog("- Error SendBeginJobObjToRTO : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendBeginJobObjToRTO : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneBeginJobToRTO(int iStaffShiftID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneBeginJobToRTO : StaffShiftID={iStaffShiftID}, result={bResult}");
             string szQuery = "";
             if (bResult)
             {
@@ -2604,11 +2753,13 @@ namespace TCT_App
                         $"WHERE StaffShiftID={iStaffShiftID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneBeginJobToRTO : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
         async public static Task<bool> AutoResendEndJobToRTO()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendEndJobToRTO : RTO connected={TCT_Lib.bRTO_Connected}");
             if (!TCT_Lib.bRTO_Connected)
                 return false;
 
@@ -2618,19 +2769,25 @@ namespace TCT_App
                                 //$"AND DATE(TransactionDateTime)='{DateTime.Today.ToString("yyyy-MM-dd")}' " +
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "ORDER BY StaffShiftID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendEndJobToRTO : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendEndJobToRTO : pending={dtStaffShift?.Rows.Count ?? -1}");
             //LogInfo.WriteLaneEvent("+ Found AutoResendEndJobToRTO : Total=" + dtStaffShift.Rows.Count);
             for (int i = 0; i < dtStaffShift.Rows.Count; i++)
             {
                 int iStaffShiftID   = int.Parse(dtStaffShift.Rows[i]["StaffShiftID"].ToString());
                 bResult             = SendEndJobObjToRTO(iStaffShiftID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendEndJobToRTO : StaffShiftID={iStaffShiftID} failed at {i + 1}/{dtStaffShift.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
 
                 //Thread.Sleep(100);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendEndJobToRTO : done result={bResult}");
             return bResult;
         }
 
@@ -2647,6 +2804,8 @@ namespace TCT_App
                 else
                     LogInfo.WriteLog($"+ RTO Lane End of Job : StaffShiftID={iStaffShiftID}");
                 bool bResult        = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_ENDJOB", xLaneEOJ);
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendEndJobObjToRTO : StaffShiftID={iStaffShiftID}, json={szLaneEOJ}");
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendEndJobObjToRTO : StaffShiftID={iStaffShiftID}, resend={bResend}, sent={bResult}, obj={(xLaneEOJ == null ? "null" : "ok")} (returns true anyway)");
                 UpdateLaneEndJobToRTO(iStaffShiftID, bResult);
 
                 return true;
@@ -2655,12 +2814,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendEndJobObjToRTO : " + err.Message);
                 LogInfo.WriteLog("- Error SendEndJobObjToRTO : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendEndJobObjToRTO : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneEndJobToRTO(int iStaffShiftID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneEndJobToRTO : StaffShiftID={iStaffShiftID}, result={bResult}");
             string szQuery = "";
             if (bResult)
             {
@@ -2681,6 +2842,7 @@ namespace TCT_App
         //-------------------------------
         async public static Task<bool> AutoResendBeginJobToSupAdjust()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendBeginJobToSupAdjust : SupAdjust connected={TCT_Lib.bSupAdjust_Connected}");
             if (!TCT_Lib.bSupAdjust_Connected)
                 return false;
 
@@ -2690,6 +2852,7 @@ namespace TCT_App
                                 //$"AND DATE(TransactionDateTime)='{DateTime.Today.ToString("yyyy-MM-dd")}' " +
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "ORDER BY StaffShiftID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendBeginJobToSupAdjust : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ Found AutoResendBeginJobToSupAdjust : Total=" + dtStaffShift.Rows.Count);
             for (int i = 0; i < dtStaffShift.Rows.Count; i++)
@@ -2697,12 +2860,16 @@ namespace TCT_App
                 int iStaffShiftID   = int.Parse(dtStaffShift.Rows[i]["StaffShiftID"].ToString());
                 bResult             = SendBeginJobObjToSupAdjust(iStaffShiftID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendBeginJobToSupAdjust : StaffShiftID={iStaffShiftID} failed at {i + 1}/{dtStaffShift.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
 
                 //Thread.Sleep(100);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendBeginJobToSupAdjust : done result={bResult}");
             return bResult;
         }
 
@@ -2719,6 +2886,8 @@ namespace TCT_App
                 else
                     LogInfo.WriteLog($"+ SupAdjust Lane Begin of Job : StaffShiftID={iStaffShiftID}");
                 bool bResult        = TCT_Lib.webSocketLane.laneSockeSupAdjust.SendLaneMessageToSupAdjust("LANE_BEGINJOB", xLaneBOJ);
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendBeginJobObjToSupAdjust : StaffShiftID={iStaffShiftID}, json={szLaneBOJ}");
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendBeginJobObjToSupAdjust : StaffShiftID={iStaffShiftID}, resend={bResend}, sent={bResult}, obj={(xLaneBOJ == null ? "null" : "ok")} (returns true anyway)");
                 UpdateLaneBeginJobToSupAdjust(iStaffShiftID, bResult);
 
                 return true;
@@ -2727,12 +2896,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendBeginJobObjToSupAdjust : " + err.Message);
                 LogInfo.WriteLog("- Error SendBeginJobObjToSupAdjust : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendBeginJobObjToSupAdjust : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneBeginJobToSupAdjust(int iStaffShiftID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneBeginJobToSupAdjust : StaffShiftID={iStaffShiftID}, result={bResult}");
             string szQuery = "";
             if (bResult)
             {
@@ -2747,11 +2918,13 @@ namespace TCT_App
                         $"WHERE StaffShiftID={iStaffShiftID}";
             }
             //LogInfo.WriteLog("+ Query : " + szQuery);
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ UpdateLaneBeginJobToSupAdjust : SQL={szQuery}");
             LaneDB.Execute(szQuery);
         }
 
         async public static Task<bool> AutoResendEndJobToSupAdjust()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendEndJobToSupAdjust : SupAdjust connected={TCT_Lib.bSupAdjust_Connected}");
             if (!TCT_Lib.bSupAdjust_Connected)
                 return false;
 
@@ -2761,6 +2934,7 @@ namespace TCT_App
                                 //$"AND DATE(TransactionDateTime)='{DateTime.Today.ToString("yyyy-MM-dd")}' " +
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "ORDER BY StaffShiftID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendEndJobToSupAdjust : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ Found AutoResendEndJobToSupAdjust : Total=" + dtStaffShift.Rows.Count);
             for (int i = 0; i < dtStaffShift.Rows.Count; i++)
@@ -2768,12 +2942,16 @@ namespace TCT_App
                 int iStaffShiftID   = int.Parse(dtStaffShift.Rows[i]["StaffShiftID"].ToString());
                 bResult             = SendEndJobObjToSupAdjust(iStaffShiftID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendEndJobToSupAdjust : StaffShiftID={iStaffShiftID} failed at {i + 1}/{dtStaffShift.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
 
                 //Thread.Sleep(100);
                 await Task.Delay(100);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendEndJobToSupAdjust : done result={bResult}");
             return bResult;
         }
 
@@ -2790,6 +2968,8 @@ namespace TCT_App
                 else
                     LogInfo.WriteLog($"+ SupAdjust Lane End of Job : StaffShiftID={iStaffShiftID}");
                 bool bResult        = TCT_Lib.webSocketLane.laneSockeSupAdjust.SendLaneMessageToSupAdjust("LANE_ENDJOB", xLaneEOJ);
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendEndJobObjToSupAdjust : StaffShiftID={iStaffShiftID}, json={szLaneEOJ}");
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendEndJobObjToSupAdjust : StaffShiftID={iStaffShiftID}, resend={bResend}, sent={bResult}, obj={(xLaneEOJ == null ? "null" : "ok")} (returns true anyway)");
                 UpdateLaneEndJobToSupAdjust(iStaffShiftID, bResult);
 
                 return true;
@@ -2798,12 +2978,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendEndJobObjToSupAdjust : " + err.Message);
                 LogInfo.WriteLog("- Error SendEndJobObjToSupAdjust : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendEndJobObjToSupAdjust : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         private static void UpdateLaneEndJobToSupAdjust(int iStaffShiftID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateLaneEndJobToSupAdjust : StaffShiftID={iStaffShiftID}, result={bResult}");
             string szQuery = "";
             if (bResult)
             {
@@ -2837,7 +3019,9 @@ namespace TCT_App
                 //Console.WriteLine("+ Rabbit Lane SendLaneBeginJobObjToDC = " + szLaneBOJ);
                 LogInfo.WriteLog($"+ Rabbit SendOtlStatusObjToDC : OtlStatus={bOtlStatus}, StaffShiftID={iStaffShiftID}");
                 LogInfo.WriteLaneOtlStatus(iStaffShiftID, szOtlStatus);
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ SendOtlStatusObjToDC : json={szOtlStatus}");
                 bool bResult = TCT_Lib.mocRabbitMQ.SendLaneTransactionRabbitMQ("", szOtlStatus);
+                LogInfo.WriteLog(bResult ? LogLevel.DEBUG : LogLevel.WARN, $"{(bResult ? "+" : "- Warning")} SendOtlStatusObjToDC : OtlStatus={bOtlStatus}, StaffShiftID={iStaffShiftID}, sent={bResult}, obj={(xOtlStatus == null ? "null" : "ok")} (no retry)");
 
                 return true;
             }
@@ -2845,6 +3029,7 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error SendOtlStatusObjToDC : " + err.Message);
                 LogInfo.WriteLog("- Error SendOtlStatusObjToDC : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- SendOtlStatusObjToDC : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return false;
             }
         }
@@ -2852,6 +3037,7 @@ namespace TCT_App
         //-------------------------------------------
         async public static Task<bool> AutoResendLaneTransactionToDC()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneTransactionToDC : DC connected={TCT_Lib.bDC_Connected}");
             if (!TCT_Lib.bDC_Connected)
                 return false;
 
@@ -2861,6 +3047,7 @@ namespace TCT_App
             {
                 Console.WriteLine($"- Fail TestNetworkConnection to RabbitMQ => Connect DC Rabbit MQ : IP = {TCT_Lib.szDC_RabbitMQ_ServerIPAddress}, PORT = {TCT_Lib.iDC_RabbitMQ_ServerPort}");
                 LogInfo.WriteLog($"- Fail TestNetworkConnection to RabbitMQ => Connect DC Rabbit MQ : IP = {TCT_Lib.szDC_RabbitMQ_ServerIPAddress}, PORT = {TCT_Lib.iDC_RabbitMQ_ServerPort}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneTransactionToDC : bDC_NetworkStatus {TCT_Lib.bDC_NetworkStatus} -> False, timeout={TCT_Lib.iDC_RabbitMQ_TimeoutSec} sec");
                 TCT_Lib.bDC_NetworkStatus = false;
                 return false;
             }
@@ -2870,6 +3057,7 @@ namespace TCT_App
                                 "WHERE SendStatusDC=0 " +
                                 $"AND DATE(TransactionDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "ORDER BY TransactionID";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendLaneTransactionToDC : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
             LogInfo.WriteLog("+ AutoResendLaneTransactionToDC : Total=" + dtLaneTrans.Rows.Count);
             for (int i = 0; i < dtLaneTrans.Rows.Count; i++)
@@ -2877,17 +3065,22 @@ namespace TCT_App
                 int iTransID    = int.Parse(dtLaneTrans.Rows[i]["TransactionID"].ToString());
                 bResult         = SendLaneTransObjToDC(iTransID, true);
                 if (!bResult)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendLaneTransactionToDC : send TransID={iTransID} failed at {i + 1}/{dtLaneTrans.Rows.Count} -> stop, retry next cycle");
                     break;
+                }
 
                 //Thread.Sleep(100);
                 await Task.Delay(200);
             }
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneTransactionToDC : done result={bResult}");
             return bResult;
         }
 
         async public static Task<bool> AutoResendLaneEventToDC()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneEventToDC : DC connected={TCT_Lib.bDC_Connected}");
             if (!TCT_Lib.bDC_Connected)
                 return false;
 
@@ -2897,6 +3090,7 @@ namespace TCT_App
             {
                 Console.WriteLine($"- Fail TestNetworkConnection to RabbitMQ => Connect DC Rabbit MQ : IP = {TCT_Lib.szDC_RabbitMQ_ServerIPAddress}, PORT = {TCT_Lib.iDC_RabbitMQ_ServerPort}");
                 LogInfo.WriteLog($"- Fail TestNetworkConnection to RabbitMQ => Connect DC Rabbit MQ : IP = {TCT_Lib.szDC_RabbitMQ_ServerIPAddress}, PORT = {TCT_Lib.iDC_RabbitMQ_ServerPort}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneEventToDC : bDC_NetworkStatus {TCT_Lib.bDC_NetworkStatus} -> False, timeout={TCT_Lib.iDC_RabbitMQ_TimeoutSec} sec");
                 TCT_Lib.bDC_NetworkStatus = false;
                 return false;
             }
@@ -2907,17 +3101,24 @@ namespace TCT_App
                 string szQuery = "SELECT * FROM LaneEventHQ " +
                                 "WHERE SendHqStatus=0 "+
                                 "ORDER BY EventHqID";
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendLaneEventToDC : SQL={szQuery}");
                 DataTable dtEvent = TCT_Lib.LaneDB.List(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneEventToDC : pending={dtEvent?.Rows.Count ?? -1}");
                 for (int i=0; i<dtEvent.Rows.Count; i++)
                 {
                     int iEventID        = int.Parse(dtEvent.Rows[i]["EventHqID"].ToString());
                     int iEventType      = int.Parse(dtEvent.Rows[i]["EventType"].ToString());
                     var xLaneEvent      = TCT_Obj.GenerateLaneEventHQ(iEventID);
                     string szLaneEvent  = JsonConvert.SerializeObject(xLaneEvent, Formatting.Indented);
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendLaneEventToDC : EventHqID={iEventID}, json={szLaneEvent}");
                     bResult             = TCT_Lib.mocRabbitMQ.SendLaneEventRabbitMQ($"Event-{iEventType.ToString()}", szLaneEvent);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendLaneEventToDC : EventHqID={iEventID}, EventType={iEventType}, sent={bResult}");
                     TCT_Lib.LaneDB.UpdateSendLaneEventHQ(iEventID, bResult ? 1 : 0);
                     if (!bResult)
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendLaneEventToDC : EventHqID={iEventID} failed at {i + 1}/{dtEvent.Rows.Count} -> stop, retry next cycle");
                         break;
+                    }
 
                     await Task.Delay(200);
                 }
@@ -2928,6 +3129,7 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error AutoResendLaneEvent : " + err.Message);
                 LogInfo.WriteLog("- Error AutoResendLaneEvent : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- AutoResendLaneEventToDC : stack={err.StackTrace}");
                 return false;
             }
         }
@@ -2964,6 +3166,8 @@ namespace TCT_App
                                     "ORDER BY LaneTransactionID";
                 }
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendImageCaptureCamera : ResendFileDay={TCT_Lib.iVideoNVR_ResendFileDay}, WebApiBaseUrl={TCT_Lib.szVideoNVR_WebApiBaseUrl}");
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendImageCaptureCamera : SQL={szQuery}");
                 DataTable dtImage = TCT_Lib.LaneDB.List(szQuery);
                 LogInfo.WriteLog("+ Found AutoResendImageCaptureCamera#1 : Total=" + dtImage.Rows.Count);
                 for (int i = 0; i < dtImage.Rows.Count; i++)
@@ -2982,9 +3186,16 @@ namespace TCT_App
                         writer.WriteLine(szImageCameraJson);
                     }
                     var sendImgCamera   = new WebService_ImageCamera();
+                    if (xImageCameraObj == null)
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendImageCaptureCamera : TransID={iTransID} image message is null");
+                    var swSend          = System.Diagnostics.Stopwatch.StartNew();
                     bResult             = sendImgCamera.ThreadSendCaptureImage(iTransID, _iJobNo, _nTrx, szImageCameraJson, iCaptureRunningNo, xImageCameraObj.captureImages);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ AutoResendImageCaptureCamera : TransID={iTransID}, RunningNo={iCaptureRunningNo}, sent={bResult} ({swSend.ElapsedMilliseconds} ms)");
                     if (!bResult)
+                    {
+                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResendImageCaptureCamera : TransID={iTransID} failed at {i + 1}/{dtImage.Rows.Count} -> stop, retry next cycle");
                         break;
+                    }
                         
                     await Task.Delay(300);
                 }
@@ -3034,12 +3245,14 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error AutoResendImageCaptureCamera : " + err.Message);
                 LogInfo.WriteLog("- Error AutoResendImageCaptureCamera : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- AutoResendImageCaptureCamera : stack={err.StackTrace}");
                 return false;
             }
         }
 
         public static void UpdateImageCaptureCameraStatus(int iLaneTransID, bool bResult)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateImageCaptureCameraStatus : TransID={iLaneTransID}, result={bResult}");
             string szQuery = "";
             if (bResult)
             {
@@ -3062,11 +3275,14 @@ namespace TCT_App
             string szQuery = "SELECT * FROM LaneTransaction " +
                                 $"WHERE JobNo={iJobNo} AND nTrx={nTrx} "+
                                 $"AND DATE(TransactionDateTime)='{dtTransDate.ToString("yyyy-MM-dd")}'";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GetLaneTransactionId : SQL={szQuery}");
             DataTable dt = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetLaneTransactionId : JobNo={iJobNo}, nTrx={nTrx}, Date={dtTransDate:yyyy-MM-dd}, rows={dt?.Rows.Count ?? -1}");
             if (dt.Rows.Count == 0)
                 return 0;
 
             int iTransId = int.Parse(dt.Rows[0]["TransactionID"].ToString());
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GetLaneTransactionId : -> TransID={iTransId}");
 
 /*
             //--- Check Duplicate image from Edit Payment
@@ -3132,6 +3348,7 @@ namespace TCT_App
             {
                 LogInfo.WriteLog("+ Start Backup Log File");
                 string szLogPath = LogInfo.szLogPath;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : LogPath={szLogPath}, current month={DateTime.Today:yyyy-MM}");
                 //--- Backup Lane Log
                 var laneLogPath     = Path.Combine(szLogPath, "LaneLog");
                 //--- LaneLog -> Log
@@ -3146,12 +3363,14 @@ namespace TCT_App
                     {
                         if ((iLogMonth != DateTime.Today.Month) || (iLogYear != DateTime.Today.Year))
                         {
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : archive month {iLogYear}-{iLogMonth:00}");
                             szLogFiles = Directory.GetFiles(laneLogPath, $"Log_{iLogYear}-{iLogMonth.ToString("00")}-??.log");
                             foreach (string szFileName in szLogFiles.ToList())
                             {
                                 string szZipFile    = Path.Combine(laneLogPath, $"Log_{iLogYear}-{iLogMonth.ToString("00")}.zip");
                                 using (var archive  = ZipFile.Open(szZipFile, File.Exists(szZipFile) ? ZipArchiveMode.Update : ZipArchiveMode.Create))
                                 {
+                                    LogInfo.WriteLog(LogLevel.TRACE, $"+ BackupLogFile : zip {szFileName} -> {szZipFile}");
                                     archive.CreateEntryFromFile(szFileName, Path.GetFileName(szFileName));
                                     File.SetAttributes(szFileName, FileAttributes.Normal);
                                     File.Delete(szFileName);
@@ -3179,12 +3398,14 @@ namespace TCT_App
                     {
                         if ((iLogMonth != DateTime.Today.Month) || (iLogYear != DateTime.Today.Year))
                         {
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : archive month {iLogYear}-{iLogMonth:00}");
                             szLogFiles = Directory.GetFiles(laneLogPath, $"ETC_{iLogYear}-{iLogMonth.ToString("00")}-??.log");
                             foreach (string szFileName in szLogFiles.ToList())
                             {
                                 string szZipFile    = Path.Combine(laneLogPath, $"ETC_{iLogYear}-{iLogMonth.ToString("00")}.zip");
                                 using (var archive  = ZipFile.Open(szZipFile, File.Exists(szZipFile) ? ZipArchiveMode.Update : ZipArchiveMode.Create))
                                 {
+                                    LogInfo.WriteLog(LogLevel.TRACE, $"+ BackupLogFile : zip {szFileName} -> {szZipFile}");
                                     archive.CreateEntryFromFile(szFileName, Path.GetFileName(szFileName));
                                     File.SetAttributes(szFileName, FileAttributes.Normal);
                                     File.Delete(szFileName);
@@ -3212,12 +3433,14 @@ namespace TCT_App
                     {
                         if ((iLogMonth != DateTime.Today.Month) || (iLogYear != DateTime.Today.Year))
                         {
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : archive month {iLogYear}-{iLogMonth:00}");
                             szLogFiles = Directory.GetFiles(laneLogPath, $"LSD_{iLogYear}-{iLogMonth.ToString("00")}-??.log");
                             foreach (string szFileName in szLogFiles.ToList())
                             {
                                 string szZipFile    = Path.Combine(laneLogPath, $"LSD_{iLogYear}-{iLogMonth.ToString("00")}.zip");
                                 using (var archive  = ZipFile.Open(szZipFile, File.Exists(szZipFile) ? ZipArchiveMode.Update : ZipArchiveMode.Create))
                                 {
+                                    LogInfo.WriteLog(LogLevel.TRACE, $"+ BackupLogFile : zip {szFileName} -> {szZipFile}");
                                     archive.CreateEntryFromFile(szFileName, Path.GetFileName(szFileName));
                                     File.SetAttributes(szFileName, FileAttributes.Normal);
                                     File.Delete(szFileName);
@@ -3245,12 +3468,14 @@ namespace TCT_App
                     {
                         if ((iLogMonth != DateTime.Today.Month) || (iLogYear != DateTime.Today.Year))
                         {
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : archive month {iLogYear}-{iLogMonth:00}");
                             szLogFiles = Directory.GetFiles(laneLogPath, $"EDC_{iLogYear}-{iLogMonth.ToString("00")}-??.log");
                             foreach (string szFileName in szLogFiles.ToList())
                             {
                                 string szZipFile    = Path.Combine(laneLogPath, $"EDC_{iLogYear}-{iLogMonth.ToString("00")}.zip");
                                 using (var archive  = ZipFile.Open(szZipFile, File.Exists(szZipFile) ? ZipArchiveMode.Update : ZipArchiveMode.Create))
                                 {
+                                    LogInfo.WriteLog(LogLevel.TRACE, $"+ BackupLogFile : zip {szFileName} -> {szZipFile}");
                                     archive.CreateEntryFromFile(szFileName, Path.GetFileName(szFileName));
                                     File.SetAttributes(szFileName, FileAttributes.Normal);
                                     File.Delete(szFileName);
@@ -3281,12 +3506,14 @@ namespace TCT_App
                         {
                             if ((iLogMonth != DateTime.Today.Month) || (iLogYear != DateTime.Today.Year))
                             {
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : archive month {iLogYear}-{iLogMonth:00}");
                                 szLogFiles = Directory.GetFiles(mtsLogPath, $"MTS_{iLogYear}-{iLogMonth.ToString("00")}-??.log");
                                 foreach (string szFileName in szLogFiles.ToList())
                                 {
                                     string szZipFile    = Path.Combine(mtsLogPath, $"MTS_{iLogYear}-{iLogMonth.ToString("00")}.zip");
                                     using (var archive  = ZipFile.Open(szZipFile, File.Exists(szZipFile) ? ZipArchiveMode.Update : ZipArchiveMode.Create))
                                     {
+                                        LogInfo.WriteLog(LogLevel.TRACE, $"+ BackupLogFile : zip {szFileName} -> {szZipFile}");
                                         archive.CreateEntryFromFile(szFileName, Path.GetFileName(szFileName));
                                         File.SetAttributes(szFileName, FileAttributes.Normal);
                                         File.Delete(szFileName);
@@ -3305,6 +3532,7 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     LogInfo.WriteLog($"- Error Zip File {mtsLogPath} : {err.Message}");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"- BackupLogFile : (MtsLog) stack={err.StackTrace}");
                 }
 
                 //--- Capture Log   -> VideoCapture
@@ -3322,12 +3550,14 @@ namespace TCT_App
                         {
                             if ((iLogMonth != DateTime.Today.Month) || (iLogYear != DateTime.Today.Year))
                             {
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : archive month {iLogYear}-{iLogMonth:00}");
                                 szLogFiles = Directory.GetFiles(captureLogPath, $"Capture_{iLogYear}-{iLogMonth.ToString("00")}-??.log");
                                 foreach (string szFileName in szLogFiles.ToList())
                                 {
                                     string szZipFile    = Path.Combine(captureLogPath, $"Capture_{iLogYear}-{iLogMonth.ToString("00")}.zip");
                                     using (var archive  = ZipFile.Open(szZipFile, File.Exists(szZipFile) ? ZipArchiveMode.Update : ZipArchiveMode.Create))
                                     {
+                                        LogInfo.WriteLog(LogLevel.TRACE, $"+ BackupLogFile : zip {szFileName} -> {szZipFile}");
                                         archive.CreateEntryFromFile(szFileName, Path.GetFileName(szFileName));
                                         File.SetAttributes(szFileName, FileAttributes.Normal);
                                         File.Delete(szFileName);
@@ -3346,6 +3576,7 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     LogInfo.WriteLog($"- Error Zip File {mtsLogPath} : {err.Message}");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"- BackupLogFile : (VideoCapture) path={captureLogPath}, stack={err.StackTrace}");
                 }
 
                 //===========================================================================================
@@ -3365,6 +3596,7 @@ namespace TCT_App
                         if ((iMonth != DateTime.Today.Month) || (iYear != DateTime.Today.Year))
                         {
                             string szZipFile = Path.Combine(laneEventPath, $"{szDirName}.zip");
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : zip folder {szFolder} -> {szZipFile}");
                             Action_ZipFolder(szFolder, szZipFile);
                             DeleteDirectory(szFolder);
                         }
@@ -3389,6 +3621,7 @@ namespace TCT_App
                         if ((iMonth != DateTime.Today.Month) || (iYear != DateTime.Today.Year))
                         {
                             string szZipFile = Path.Combine(laneEventPath, $"{szDirName}.zip");
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ BackupLogFile : zip folder {szFolder} -> {szZipFile}");
                             Action_ZipFolder(szFolder, szZipFile);
                             DeleteDirectory(szFolder);
                         }
@@ -3409,6 +3642,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLog("- Error BackupLogFile : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- BackupLogFile : stack={err.StackTrace}");
                 return false;
             }
         }
@@ -3465,6 +3699,7 @@ namespace TCT_App
         {
             string[] files  = Directory.GetFiles(target_dir);
             string[] dirs   = Directory.GetDirectories(target_dir);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ DeleteDirectory : {target_dir}, files={files?.Length ?? 0}, dirs={dirs?.Length ?? 0}");
 
             foreach (string file in files)
             {
@@ -3483,6 +3718,8 @@ namespace TCT_App
         public static void ManualImportDataFile()
         {
             LogInfo.WriteLog("+ Start Process ManualImportDataFile");
+            if (TCT_Lib.szManualImportPath.Trim() == "")
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ ManualImportDataFile : ManualImportPath not configured -> skip");
             if (TCT_Lib.szManualImportPath.Trim() != "")
             {
                 if (!Directory.Exists(TCT_Lib.szManualImportPath))
@@ -3502,7 +3739,10 @@ namespace TCT_App
                         try
                         {
                             string dataJson     = File.ReadAllText(file);
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ManualImportDataFile : {file}, len={dataJson?.Length ?? 0}");
+                            var swImport        = System.Diagnostics.Stopwatch.StartNew();
                             TCT_Lib.mocRabbitMQ.MessageReceiverOnRabbitMqRecvMessage(dataJson, true, false);
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ManualImportDataFile : imported {Path.GetFileName(file)} ({swImport.ElapsedMilliseconds} ms) -> move to Backup");
                             string szBackupPath = Path.Combine(TCT_Lib.szManualImportPath.Trim(), "Backup");
 
                             try
@@ -3529,6 +3769,7 @@ namespace TCT_App
                         catch (Exception err)
                         {
                             LogInfo.WriteLog("- Error Import File : " + err.Message);
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"- ManualImportDataFile : file={file}, stack={err.StackTrace}");
                         }
                     }
                 }
@@ -3563,6 +3804,7 @@ namespace TCT_App
 */
 
             //---------------------------------------------
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ UpdateDatabaseStructure : start, LaneDB={(LaneDB == null ? "null" : "ok")}");
             try
             {
                 string szQuery = "";
@@ -3584,6 +3826,7 @@ namespace TCT_App
                                 SendDateTimeImage DATETIME,
                                 PRIMARY KEY (ImageCaptureID)
                             )";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3592,6 +3835,7 @@ namespace TCT_App
                     szQuery = @"CREATE TABLE CaptureRunningNo (
                                 MaxCaptureRunningNo INTEGER DEFAULT 0
                                 )";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3601,6 +3845,7 @@ namespace TCT_App
                                 ALTER TABLE LaneAlarmRTO ADD SendRetryDC INTEGER NOT NULL DEFAULT 0;
                                 ALTER TABLE LaneAlarmRTO ADD SendDateTimeDC DATETIME;
                             ";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3613,6 +3858,7 @@ namespace TCT_App
                                 ClearBatchDateTime DATETIME,
                                 PRIMARY KEY (ClearBatchID)
                                 )";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3633,6 +3879,7 @@ namespace TCT_App
                                 Status TEXT,
                                 UpdateDateTime DATETIME,
                                 PRIMARY KEY (PromotionID))";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3652,6 +3899,7 @@ namespace TCT_App
                                 Status TEXT,
                                 UpdateDateTime DATETIME,
                                 PRIMARY KEY (DmtCardID))";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3667,6 +3915,7 @@ namespace TCT_App
                                 Affiliation TEXT,
                                 UpdateDateTime DATETIME,
                                 PRIMARY KEY (DmtCardTransID))";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3674,6 +3923,7 @@ namespace TCT_App
                 {
                     szQuery = @"ALTER TABLE LaneTransaction ADD DmtCardTransID INTEGER NOT NULL DEFAULT 0;
                             ";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3691,6 +3941,7 @@ namespace TCT_App
                                 SendTfiDateTime DATETIME,
                                 UpdateDateTime DATETIME,
                                 PRIMARY KEY (TfiID))";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
                 }
 
@@ -3703,21 +3954,26 @@ namespace TCT_App
                                 CouponType TEXT, 
                                 UpdateDateTime DATETIME, 
                                 PRIMARY KEY (CouponTypeID))";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
 
                     szQuery = @"INSERT INTO SalesCouponType VALUES (1, 1, '2023-05-30 07:07:07', '35', '2023-05-30 08:08:08')";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
 
                     szQuery = @"INSERT INTO SalesCouponType VALUES (2, 1, '2023-05-30 07:07:07', '80', '2023-05-30 08:08:08')";
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : apply -> " + szQuery.Trim().Split('\n')[0].Trim());
                     TCT_Lib.LaneDB.Execute(szQuery);
 
                 }
 
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ UpdateDatabaseStructure : done");
                 return true;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLog(" - Error UpdateDatabaseStructure : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- UpdateDatabaseStructure : stack={err.StackTrace}");
                 return false;
             }
         }
@@ -3727,6 +3983,7 @@ namespace TCT_App
         public static bool ClearDatabaseFile()
         {
             LogInfo.WriteLog("+ Start Clear Database File");
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : KeepDatabaseDay={TCT_Lib.iKeepDbDay}, LaneDB={(TCT_Lib.LaneDB == null ? "null" : "ok")}");
             if (TCT_Lib.LaneDB == null)
                 return false;
 
@@ -3739,6 +3996,7 @@ namespace TCT_App
             try
             {
                 LogInfo.WriteLog("+ Clear EmvDetail");
+                var swClear         = System.Diagnostics.Stopwatch.StartNew();
                 DateTime dtKeepDate = DateTime.Today.AddDays(-TCT_Lib.iKeepDbDay);
                 var InvC = CultureInfo.InvariantCulture;
                 //--- Clear EmvDetail
@@ -3819,6 +4077,7 @@ namespace TCT_App
                 //--- TransactionStatistic
                 szQuery         = "SELECT MIN(StaffShiftID) FROM StaffShift";
                 DataTable dt    = TCT_Lib.LaneDB.List(szQuery);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : MIN(StaffShiftID) rows={dt?.Rows.Count ?? -1} ({swClear.ElapsedMilliseconds} ms so far)");
                 long iStaffShiftID = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
 
                 szFmt   = "DELETE FROM TransactionStatistic WHERE StaffShiftID<{0}";
@@ -3828,10 +4087,12 @@ namespace TCT_App
 
                 szFmt   = "DELETE FROM LaneEventHQ WHERE EventType IN (4,5,6,7,8,9)";
                 szQuery = string.Format(szFmt, iStaffShiftID);
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ ClearDatabaseFile : " + szQuery);
                 TCT_Lib.LaneDB.Execute(szQuery);
 
                 szFmt   = "DELETE FROM LaneEventRTO WHERE DeviceType IN (2,3,4,5,8,9,13,14,15)";
                 szQuery = string.Format(szFmt, iStaffShiftID);
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ ClearDatabaseFile : " + szQuery);
                 TCT_Lib.LaneDB.Execute(szQuery);
 
                 LogInfo.WriteLog("+ Clear ImageCaptureCamera");
@@ -3845,12 +4106,15 @@ namespace TCT_App
 
                 //------------------------------------------------------------
                 int iHour = DateTime.Now.Hour;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : deletes done ({swClear.ElapsedMilliseconds} ms), hour={iHour} -> VACUUM={((iHour >= 1) && (iHour <= 4))}");
                 if ((iHour >= 1) && (iHour <= 4))
                 {
                     Thread.Sleep(1 * 1000);
                     LogInfo.WriteLog("+ Call VACUUM (Purge Database)");
                     szQuery = "VACUUM;";
+                    swClear.Restart();
                     TCT_Lib.LaneDB.Execute(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : VACUUM done ({swClear.ElapsedMilliseconds} ms)");
                 }
 
                 //------------------------------------------------------------
@@ -3860,6 +4124,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLog("- Error ClearDatabaseFile : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- ClearDatabaseFile : stack={err.StackTrace}");
                 return false;
             }
         }
@@ -3928,6 +4193,7 @@ namespace TCT_App
             keyMapping['[']     = (int)KeyPressedType.PAY_PM7;
             keyMapping[']']     = (int)KeyPressedType.PAY_PM8;
             keyMapping['\\']    = (int)KeyPressedType.PAY_PM9;
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LoadKeyMapping : {keyMapping.Count} keys mapped");
 
         }
 
@@ -3989,6 +4255,7 @@ namespace TCT_App
 
         public static bool TransferTfiFile(string szFileName, ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ TransferTfiFile : File={szFileName}, enable={TCT_Lib.bEnableTfiScpFiles}, Host={szTfiScpHostName}, User={szTfiScpUserName}, Dest={szTfiScpDestPath}");
             if (!TCT_Lib.bEnableTfiScpFiles)
             {
                 LogInfo.WriteLog("- TFI data image is disable setting");
@@ -4002,13 +4269,16 @@ namespace TCT_App
                 {
                     try
                     {
+                        var swScp = System.Diagnostics.Stopwatch.StartNew();
                         client.Connect();
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ TransferTfiFile : SCP connected ({swScp.ElapsedMilliseconds} ms)");
                         string szTfiImagePath   = Path.Combine(TCT_Lib.szLogPath, "TfiImage");
                         string szTfiImageFile   = Path.Combine(szTfiImagePath, szFileName);
                         using (Stream localFile = File.OpenRead(szTfiImageFile))
                         {
                             client.Upload(localFile, Path.Combine(szTfiScpDestPath, szFileName));
                         }
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ TransferTfiFile : uploaded {szFileName} ({swScp.ElapsedMilliseconds} ms)");
                         client.Disconnect();
                         client.Dispose();
                     }
@@ -4016,6 +4286,7 @@ namespace TCT_App
                     {
                         Console.WriteLine("- Error Transfer TFI File : " + err.Message);
                         LogInfo.WriteLog("- Error Transfer TFI File : " + err.Message);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"- TransferTfiFile : File={szFileName}, stack={err.StackTrace}");
                         szErrMsg = err.Message;
                         return false;
                     }
@@ -4027,6 +4298,7 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error new Transfer TFI File : "+err.Message);
                 LogInfo.WriteLog("- Error new Transfer TFI File : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- TransferTfiFile : stack={err.StackTrace}");
                 szErrMsg = err.Message;
                 return false;
             }

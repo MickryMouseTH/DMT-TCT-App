@@ -61,15 +61,20 @@ namespace TCT_App.LaneSocket
                     laneServer.NewMessageReceived   += LaneServer_NewMessageReceived;
                     laneServer.SessionClosed        += LaneServer_SessionClosed;
 
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SetupSocketServer : listen Any:{TCT_Lib.iRTO_SocketPort}, name=WebSocket-TCT{TCT_Lib.iLaneID}, sendTimeout=5000ms");
                     return true;
                 }
                 else
+                {
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- LaneSocketServerRTO.SetupSocketServer : Setup failed, port={TCT_Lib.iRTO_SocketPort}");
                     return false;
+                }
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Error Setup ServerWebSocket - RTO : " + err.Message);
                 LogInfo.WriteLog("- Error Setup ServerWebSocket - RTO : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LaneSocketServerRTO.SetupSocketServer : stack=" + err.StackTrace);
                 return false;
             }
         }
@@ -78,6 +83,7 @@ namespace TCT_App.LaneSocket
         {
             Console.WriteLine("+ Find new session socket - RTO : IP=" + session.Host + ", SessionID=" + session.SessionID);
             LogInfo.WriteLog("+ Find new session socket - RTO : IP=" + session.Host + ", SessionID=" + session.SessionID);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.NewSessionConnected : remote={session.RemoteEndPoint?.ToString() ?? "null"}, sessions={laneServer?.SessionCount}, send lane state");
             TCT_Lib.laneController.SendLaneCurrentState();
         }
 
@@ -85,6 +91,7 @@ namespace TCT_App.LaneSocket
         {
             Console.WriteLine("+ Close session socket - RTO : " + session.Host + ", SessionID=" + session.SessionID);
             LogInfo.WriteLog("+ Close session socket - RTO : " + session.Host + ", SessionID=" + session.SessionID);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SessionClosed : remote={session.RemoteEndPoint?.ToString() ?? "null"}, reason={value}, sessions={laneServer?.SessionCount}");
         }
 
         void LaneServer_NewMessageReceived(WebSocketSession session, string value)
@@ -97,16 +104,24 @@ namespace TCT_App.LaneSocket
 
             Console.WriteLine("+ SocketServer : " + session.Method + ", Mesage : " + value);
             //LogInfo.WriteLog("+ SocketServer : " + session.Method + ", Mesage : " + value);
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ LaneSocketServerRTO.NewMessageReceived : from={session.RemoteEndPoint?.ToString() ?? "null"}, msg={value}");
             ClassifyServerMessage(value);
         }
 
         public void SendLaneMessageToClient(string szMethod, object objParams)
         {
             if (TCT_Lib.bMaintenanceMode && !TCT_Lib.bAllowSendRTO)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToClient : skip method={szMethod}, maintenance mode");
                 return;
+            }
 
             if (!TCT_Lib.bRTO_Connected)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToClient : skip method={szMethod}, RTO not connected");
                 return;
+            }
                 
             try
             {
@@ -146,18 +161,25 @@ namespace TCT_App.LaneSocket
                 if (szMethod != "IODO")
                 {
                     Console.WriteLine("+ Send LaneMessage to RTO : " + szJsonCmd);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToClient : method={szMethod}, sessions={laneServer?.SessionCount}, len={szJsonCmd.Length}");
+                    if (LogInfo.IsEnabled(LogLevel.TRACE))
+                        LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToClient : " + szJsonCmd);
                     foreach (WebSocketSession session in laneServer.GetAllSessions().ToList())
                         session.Send(szJsonCmd);
                 }
+                else
+                    LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToClient : IODO not forwarded");
             }
             catch (Exception err)
             {
                 Console.WriteLine($"- Error SendLaneMessage To RTO : Method={szMethod}, Error={err.Message}");
                 LogInfo.WriteLog($"- Error SendLaneMessage To RTO : Method={szMethod}, Error={err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LaneSocketServerRTO.SendLaneMessageToClient : stack=" + err.StackTrace);
                 TCT_Lib.bRTO_Connected = false;
                 //----------------------------------------------
                 //Thread.Sleep(2000);
                 LogInfo.WriteLog("+ Restart RTO WebSocket");
+                LogInfo.WriteLog(LogLevel.WARN, $"- LaneSocketServerRTO.SendLaneMessageToClient : restart RTO server port={TCT_Lib.iRTO_SocketPort}, bRTO_Connected=false");
                 laneServer.Stop();
                 laneServer.Dispose();
                 laneServer = null;
@@ -176,10 +198,16 @@ namespace TCT_App.LaneSocket
         public bool SendLaneMessageToRTO(string szMethod, object objParams)
         {
             if (!TCT_Lib.bRTO_Connected)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToRTO : skip method={szMethod}, RTO not connected");
                 return false;
+            }
 
             if (TCT_Lib.szRTO_IPAddress == "")
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToRTO : skip method={szMethod}, RTO IP not configured");
                 return false;
+            }
 
             string szJsonCmd = JsonConvert.SerializeObject(
                 new
@@ -198,11 +226,15 @@ namespace TCT_App.LaneSocket
                     string szIP = session.RemoteEndPoint.Address.ToString();
                     if ((szIP == TCT_Lib.szRTO_IPAddress) && session.Connected)
                     {
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToRTO : method={szMethod}, to={szIP}, len={szJsonCmd.Length}");
+                        if (LogInfo.IsEnabled(LogLevel.TRACE))
+                            LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToRTO : " + szJsonCmd);
                         session.Send(szJsonCmd);
                         return true;
                     }
                 }
 
+                LogInfo.WriteLog(LogLevel.WARN, $"- LaneSocketServerRTO.SendLaneMessageToRTO : no connected session from RTO IP={TCT_Lib.szRTO_IPAddress}, dropped method={szMethod}");
                 return false;
             }
             catch (Exception err)
@@ -210,6 +242,7 @@ namespace TCT_App.LaneSocket
                 Console.WriteLine("- Error SendLaneMessage To RTO : " + err.Message);
                 Console.WriteLine("- Error SendLaneMessage To RTO : " + err.StackTrace);
                 LogInfo.WriteLog("- Error SendLaneMessage To RTO : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- LaneSocketServerRTO.SendLaneMessageToRTO : method={szMethod}, stack={err.StackTrace}");
 
                 //----------------------------------------------
 /*
@@ -236,6 +269,9 @@ namespace TCT_App.LaneSocket
         public void SendLaneMessageToClient_V0(string szData)
         {
             Console.WriteLine("+ Send LaneMessage to RTO : " + szData);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToClient_V0 : len={szData?.Length ?? 0}, sessions={laneServer?.SessionCount}");
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToClient_V0 : " + szData);
             foreach (WebSocketSession session in laneServer.GetAllSessions().ToList())
                 session.Send(szData);
         }
@@ -246,11 +282,13 @@ namespace TCT_App.LaneSocket
             {
                 LsdMode = (int)eLsdMode,
             };
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendChangeLsdToRTO : LsdMode={eLsdMode}");
             TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToClient("LSD_MODE", objParams);
         }
 
         public void SendTestLsdMaintenanceToRTO()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneSocketServerRTO.SendTestLsdMaintenanceToRTO : LSD_TEST");
             TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToClient("LSD_TEST", null);
         }
 
@@ -259,7 +297,10 @@ namespace TCT_App.LaneSocket
         void ClassifyServerMessage(string szMsg)
         {
             if (TCT_Lib.bMaintenanceMode && !TCT_Lib.bAllowSendRTO)
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneSocketServerRTO.ClassifyServerMessage : ignored, maintenance mode");
                 return;
+            }
 
             try
             {
@@ -270,6 +311,7 @@ namespace TCT_App.LaneSocket
                 string result       = msg["result"];
                 string method       = msg["method"];
                 JObject jParams     = msg["params"];
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : id={id}, method={method ?? "null"}, result={result ?? "null"}");
 
                 if (result != null)
                 {
@@ -304,6 +346,7 @@ namespace TCT_App.LaneSocket
                         int iDeviceType = (int)jParams["id"];
                         int iValue      = (int)jParams["value"];
                         Console.WriteLine("+ From RTO => Control IO : Id=" + iDeviceType + ", Value=" + iValue);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : CTRL_IO id={iDeviceType}, value={iValue}, laneType={TCT_Lib.eCurLaneType}, laneMode={TCT_Lib.eCurLaneMode}, openALB_RTO={TCT_Lib.bStatusOpenALB_RTO}");
                         LogInfo.WriteLaneEvent("+ From RTO => Control IO : Id=" + iDeviceType + ", Value=" + iValue);
                         //---  ALB Device
                         if ((iDeviceType == 4) || (iDeviceType == 5))
@@ -459,6 +502,7 @@ namespace TCT_App.LaneSocket
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         int iDO_Id          = paramsObj["id"];
                         int val             = paramsObj["value"];
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : WRDO id={iDO_Id}, value={val}");
                         if ((iDO_Id == (int)Cmd_DO_Type.ALB_Open) || (iDO_Id == (int)Cmd_DO_Type.ALB_Close))
                         {
                             if (val == 1)
@@ -481,6 +525,7 @@ namespace TCT_App.LaneSocket
                         string szBalance    = paramsObj["text_balance"];
                         string szText1      = paramsObj["text1"];
                         string szText2      = paramsObj["text2"];
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : WRTFI mode={iMode}, class={szClassType}, fare={szFare}, balance={szBalance}");
                         TCT_Lib.webSocketLane.OutIo_WriteTFI(iMode, (int)TFI_Pattern.Normal, szClassType, szFare, szBalance, szText1, szText2);
                     }
                     else if (method.ToUpper() == "WRCRS")
@@ -488,6 +533,7 @@ namespace TCT_App.LaneSocket
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         string szColumn1    = paramsObj["column1"];
                         string szColumn2    = paramsObj["column2"];
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : WRCRS col1={szColumn1}, col2={szColumn2}");
                         TCT_Lib.webSocketLane.OutIo_WriteCRS(szColumn1, szColumn2);
                     }
                     else if (method.ToUpper() == "EXIT_MAINTENANCE")
@@ -537,7 +583,11 @@ namespace TCT_App.LaneSocket
                         //TCT_Lib.SendFromReqLaneTransactionToRTO(szDateReq, iJobNo, iStart_nTrx, iEnd_nTrx);
                         TCT_Lib.SendFromRequestLaneTransactionToSupAdjust(szDateReq, iJobNo, iStart_nTrx, iEnd_nTrx);
                     }
+                    else
+                        LogInfo.WriteLog(LogLevel.WARN, "- LaneSocketServerRTO.ClassifyServerMessage : unknown method=" + method);
                 }
+                else
+                    LogInfo.WriteLog(LogLevel.WARN, "- LaneSocketServerRTO.ClassifyServerMessage : message has no method/result");
             }
             catch (Exception err)
             {

@@ -51,6 +51,7 @@ namespace TCT_App.WebServiceAPI
         //-----------------------------------
         public static bool CallWebService_GetCoupons(ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : enable={TCT_Lib.bEnableLaneWebService}, StaffID={TCT_Lib.szStaffID}, TSBId={TCT_Lib.szTSBId}");
             if (!TCT_Lib.bEnableLaneWebService)
                 return false;
 
@@ -62,14 +63,14 @@ namespace TCT_App.WebServiceAPI
                 return false;
             }
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var InvC = System.Globalization.CultureInfo.InvariantCulture;
             try
             {
-                //--- Clear old coupons data
-                LogInfo.WriteLog("+ Clear old coupons data in SalesCouponList");
-                string szQuery = "DELETE FROM SalesCouponList";
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //-----------------------------------------------------------------------
+                //--- v2.0.4: the local list is replaced only after TA answered. Before, it was DELETEd first,
+                //--- so a timeout / error from TA left the popup with no coupons at all.
+                string szQuery      = "";
+                int iRows           = 0;
                 var xCoupons        = new ObjGetCoupons();
                 xCoupons.userId     = TCT_Lib.szStaffID;
                 xCoupons.tsbId      = TCT_Lib.szTSBId;
@@ -85,6 +86,7 @@ namespace TCT_App.WebServiceAPI
                     string szFmt        = "{0}/api/users/coupons/search";
                     string szWebUrl     = string.Format(szFmt, TCT_Lib.szLaneWebService_BaseURL);
                     LogInfo.WriteLog("+ CallWebService_GetCoupons URL : " + szWebUrl);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : POST bytes={byteData.Length}, timeout=2000 ms");
 
                     var request                 = (HttpWebRequest)WebRequest.Create(szWebUrl);
                     request.Method              = "POST";
@@ -100,6 +102,7 @@ namespace TCT_App.WebServiceAPI
 
                     using (WebResponse webResponse = request.GetResponse())
                     {
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : status={(int)((HttpWebResponse)webResponse).StatusCode}, {sw.ElapsedMilliseconds} ms");
                         if (((HttpWebResponse)webResponse).StatusCode != HttpStatusCode.OK)
                         {
                             szErrMsg = ((HttpWebResponse)webResponse).StatusDescription;
@@ -117,6 +120,7 @@ namespace TCT_App.WebServiceAPI
                                 LogInfo.WriteLog("+ Response CallWebService_GetCoupons : " + response);
 
                                 dynamic xResponse   = JsonConvert.DeserializeObject(response);
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : hasError={xResponse?["errors"]?["hasError"]}, errMsg={xResponse?["errors"]?["errMsg"]}, {sw.ElapsedMilliseconds} ms");
                                 if ((bool)xResponse["errors"]["hasError"] == true)
                                 {
                                     szErrMsg = (string)xResponse["errors"]["errMsg"];
@@ -127,22 +131,33 @@ namespace TCT_App.WebServiceAPI
                                 {
                                     LogInfo.WriteLog("+ Success CallWebService_GetCoupons");
 
-                                    LogInfo.WriteLog("+ Insert new coupons data.");
                                     JArray xCouponData          = xResponse["data"];
-                                    ObjCouponData[] objCoupons  = xCouponData.ToObject<ObjCouponData[]>();
+                                    ObjCouponData[] objCoupons  = xCouponData == null ? new ObjCouponData[0] : xCouponData.ToObject<ObjCouponData[]>();
+                                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : coupons received={objCoupons.Length}");
+
+                                    //--- Clear old coupons data (only now, TA answered OK)
+                                    LogInfo.WriteLog("+ Clear old coupons data in SalesCouponList");
+                                    szQuery = "DELETE FROM SalesCouponList";
+                                    iRows   = TCT_Lib.LaneDB.Execute(szQuery);
+                                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : cleared SalesCouponList rows={iRows}");
+
+                                    LogInfo.WriteLog("+ Insert new coupons data.");
                                     foreach (ObjCouponData xCoupon in objCoupons.ToList())
                                     {
                                         szQuery = "SELECT * FROM SalesCouponList " +
-                                                    $"WHERE SerialNo='{xCoupon.SerialNo}'";
+                                                    $"WHERE SerialNo='{(xCoupon.SerialNo ?? "").Replace("'", "''")}'";
                                         DataTable dt = TCT_Lib.LaneDB.List(szQuery);
                                         if (dt.Rows.Count == 0)
                                         {
                                             szQuery = "INSERT INTO SalesCouponList (CouponPK, CouponType, SerialNo, CouponPrice, " +
                                                         "CouponStatus, ReqCouponDateTime) VALUES " +
-                                                        $"({xCoupon.CouponPK}, '{xCoupon.CouponType}', '{xCoupon.SerialNo}', {xCoupon.Price}, " +
-                                                        $"0, '{DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB)}')";
-                                            TCT_Lib.LaneDB.Execute(szQuery);
+                                                        $"({xCoupon.CouponPK}, '{(xCoupon.CouponType ?? "").Replace("'", "''")}', '{(xCoupon.SerialNo ?? "").Replace("'", "''")}', {xCoupon.Price.ToString(InvC)}, " +
+                                                        $"0, '{DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB, InvC)}')";
+                                            iRows = TCT_Lib.LaneDB.Execute(szQuery);
+                                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : insert CouponPK={xCoupon.CouponPK}, Type={xCoupon.CouponType}, SerialNo={xCoupon.SerialNo}, Price={xCoupon.Price}, rows={iRows}");
                                         }
+                                        else
+                                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : SerialNo={xCoupon.SerialNo} already in list, skip");
                                     }
                                     return true;
                                 }
@@ -157,6 +172,7 @@ namespace TCT_App.WebServiceAPI
                 szErrMsg = err.Message;
                 Console.WriteLine($"- Error CallWebService_GetCoupons : {err.Message}");
                 LogInfo.WriteLog($"- Error CallWebService_GetCoupons : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- CallWebService_GetCoupons : failed after {sw.ElapsedMilliseconds} ms, WebStatus={(err as WebException)?.Status}, StackTrace : {err.StackTrace}");
                 return false;
             }           
         }
@@ -164,6 +180,7 @@ namespace TCT_App.WebServiceAPI
         public static bool CallWebService_SoldCoupon(string szCouponType, string szSerialNo, decimal fCouponPrice, DateTime dtSoldDate,
                                                     int iPayTypeID, string szPayTypeName, objCreditCardInfo xCreditCard, ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_SoldCoupon : enable={TCT_Lib.bEnableLaneWebService}, Type={szCouponType}, SerialNo={szSerialNo}, Price={fCouponPrice}, PayType={iPayTypeID}({szPayTypeName}), card={xCreditCard != null}");
             if (!TCT_Lib.bEnableLaneWebService)
                 return false;
 
@@ -174,6 +191,7 @@ namespace TCT_App.WebServiceAPI
                 return false;
             }
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var xCoupon         = new ObjSoldCoupon();
@@ -212,6 +230,7 @@ namespace TCT_App.WebServiceAPI
                     string szFmt        = "{0}/api/TCT/coupons/sold";
                     string szWebUrl     = string.Format(szFmt, TCT_Lib.szLaneWebService_BaseURL);
                     LogInfo.WriteLog("+ CallWebService_SoldCoupons URL : " + szWebUrl);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_SoldCoupon : POST SerialNo={szSerialNo}, bytes={byteData.Length}, timeout=2000 ms");
 
                     var request                 = (HttpWebRequest)WebRequest.Create(szWebUrl);
                     request.Method              = "POST";
@@ -227,6 +246,7 @@ namespace TCT_App.WebServiceAPI
 
                     using (WebResponse webResponse = request.GetResponse())
                     {
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_SoldCoupon : status={(int)((HttpWebResponse)webResponse).StatusCode}, {sw.ElapsedMilliseconds} ms");
                         if (((HttpWebResponse)webResponse).StatusCode != HttpStatusCode.OK)
                         {
                             szErrMsg = ((HttpWebResponse)webResponse).StatusDescription;
@@ -244,6 +264,7 @@ namespace TCT_App.WebServiceAPI
                                 LogInfo.WriteLog("+ Response CallWebService_SoldCoupons : " + response);
 
                                 dynamic xResponse   = JsonConvert.DeserializeObject(response);
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_SoldCoupon : SerialNo={szSerialNo}, hasError={xResponse?["errors"]?["hasError"]}, errMsg={xResponse?["errors"]?["errMsg"]}, {sw.ElapsedMilliseconds} ms");
                                 if ((bool)xResponse["errors"]["hasError"] == true)
                                 {
                                     szErrMsg        = (string)xResponse["errors"]["errMsg"];
@@ -266,6 +287,7 @@ namespace TCT_App.WebServiceAPI
                 szErrMsg = err.Message;
                 Console.WriteLine($"- Error CallWebService_SoldCoupons : {err.Message}");
                 LogInfo.WriteLog($"- Error CallWebService_SoldCoupons : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- CallWebService_SoldCoupon : failed after {sw.ElapsedMilliseconds} ms, WebStatus={(err as WebException)?.Status}, StackTrace : {err.StackTrace}");
                 return false;
             }
         }

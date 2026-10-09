@@ -384,6 +384,7 @@ namespace TCT_App
         //--------------------------------------------------------------------
         public LaneEventController()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneEventController : init, laneType={TCT_Lib.eCurLaneType}, laneMode={TCT_Lib.eCurLaneMode}, MTS={TCT_Lib.bEnableMTS}, NVR={TCT_Lib.bEnableVideoNVR}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}");
             TCT_Lib.webSocketLane.keyPressedEvent               += LaneSocket_KeyPressedEvent;
             TCT_Lib.webSocketLane.avcLaneEvent                  += LaneSocket_AvcLaneEvent;
             TCT_Lib.webSocketLane.deviceOutputLaneEvent         += LaneSocket_DeviceOuputLaneEvent;
@@ -415,6 +416,7 @@ namespace TCT_App
                 if (TCT_Lib.iVideoNVR_CaptureImageMethod >= 1)
                     CreateMonitorCameraNetworkThread();
             }
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneEventController : event handlers registered, background threads created");
         }
 
         public void AddQueueVehicle(int iClassType, decimal fFareAmount, Pay_Info xPayment, string szTransRemark)
@@ -426,11 +428,13 @@ namespace TCT_App
             xQueue.szTransRemark = szTransRemark;
 
             TCT_Lib.xListQueues.Add(xQueue);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AddQueueVehicle : class={iClassType}, fare={fFareAmount}, payType={xPayment?.payType}, payAmount={xPayment?.payAmount}, remark={szTransRemark ?? "null"}, queueCount={TCT_Lib.xListQueues?.Count}");
         }
 
         //--------------------------------------------------------------------------------------
         protected void LaneSocket_LoginSmartCardLaneEvent(string strVal)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginSmartCardLaneEvent : page={TCT_Lib.eCurAppPage}, len={strVal?.Length ?? 0}");
             if (TCT_Lib.eCurAppPage == AppPage.Login)
             {
                 Console.WriteLine("+ Lane Socket - Login Smart Card Reader : value = " + strVal);
@@ -449,12 +453,15 @@ namespace TCT_App
                 LogInfo.WriteLaneEvent("+ Lane Socket - DMT Payment Smart Card Reader : value = " + strVal);
                 dmtPaymentSmartCardReader(strVal);
             }
+            else
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginSmartCardLaneEvent : card value ignored, page={TCT_Lib.eCurAppPage} does not accept smart card");
         }
 
         public void LaneSocket_KeyPressedEvent(KeyBoardType eKbType, int iKey)
         {
             //--- Key pressed from keyboard 
             Console.WriteLine("+ Lane Socket - KeyPressed Event : KeyID = " + iKey);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : kb={eKbType}, key={((TCT_Lib.eCurAppPage == AppPage.Login || TCT_Lib.eCurAppPage == AppPage.Maintenance) ? "***" : TCT_Lib.KeyMapName(iKey))}, page={TCT_Lib.eCurAppPage}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, towing={TCT_Lib.iIsTowing}/{TCT_Lib.eTowingState}, afterPay={TCT_Lib.bAfterPayment}, class={TCT_Lib.iCurTC_Class}, violation={bHasViolation}, nextCar={iStepNextCar}, loopCar={TCT_Lib.LoopCarCount()}");
 /*
             if (iKey == 12)
                 TCT_Lib.bPrintOK = true;
@@ -476,6 +483,8 @@ namespace TCT_App
                 //--- Login Page
                 if (kLoginState.Contains(iKey))
                     manualLoginKey(iKey);
+                if (!kLoginState.Contains(iKey))
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ KeyPressed : key ignored, page=Login, key not in allowed set");
                 return;
             }
             else if (TCT_Lib.eCurAppPage == AppPage.SetLaneTypeMode)
@@ -483,6 +492,8 @@ namespace TCT_App
                 //--- Set LaneType Mode
                 if (kSetLaneTypeMode.Contains(iKey))
                     manageProcessSetLaneTypeMode(iKey);
+                if (!kSetLaneTypeMode.Contains(iKey))
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=SetLaneTypeMode, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                 return;
             }
             else if (TCT_Lib.eCurAppPage == AppPage.EMV)
@@ -490,6 +501,8 @@ namespace TCT_App
                 //--- EMV Page
                 if (kManageEMV.Contains(iKey))
                     manageProcessEMV(iKey);
+                if (!kManageEMV.Contains(iKey))
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=EMV, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                 return;
             }
             else if (TCT_Lib.eCurAppPage == AppPage.DmtPayment)
@@ -497,6 +510,8 @@ namespace TCT_App
                 //--- DmtCard Page
                 if (kManageDmtCard.Contains(iKey))
                     manageProcessDmtPayment(iKey);
+                if (!kManageDmtCard.Contains(iKey))
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=DmtPayment, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                 return;
             }
             else if (TCT_Lib.eCurAppPage == AppPage.PayConvoy)
@@ -504,6 +519,8 @@ namespace TCT_App
                 //--- Print Receipt Convoy Payment
                 if (kPayConvoy.Contains(iKey))
                     manageProcessPayConvoy(iKey);
+                if (!kPayConvoy.Contains(iKey))
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=PayConvoy, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                 return;
             }
             else if (TCT_Lib.eCurAppPage == AppPage.SalesCoupon)
@@ -511,10 +528,13 @@ namespace TCT_App
                 //--- Sales Coupon
                 if (kSalesCoupon.Contains(iKey))
                     manageProcessSalesCoupon(iKey);
+                if (!kSalesCoupon.Contains(iKey))
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=SalesCoupon, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                 return;
             }
             else if (TCT_Lib.eCurAppPage == AppPage.Maintenance)
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ KeyPressed : forward key to maintenanceProcess");
                 maintenanceProcess(iKey);
                 return;
             }
@@ -524,11 +544,15 @@ namespace TCT_App
                 {
                     LogInfo.WriteLaneEvent("+ Key when Violation");
                     if (!kViolationMode.Contains(iKey))
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, state=Violation, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
+                    if (!kViolationMode.Contains(iKey))
                         return;
                 }
                 if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
                 {
                     LogInfo.WriteLaneEvent("+ Key when HPMC");
+                    if (!kModeHPMC.Contains(iKey))
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, mode=HPMC, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                     if (!kModeHPMC.Contains(iKey))
                         return;
                 }
@@ -536,6 +560,8 @@ namespace TCT_App
                 {
                     if (TCT_Lib.eCurLaneType == LaneType.ETC)
                     {
+                        if (!kModeETC.Contains(iKey))
+                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, laneType=ETC, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                         if (!kModeETC.Contains(iKey))
                             return;
                     }
@@ -547,6 +573,8 @@ namespace TCT_App
                             if (TCT_Lib.eTowingState == TowingState.StartTowing)
                             {
                                 if (!kModeClassTypeTowing.Contains(iKey))
+                                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, towing=StartTowing, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
+                                if (!kModeClassTypeTowing.Contains(iKey))
                                     return;
                             }
                             else if ((TCT_Lib.eTowingState == TowingState.FirstClassType) ||
@@ -554,11 +582,15 @@ namespace TCT_App
                             {
                                 //LogInfo.WriteLaneEvent("+ Key when Towing ClassType");
                                 if (!kModePayTypeTowing.Contains(iKey))
+                                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, towing={TCT_Lib.eTowingState}, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
+                                if (!kModePayTypeTowing.Contains(iKey))
                                     return;
                             }
                             else if (TCT_Lib.eTowingState == TowingState.FirstPayType)
                             {
                                 //LogInfo.WriteLaneEvent("+ Key when Payment");
+                                if (!kModeClassTypeTowing.Contains(iKey))
+                                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, towing=FirstPayType, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                                 if (!kModeClassTypeTowing.Contains(iKey))
                                     return;
                             }
@@ -569,6 +601,8 @@ namespace TCT_App
                             {
                                 //LogInfo.WriteLaneEvent("+ Key when After Payment");
                                 if (!kAllowAfterPayType.Contains(iKey))
+                                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, state=AfterPayment, key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
+                                if (!kAllowAfterPayType.Contains(iKey))
                                     return;
                             }
                             else
@@ -577,11 +611,15 @@ namespace TCT_App
                                 {
                                     //LogInfo.WriteLaneEvent("+ Key when ClassType");
                                     if (!kAllowClassType.Contains(iKey))
+                                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, state=WaitClass(class={TCT_Lib.iCurTC_Class}), key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
+                                    if (!kAllowClassType.Contains(iKey))
                                         return;
                                 }
                                 else
                                 {
                                     //LogInfo.WriteLaneEvent("+ Key when PayType");
+                                    if (!kAllowPayType.Contains(iKey))
+                                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : key ignored, page=Main, state=WaitPayment(class={TCT_Lib.iCurTC_Class}), key={TCT_Lib.KeyMapName(iKey)} not in allowed set");
                                     if (!kAllowPayType.Contains(iKey))
                                         return;
                                 }
@@ -590,6 +628,8 @@ namespace TCT_App
                     }
                 }
             }
+            else
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : page={TCT_Lib.eCurAppPage} has no key filter, process key={TCT_Lib.KeyMapName(iKey)}");
 
             //-----------------------------------------------------------------------------------------
 
@@ -598,6 +638,7 @@ namespace TCT_App
                 if (!TCT_Lib.bMaintenanceMode)
                 {
                     LogInfo.WriteLaneEvent("Press OTL OPEN");
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ OTL_OPEN : LSD={TCT_Lib.bEnableLSD}, lsdOnOTL={TCT_Lib.bLSD_SendWhenPressOTL}, lsdKeepAlive={TCT_Lib.iLSD_KeepAliveSec}, lsdMethod={TCT_Lib.iLSD_MethodType}, laneType={TCT_Lib.eCurLaneType}");
                     TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.OTL_RedGreen, ON);
                     TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.Welcome, (int)TFI_Pattern.Normal, "", "", "", "", "");
                     TCT_Lib.LaneDB.WriteLaneEventHQ(EventTypeHQ.OTL, 1);
@@ -662,15 +703,19 @@ namespace TCT_App
                                 TCT_Lib.webSocketLane.laneSocketServerRTO.SendChangeLsdToRTO(TCT_Lib.eCurLsdMode);
                         }
                     }
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ OTL_OPEN : done, lsdMode={TCT_Lib.eCurLsdMode}");
 
                     //-------------------------------------------
                 }
+                else
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ OTL_OPEN : ignored, maintenance mode");
             }
             else if (iKey == (int)KeyPressedType.OTL_CLOSE)
             {
                 if (!TCT_Lib.bMaintenanceMode)
                 {
                     LogInfo.WriteLaneEvent("Press OTL CLOSE");
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ OTL_CLOSE : LSD={TCT_Lib.bEnableLSD}, lsdOnOTL={TCT_Lib.bLSD_SendWhenPressOTL}, lsdKeepAlive={TCT_Lib.iLSD_KeepAliveSec}, lsdMethod={TCT_Lib.iLSD_MethodType}");
                     TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.OTL_RedGreen, OFF);
                     TCT_Lib.LaneDB.WriteLaneEventHQ(EventTypeHQ.OTL, 0);
                     TCT_Lib.SendOtlStatusObjToDC(false, TCT_Lib.iStaffShiftID);
@@ -703,6 +748,8 @@ namespace TCT_App
 
                     //-----------------------------------------
                 }
+                else
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ OTL_CLOSE : ignored, maintenance mode");
             }
             else if (iKey == (int)KeyPressedType.START_SHIFT)
             {
@@ -716,6 +763,7 @@ namespace TCT_App
                 Thread.Sleep(500);
                 TCT_Lib.LaneDB.WriteLaneEventHQ(EventTypeHQ.JOB, 1);
 
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ START_SHIFT : clear loopCar={TCT_Lib.LoopCarCount()}, violation={bHasViolation}->False, afterPay={TCT_Lib.bAfterPayment}->False, towing={TCT_Lib.iIsTowing}->0, class={TCT_Lib.iCurTC_Class}->0");
                 if (TCT_Lib.xListLoopCar.Count > 0)
                     TCT_Lib.xListLoopCar.Clear();
 
@@ -741,6 +789,7 @@ namespace TCT_App
                 //--- Check Queue in lane
                 if ((TCT_Lib.iCurTC_Class > 0) || (TCT_Lib.xListLoopCar.Count != 0))
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ END_SHIFT : rejected, class={TCT_Lib.iCurTC_Class}, loopCar={TCT_Lib.LoopCarCount()}");
                     messageProcessUI("พบรถในช่องทาง โปรดรอรถออก");
                     LogInfo.WriteLaneEvent("Press END SHIFT Fail : Found vehicle in queue.");
                     return;
@@ -748,6 +797,7 @@ namespace TCT_App
                 //--- Check if found Loop On and OB On, then staff must force reset first
                 if ((bInPassageLoop && bInPassageOB) || (bTrigDownLoop && bInPassageOB))
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ END_SHIFT : rejected, passageLoop={bInPassageLoop}, passageOB={bInPassageOB}, trigDownLoop={bTrigDownLoop}");
                     messageProcessUI("Loop ON/OB ON -> Force Reset");
                     LogInfo.WriteLaneEvent("Press END SHIFT Fail : Found Loop On and OB On. Cannot EOF, User must Force Reset.");
                     return;
@@ -771,11 +821,13 @@ namespace TCT_App
                     //------------------------------------
                     if (TCT_Lib.eCurLaneMode == LaneMode.CLOSED)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ END_SHIFT : stop, lane mode is CLOSED");
                         LogInfo.WriteLaneEvent("- Lane Closed already.");
                         return;
                     }
 
                     //---------------------------------------------------------
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ END_SHIFT : EDC={TCT_Lib.bEnableEdc}, edcBusy={TCT_Lib.bEdcProcessing}, edcVer={TCT_Lib.iEdcVersionType}, clearBatchHour={TCT_Lib.iEdcStartHourClearBatch}-{TCT_Lib.iEdcEndHourClearBatch}, now={DateTime.Now.Hour}");
                     if (TCT_Lib.bEnableEdc)
                     {
                         if (!TCT_Lib.bEdcProcessing)
@@ -811,6 +863,7 @@ namespace TCT_App
                     }
                     LogInfo.WriteLaneEvent("+ Start Process END SHIFT");
                     DateTime dtEndShift = TCT_Lib.LaneDB.WriteLaneEndStaffShift(TCT_Lib.iStaffShiftID, 0);
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ END_SHIFT : staffShiftId={TCT_Lib.iStaffShiftID}, endShift={dtEndShift:yyyy-MM-dd HH:mm:ss}, send EOJ to BIS/RTO/SupAdjust/DC/WebService");
                     TCT_Lib.LaneDB.WriteLaneEventHQ(EventTypeHQ.JOB, 0);
                     TCT_Lib.webSocketLane.SendCollectorJob(0);
                     TCT_Lib.webSocketLane.SendChangeSupervisor();
@@ -819,6 +872,8 @@ namespace TCT_App
                     TCT_Lib.SendEndJobObjToDC(TCT_Lib.iStaffShiftID);
                     TCT_Lib.webSocketLane.SendCollectorJob(0);              // Repeat send EOJ to BIS
                     WebService_BeginEndJob.CallWebService_EndOfJob(dtEndShift, ref szErrMsg);
+                    if (!string.IsNullOrEmpty(szErrMsg))
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning END_SHIFT : WebService EndOfJob message = {szErrMsg}");
                     EndShiftProcess();
                     endShiftLaneControl();
                     LogInfo.WriteLaneEvent("+ End Process END SHIFT");
@@ -827,6 +882,7 @@ namespace TCT_App
             else if (iKey == (int)KeyPressedType.VIOLATION)
             {
                 LogInfo.WriteLaneEvent("Press VIOLATION");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ VIOLATION : hasViolation={bHasViolation} (if true -> clear, stop siren, reset TFI), laneMode={TCT_Lib.eCurLaneMode}");
 
                 if (bHasViolation)
                 {
@@ -879,6 +935,7 @@ namespace TCT_App
                 }
 
                 LogInfo.WriteLaneEvent("Press CLASS 1");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_1 : towing={TCT_Lib.eTowingState}, nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, class={TCT_Lib.iCurTC_Class}, nextClass={TCT_Lib.iNextTC_Class}");
 
                 if ((TCT_Lib.eTowingState == TowingState.None) ||
                     (TCT_Lib.eTowingState == TowingState.StartTowing))
@@ -938,6 +995,7 @@ namespace TCT_App
                     //WriteTextCRS(TCT_Lib.iTowingTC_Class.ToString(), "");
                     //TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.Class_Fare, (int)TFI_Pattern.Normal, "1", TCT_Lib.fFareClass1.ToString("0"), "", szVehicle_Type1, szAmount_Class1);
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_1 : result class={TCT_Lib.iCurTC_Class}, nextClass={TCT_Lib.iNextTC_Class}, nextCar={iStepNextCar}, towing={TCT_Lib.eTowingState}, towingClass={TCT_Lib.iTowingTC_Class}, totalQueue={TCT_Lib.iTotalQueue}");
             }
             else if (iKey == (int)KeyPressedType.CLASS_2)
             {
@@ -967,6 +1025,7 @@ namespace TCT_App
                 }
 
                 LogInfo.WriteLaneEvent("Press CLASS 2");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_2 : towing={TCT_Lib.eTowingState}, nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, class={TCT_Lib.iCurTC_Class}, nextClass={TCT_Lib.iNextTC_Class}");
                 if ((TCT_Lib.eTowingState == TowingState.None) ||
                     (TCT_Lib.eTowingState == TowingState.StartTowing))
                 {
@@ -1025,9 +1084,12 @@ namespace TCT_App
                     //WriteTextCRS(TCT_Lib.iTowingTC_Class.ToString(), "");
                     //TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.Class_Fare, (int)TFI_Pattern.Normal, "2", TCT_Lib.fFareClass2.ToString("0"), "", szVehicle_Type2, szAmount_Class2);
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_2 : result class={TCT_Lib.iCurTC_Class}, nextClass={TCT_Lib.iNextTC_Class}, nextCar={iStepNextCar}, towing={TCT_Lib.eTowingState}, towingClass={TCT_Lib.iTowingTC_Class}, totalQueue={TCT_Lib.iTotalQueue}");
             }
             else if (iKey == (int)KeyPressedType.CLASS_5)
             {
+                if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ CLASS_5 : ignored, violation active");
                 if (bHasViolation)
                     return;
 
@@ -1056,6 +1118,7 @@ namespace TCT_App
                 TCT_Lib.bAfterPayment = true;
                 //--- Check Next Car can press
                 iStepNextCar = 1;
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_5 : class=5 EMERGENCY/EXEMPT, ALB open, afterPay=True, nextCar=1, nTrx={TCT_Lib.nTrx}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}");
 
                 //----------------------------------------------------------------------------------------
                 /*
@@ -1086,6 +1149,7 @@ namespace TCT_App
                 }
 
                 LogInfo.WriteLaneEvent("Press CLASS 6 (TOWING)");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_6 : towing {TCT_Lib.iIsTowing}/{TCT_Lib.eTowingState} -> 1/StartTowing, class {TCT_Lib.iCurTC_Class} -> 6");
                 TCT_Lib.iCurTC_Class    = 6;        // => Towing
                 TCT_Lib.iIsTowing       = 1;
                 TCT_Lib.eTowingState    = TowingState.StartTowing;
@@ -1122,6 +1186,7 @@ namespace TCT_App
                 }
 
                 LogInfo.WriteLaneEvent("Press CLASS 7 (EXEMPT)");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_7 : nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, class={TCT_Lib.iCurTC_Class}, loopBack={bDetectLoopBack}, convoy={TCT_Lib.bConvoyMode}");
                 //-----------------------------------------------------------
                 if (iStepNextCar >= 2)
                 {
@@ -1190,6 +1255,7 @@ namespace TCT_App
                         }
                     }
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_7 : result class={TCT_Lib.iCurTC_Class}, nextClass={TCT_Lib.iNextTC_Class}, nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, loopCar={TCT_Lib.LoopCarCount()}, captureTrx={iCapture_nTrx}");
                 //---------------------------------------------------------------------------------------
                 if ((TCT_Lib.iVideoNVR_CaptureImageMethod == 0) || (TCT_Lib.iVideoNVR_CaptureImageMethod == 1))
                 {
@@ -1218,6 +1284,7 @@ namespace TCT_App
                 }
 
                 LogInfo.WriteLaneEvent("Press CLASS 8 (LEFT EXIT)");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_8 : nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, class={TCT_Lib.iCurTC_Class}, loopBack={bDetectLoopBack}, convoy={TCT_Lib.bConvoyMode}");
                 //-----------------------------------------------------------
                 if (iStepNextCar >= 2)
                 {
@@ -1284,6 +1351,7 @@ namespace TCT_App
                         }
                     }
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_8 : result class={TCT_Lib.iCurTC_Class}, nextClass={TCT_Lib.iNextTC_Class}, nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, loopCar={TCT_Lib.LoopCarCount()}");
                 if ((TCT_Lib.iVideoNVR_CaptureImageMethod == 0) || (TCT_Lib.iVideoNVR_CaptureImageMethod == 1))
                     CreateProcessVideoCaptureImage(TCT_Lib.nTrx);
                 //----------------------------------------------------------------------------------------
@@ -1338,6 +1406,7 @@ namespace TCT_App
                         //TCT_Lib.etcRabbitMQ.Send_SetLaneMode_ToETC(LaneMode.HPMC);
                     }
 
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_9 : start HPMC, laneMode {TCT_Lib.eCurLaneMode} -> {(TCT_Lib.bMaintenanceMode ? LaneMode.MAINTENANCE : LaneMode.HPMC)}, class {TCT_Lib.iCurTC_Class} -> 9, allowETC={TCT_Lib.bAllowETC}");
                     TCT_Lib.eCurLaneMode            = TCT_Lib.bMaintenanceMode ? LaneMode.MAINTENANCE : LaneMode.HPMC;
                     TCT_Lib.iCurTC_Class            = 9;        // => HPMC Show '0'
                     TCT_Lib.xCurPayment.payAmount   = 0;
@@ -1375,6 +1444,7 @@ namespace TCT_App
                         TCT_Lib.bAllowConvoy = false;
                         LogInfo.WriteLaneEvent("-3 AllowConvoy = false, ListLoopCar=0");
                     }
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_9 : HPMC started, afterPay=True, nextCar={iStepNextCar}, loopBack={bDetectLoopBack}, loopCar={TCT_Lib.LoopCarCount()}, allowConvoy={TCT_Lib.bAllowConvoy}");
                     //-----------------------------------------------------------
                 }
                 else
@@ -1391,6 +1461,7 @@ namespace TCT_App
                     if ((TCT_Lib.eCurLaneType == LaneType.DUAL) || (TCT_Lib.eCurLaneType == LaneType.ETC))
                         TCT_Lib.bEndDualHPMC = true;
 
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_9 : end HPMC, laneMode {TCT_Lib.eCurLaneMode} -> {(TCT_Lib.bMaintenanceMode ? LaneMode.MAINTENANCE : LaneMode.NORMAL)}, endDualHPMC={TCT_Lib.bEndDualHPMC}, loopCar={TCT_Lib.LoopCarCount()}, queueALB={iQueueALB}");
                     TCT_Lib.eCurLaneMode        = TCT_Lib.bMaintenanceMode ? LaneMode.MAINTENANCE : LaneMode.NORMAL;
                     TCT_Lib.iTotalQueue         = 0;
                     iQueueALB                   = 0;
@@ -1443,6 +1514,7 @@ namespace TCT_App
                         TCT_Lib.etcRabbitMQ.SendPassagePaymentToETC((int)TCT_Lib.LaneDB.GetCurTransID(), (int)VehicleType.HPMC, (int)PayType.HPMC, 0, ALB_Mode.Normal, bReClassETC);
                     }
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CLASS_9 : done, laneMode={TCT_Lib.eCurLaneMode}, class={TCT_Lib.iCurTC_Class}, nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, loopCar={TCT_Lib.LoopCarCount()}");
 #if __SIM__
                 //--- Sim Device Input LC
                 //TCT_Lib.webSocketLane.SendDeviceInput_Controller((int)Cmd_DI_Type.EntryLoop, ON);
@@ -1459,9 +1531,12 @@ namespace TCT_App
                 }
                 //---------------------------------------------
                 if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_CASH : ignored, violation active");
+                if (bHasViolation)
                     return;
 
                 LogInfo.WriteLaneEvent("Press PAY CASH");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_CASH : towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, vehicle={eCurVehicleType}, fare={TCT_Lib.fCurFareAmount}, allowETC={TCT_Lib.bAllowETC}, nTrx={TCT_Lib.nTrx}");
                 updateUI_ClearQrWarningMsg();
 
                 if (TCT_Lib.eTowingState == TowingState.None)
@@ -1516,6 +1591,7 @@ namespace TCT_App
                         // ---Check Next Car can press
                         iStepNextCar = 1;
                     }
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_CASH : paid, afterPay=True, nextCar={iStepNextCar}, loopBack={bDetectLoopBack}, loopCar={TCT_Lib.LoopCarCount()}");
 
                     //---------------------------------------------------------------------------------------
 #if __SIM__
@@ -1527,6 +1603,7 @@ namespace TCT_App
                     //--- Towing Mode
                     if (TCT_Lib.eTowingState == TowingState.FirstClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_CASH : towing FirstClassType -> FirstPayType, class={TCT_Lib.iCurTC_Class}");
                         TCT_Lib.eTowingState            = TowingState.FirstPayType;
                         TCT_Lib.xCurPayment.payType     = (int)PayType.CASH;
                         TCT_Lib.xCurPayment.payTypeName = TCT_Lib.GetPayMethodName((int)PayType.CASH);
@@ -1544,6 +1621,7 @@ namespace TCT_App
                     }
                     else if (TCT_Lib.eTowingState == TowingState.SecClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_CASH : towing SecClassType -> SecPayType, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}");
                         TCT_Lib.eTowingState                = TowingState.SecPayType;
                         TCT_Lib.xTowingPayment.payType      = (int)PayType.CASH;
                         TCT_Lib.xTowingPayment.payTypeName  = TCT_Lib.GetPayMethodName((int)PayType.CASH);
@@ -1608,6 +1686,8 @@ namespace TCT_App
                         SimLanePassageLoop();
 #endif
                     }
+                    else
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_CASH : ignored, towing state={TCT_Lib.eTowingState} is not waiting for payment");
                 }
             }
             else if (iKey == (int)KeyPressedType.PAY_COUPON)
@@ -1619,9 +1699,12 @@ namespace TCT_App
                 }
                 //---------------------------------------------
                 if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_COUPON : ignored, violation active");
+                if (bHasViolation)
                     return;
 
                 LogInfo.WriteLaneEvent("Press PAY COUPON");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_COUPON : towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, vehicle={eCurVehicleType}, fare={TCT_Lib.fCurFareAmount}, allowETC={TCT_Lib.bAllowETC}, nTrx={TCT_Lib.nTrx}");
                 updateUI_ClearQrWarningMsg();
 
                 if (TCT_Lib.eTowingState == TowingState.None)
@@ -1677,6 +1760,7 @@ namespace TCT_App
                         // ---Check Next Car can press
                         iStepNextCar = 1;
                     }
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_COUPON : paid, afterPay=True, nextCar={iStepNextCar}, loopBack={bDetectLoopBack}, loopCar={TCT_Lib.LoopCarCount()}");
                     if (TCT_Lib.bConvoyMode && (TCT_Lib.xListLoopCar.Count == 0))
                     {
                         TCT_Lib.bAllowConvoy = false;
@@ -1692,6 +1776,7 @@ namespace TCT_App
                     //--- Towing Mode
                     if (TCT_Lib.eTowingState == TowingState.FirstClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_COUPON : towing FirstClassType -> FirstPayType, class={TCT_Lib.iCurTC_Class}");
                         TCT_Lib.eTowingState            = TowingState.FirstPayType;
                         TCT_Lib.xCurPayment.payType     = (int)PayType.COUPON;
                         TCT_Lib.xCurPayment.payTypeName = TCT_Lib.GetPayMethodName((int)PayType.COUPON);
@@ -1708,6 +1793,7 @@ namespace TCT_App
                     }
                     else if (TCT_Lib.eTowingState == TowingState.SecClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_COUPON : towing SecClassType -> SecPayType, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}");
                         TCT_Lib.eTowingState                = TowingState.SecPayType;
                         TCT_Lib.xTowingPayment.payType      = (int)PayType.COUPON;
                         TCT_Lib.xTowingPayment.payTypeName  = TCT_Lib.GetPayMethodName((int)PayType.COUPON);
@@ -1761,6 +1847,8 @@ namespace TCT_App
                         SimLanePassageLoop();
 #endif
                     }
+                    else
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_COUPON : ignored, towing state={TCT_Lib.eTowingState} is not waiting for payment");
                 }
             }
             else if ((iKey == (int)KeyPressedType.PAY_PM6) ||
@@ -1769,12 +1857,16 @@ namespace TCT_App
                      (iKey == (int)KeyPressedType.PAY_PM9))
             {
                 if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_PM : ignored, violation active, key={TCT_Lib.KeyMapName(iKey)}");
+                if (bHasViolation)
                     return;
 
                 int iPayType = 1;
                 var ePayType = PayType.PM6;
                 if (iKey == (int)KeyPressedType.PAY_PM6)
                 {
+                    if (TCT_Lib.szPaymentBtn_06?.Trim() == "")
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_PM6 : ignored, payment button 6 is not configured");
                     if (TCT_Lib.szPaymentBtn_06.Trim() == "")
                         return;
                     ePayType = PayType.PM6;
@@ -1782,6 +1874,8 @@ namespace TCT_App
                 }
                 else if (iKey == (int)KeyPressedType.PAY_PM7)
                 {
+                    if (TCT_Lib.szPaymentBtn_07?.Trim() == "")
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_PM7 : ignored, payment button 7 is not configured");
                     if (TCT_Lib.szPaymentBtn_07.Trim() == "")
                         return;
                     ePayType = PayType.PM7;
@@ -1789,6 +1883,8 @@ namespace TCT_App
                 }
                 else if (iKey == (int)KeyPressedType.PAY_PM8)
                 {
+                    if (TCT_Lib.szPaymentBtn_08?.Trim() == "")
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_PM8 : ignored, payment button 8 is not configured");
                     if (TCT_Lib.szPaymentBtn_08.Trim() == "")
                         return;
                     ePayType = PayType.PM8;
@@ -1797,6 +1893,8 @@ namespace TCT_App
 
                 else if (iKey == (int)KeyPressedType.PAY_PM9)
                 {
+                    if (TCT_Lib.szPaymentBtn_09?.Trim() == "")
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_PM9 : ignored, payment button 9 is not configured");
                     if (TCT_Lib.szPaymentBtn_09.Trim() == "")
                         return;
                     ePayType = PayType.PM9;
@@ -1804,6 +1902,7 @@ namespace TCT_App
                 }
 
                 LogInfo.WriteLaneEvent("Press PAY " + TCT_Lib.GetPayMethodName(iPayType));
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_PM : payType={ePayType}({iPayType}), towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, vehicle={eCurVehicleType}, fare={TCT_Lib.fCurFareAmount}, allowETC={TCT_Lib.bAllowETC}");
 
                 if (TCT_Lib.eTowingState == TowingState.None)
                 {
@@ -1857,6 +1956,7 @@ namespace TCT_App
                         // ---Check Next Car can press
                         iStepNextCar = 1;
                     }
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_PM : paid {ePayType}, afterPay=True, nextCar={iStepNextCar}, loopBack={bDetectLoopBack}, loopCar={TCT_Lib.LoopCarCount()}");
 
                     //---------------------------------------------------------------------------------------
 #if __SIM__
@@ -1868,6 +1968,7 @@ namespace TCT_App
                     //--- Towing Mode
                     if (TCT_Lib.eTowingState == TowingState.FirstClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_PM : towing FirstClassType -> FirstPayType, payType={ePayType}, class={TCT_Lib.iCurTC_Class}");
                         TCT_Lib.eTowingState            = TowingState.FirstPayType;
                         TCT_Lib.xCurPayment.payType     = iPayType;
                         TCT_Lib.xCurPayment.payTypeName = TCT_Lib.GetPayMethodName(iPayType);
@@ -1885,6 +1986,7 @@ namespace TCT_App
                     }
                     else if (TCT_Lib.eTowingState == TowingState.SecClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_PM : towing SecClassType -> SecPayType, payType={ePayType}, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}");
                         TCT_Lib.eTowingState                = TowingState.SecPayType;
                         TCT_Lib.xTowingPayment.payType      = iPayType;
                         TCT_Lib.xTowingPayment.payTypeName  = TCT_Lib.GetPayMethodName(iPayType);
@@ -1949,14 +2051,19 @@ namespace TCT_App
                         SimLanePassageLoop();
 #endif
                     }
+                    else
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_PM : ignored, towing state={TCT_Lib.eTowingState} is not waiting for payment");
                 }
             }
             else if (iKey == (int)KeyPressedType.PAY_DMTCARD)
             {
                 if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_DMTCARD : ignored, violation active");
+                if (bHasViolation)
                     return;
 
                 LogInfo.WriteLaneEvent("Press PAY DMT_CARD");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_DMTCARD : towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, vehicle={eCurVehicleType}, dmtCardType={TCT_Lib.iDmtCardType}, effectiveDate={TCT_Lib.szDmtCardEffectiveDate ?? "null"}");
                 updateUI_ClearQrWarningMsg();
                 //------------------------------------------------------------------------------------
                 DateTime dtEffectiveDate_DmtCard = DateTime.MinValue;
@@ -1973,12 +2080,14 @@ namespace TCT_App
                         dtEffectiveDate_DmtCard = DateTime.MaxValue;
                     }
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_DMTCARD : showDialog={(TCT_Lib.iDmtCardType > 0) && (DateTime.Now > dtEffectiveDate_DmtCard)}, effective={dtEffectiveDate_DmtCard:yyyy-MM-dd HH:mm:ss}");
                 if ((TCT_Lib.iDmtCardType > 0) && (DateTime.Now > dtEffectiveDate_DmtCard))
                 {
                     var frmDmtPayment   = new DMT_PaymentDlg();
                     Gdk.Color colBk     = new Gdk.Color(0x3E, 0x3E, 0x3E);
                     frmDmtPayment.ModifyBg(StateType.Normal, colBk);
                     ResponseType xResult = (ResponseType)frmDmtPayment.Run();
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_DMTCARD : dialog result={xResult}, page {TCT_Lib.eCurAppPage} -> Main");
 
                     string szDmtCarNo       = frmDmtPayment.szDmtCarNo;
                     string szLicensePlate   = frmDmtPayment.szLicensePlate;
@@ -2061,6 +2170,7 @@ namespace TCT_App
                         // ---Check Next Car can press
                         iStepNextCar = 1;
                     }
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_DMTCARD : paid, afterPay=True, nextCar={iStepNextCar}, loopBack={bDetectLoopBack}, loopCar={TCT_Lib.LoopCarCount()}");
                     if (TCT_Lib.bConvoyMode && (TCT_Lib.xListLoopCar.Count == 0))
                     {
                         TCT_Lib.bAllowConvoy = false;
@@ -2076,6 +2186,7 @@ namespace TCT_App
                     //--- Towing Mode
                     if (TCT_Lib.eTowingState == TowingState.FirstClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_DMTCARD : towing FirstClassType -> FirstPayType, class={TCT_Lib.iCurTC_Class}");
                         TCT_Lib.eTowingState                = TowingState.FirstPayType;
                         TCT_Lib.xCurPayment.payType         = (int)PayType.DMT_CARD;
                         TCT_Lib.xCurPayment.payTypeName     = TCT_Lib.GetPayMethodName((int)PayType.DMT_CARD);
@@ -2092,6 +2203,7 @@ namespace TCT_App
                     }
                     else if (TCT_Lib.eTowingState == TowingState.SecClassType)
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_DMTCARD : towing SecClassType -> SecPayType, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}");
                         TCT_Lib.eTowingState                = TowingState.SecPayType;
                         TCT_Lib.xTowingPayment.payType      = (int)PayType.DMT_CARD;
                         TCT_Lib.xTowingPayment.payTypeName  = TCT_Lib.GetPayMethodName((int)PayType.DMT_CARD);
@@ -2133,14 +2245,19 @@ namespace TCT_App
                         SimLanePassageLoop();
 #endif
                     }
+                    else
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_DMTCARD : ignored, towing state={TCT_Lib.eTowingState} is not waiting for payment");
                 }
             }
             else if (iKey == (int)KeyPressedType.PAY_EMV)
             {
                 if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PAY_EMV : ignored, violation active");
+                if (bHasViolation)
                     return;
 
                 LogInfo.WriteLaneEvent("Press PAY EMV");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_EMV : towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}, fare={TCT_Lib.fCurFareAmount}, towingFare={TCT_Lib.fTowingFareAmount}, curPayType={TCT_Lib.xCurPayment?.payType}");
                 updateUI_ClearQrWarningMsg();
                 //-----------------------------------------------------------------
                 /*
@@ -2191,11 +2308,14 @@ namespace TCT_App
                     else if (TCT_Lib.eTowingState == TowingState.SecClassType)
                         emvCreditPaymentUI(TCT_Lib.fTowingFareAmount);
                 }
+                else
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_EMV : ignored, fare={TCT_Lib.fCurFareAmount} and payType={TCT_Lib.xCurPayment?.payType} is not DMT card");
 
             }
             else if (iKey == (int)KeyPressedType.PAY_QRCODE)
             {
                 LogInfo.WriteLaneEvent("Press PAY QR CODE");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_QRCODE : towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}, fare={TCT_Lib.fCurFareAmount}, towingFare={TCT_Lib.fTowingFareAmount}, violation={bHasViolation}");
                 updateUI_ClearQrWarningMsg();
                 //-----------------------------------------------------------------
                 if (TCT_Lib.eTowingState == TowingState.FirstClassType)
@@ -2212,10 +2332,13 @@ namespace TCT_App
                     else if (TCT_Lib.eTowingState == TowingState.SecClassType)
                         emvQrCodePaymentUI(TCT_Lib.fTowingFareAmount);
                 }
+                else
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PAY_QRCODE : ignored, fare={TCT_Lib.fCurFareAmount} (no class selected)");
             }
             else if (iKey == (int)KeyPressedType.EDIT)
             {
                 LogInfo.WriteLaneEvent("Press EDIT");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, nextClass={TCT_Lib.iNextTC_Class}, nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, payType={TCT_Lib.xCurPayment?.payType}, towingPayType={TCT_Lib.xTowingPayment?.payType}, blockTAG={bBlockTAG}, laneType={TCT_Lib.eCurLaneType}");
                 //----------------------------------------------
                 if (!CheckAllowRepeatKeyChar((int)KeyPressedType.EDIT))
                 {
@@ -2305,6 +2428,7 @@ namespace TCT_App
 
                 LogInfo.WriteLaneEvent($"+ EDIT Process is working.");
                 //-----------------------------------------------------
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : step back from towing={TCT_Lib.eTowingState}, nextCar={iStepNextCar}, totalQueue={TCT_Lib.iTotalQueue}");
                 if (TCT_Lib.eTowingState != TowingState.None)
                 {
                     //--- Towing Mode
@@ -2333,6 +2457,7 @@ namespace TCT_App
                         TCT_Lib.xCurPayment     = new Pay_Info();
                     }
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : towing now={TCT_Lib.eTowingState}, totalQueue={TCT_Lib.iTotalQueue}");
 
                 updateUiQueueLaneControl();
                 bEditBlockETC   = true;
@@ -2350,6 +2475,7 @@ namespace TCT_App
                         (TCT_Lib.xCurPayment.payType == (int)PayType.EXEMPT) ||
                         (TCT_Lib.xCurPayment.payType == (int)PayType.LeftExit))
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : edit class (payType={TCT_Lib.xCurPayment.payType}), class {TCT_Lib.iCurTC_Class} -> 0, laneMode={TCT_Lib.eCurLaneMode}, queueALB={iQueueALB}");
                         TCT_Lib.iTotalQueue--;
                         if (TCT_Lib.iTotalQueue < 0)
                             TCT_Lib.iTotalQueue = 0;
@@ -2428,6 +2554,7 @@ namespace TCT_App
 */                    
                     else if ((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.xCurPayment.payType > 0))
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : edit payment, class={TCT_Lib.iCurTC_Class}, payType={TCT_Lib.xCurPayment.payType}, amount={TCT_Lib.xCurPayment.payAmount} -> RePayment, afterPay={TCT_Lib.bAfterPayment} -> False");
                         if ((TCT_Lib.xCurPayment.payType == (int)PayType.EasyPass) || ((TCT_Lib.xCurPayment.payType == (int)PayType.MPass)))
                         {
                             int iCurPayType     = TCT_Lib.xCurPayment.payType;
@@ -2467,6 +2594,7 @@ namespace TCT_App
 
                         //------------------------------------------------------------
                         int iAlarmID = (int)TCT_Lib.LaneDB.WriteLaneAlarmRTO(AlarmDevice.RE_PAYMENT, AlarmType.Occurred, $"RePayment = {TCT_Lib.xCurPayment.payTypeName}, Amount={TCT_Lib.xCurPayment.payAmount} ", "");
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : RE_PAYMENT alarm id={iAlarmID}");
                         TCT_Lib.SendLaneAlarmObjToRTO(iAlarmID);
                         //--------------------------------------------------------------
                         TCT_Lib.xCurPayment             = new Pay_Info();
@@ -2513,9 +2641,12 @@ namespace TCT_App
                         editBackPayType();
                         TCT_Lib.bAfterPayment = false;
                     }
+                    else
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : nothing to edit, class={TCT_Lib.iCurTC_Class}, payType={TCT_Lib.xCurPayment.payType}");
                 }
                 else
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : towing edit, state={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}, vehicle={eCurVehicleType}");
                     //--- Towing Mode
                     if (TCT_Lib.eTowingState == TowingState.SecClassType)
                     {
@@ -2600,10 +2731,14 @@ namespace TCT_App
                     towing_PayType2 = TCT_Lib.xTowingPayment == null ? 0 : TCT_Lib.xTowingPayment.payType
                 };
                 TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToClient("LANE_EDIT", objParams);
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EDIT : done, editType={iEditType}, towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, payType={TCT_Lib.xCurPayment?.payType}, afterPay={TCT_Lib.bAfterPayment}, nextCar={iStepNextCar}, queueALB={iQueueALB}");
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLaneEvent(LogLevel.TRACE, "+ EDIT : LANE_EDIT params = " + JsonConvert.SerializeObject(objParams));
             }
             else if (iKey == (int)KeyPressedType.FORCE_RESET)
             {
                 LogInfo.WriteLaneEvent("Press FORCE_RESET");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ FORCE_RESET : towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, afterPay={TCT_Lib.bAfterPayment}, payType={TCT_Lib.xCurPayment?.payType}, towingPayType={TCT_Lib.xTowingPayment?.payType}, loopCar={TCT_Lib.LoopCarCount()}, passageLoop={bInPassageLoop}, passageOB={bInPassageOB}, trigDownLoop={bTrigDownLoop}, violation={bHasViolation}, nTrx={TCT_Lib.nTrx}");
                 //----------------------------------------------
                 if (!CheckAllowRepeatKeyChar((int)KeyPressedType.FORCE_RESET))
                 {
@@ -2666,6 +2801,7 @@ namespace TCT_App
                 if (TCT_Lib.eTowingState != TowingState.None)
                 {
                     //--- Check first vehicle success transaction
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ FORCE_RESET : towing mode, towingAVC={bTowingAVC} -> force AVC event");
                     if (!bTowingAVC)
                     {
                         AddAvcTimer(1);
@@ -2750,6 +2886,7 @@ namespace TCT_App
                 bEditBlockETC           = false;
                 bEditDual               = false;
 
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ FORCE_RESET : forceEnded={bForceEnded}, alarmId={iAlarmID}, clear loopCar={TCT_Lib.LoopCarCount()}, violation/towingAVC/reClassETC/editDual reset, nextCar=0, queueALB=0");
                 TCT_Lib.xListLoopCar.Clear();
                 showQueueAlbControl(iQueueALB);
                 showTotalLoop();
@@ -2785,6 +2922,7 @@ namespace TCT_App
                 }
                 bHasViolation = false;
                 Perform_StopSiren();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ FORCE_RESET : done, laneMode={TCT_Lib.eCurLaneMode}, towing={TCT_Lib.eTowingState}, ETC clearQueue={TCT_Lib.bAllowETC}, loopCar={TCT_Lib.LoopCarCount()}");
 #if __SIM__
                 //--- Sim Device Input LC
                 TCT_Lib.webSocketLane.SendDeviceInput_Controller((int)Cmd_DI_Type.PresenceLoop, OFF);
@@ -2804,7 +2942,10 @@ namespace TCT_App
                 }
                 //---------------------------------------------
                 LogInfo.WriteLaneEvent("Press PRINT RECEIPT");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ RECEIPT : towing={TCT_Lib.eTowingState}, nTrx={TCT_Lib.nTrx}, violation={bHasViolation}, convoy={TCT_Lib.bConvoyMode}");
 
+                if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ RECEIPT : ignored, violation active");
                 if (bHasViolation)
                     return;
 
@@ -2823,6 +2964,8 @@ namespace TCT_App
                         PrintUtils.PrintReceiptLib.PrintReceipt(TCT_Lib.nTrx + 1, true);
                         //TCT_Lib.bHasGenReceiptNo = true;
                     }
+                    else
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ RECEIPT : ignored, towing state={TCT_Lib.eTowingState} (print only at SecPayType)");
                 }
                 if (TCT_Lib.bConvoyMode && (TCT_Lib.xListLoopCar.Count == 0))
                 {
@@ -2836,9 +2979,11 @@ namespace TCT_App
                 bManualLogin    = true;
                 szLoginKey      = szPasswordKey = "";
                 startManualStaffLogin();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MANUAL : manual login started, key buffers cleared");
             }
             else if (iKey == (int)KeyPressedType.ESC)
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ ESC : manualLogin={bManualLogin}");
                 if (bManualLogin)
                 {
                     bManualLogin = false;
@@ -2849,6 +2994,7 @@ namespace TCT_App
             else if (iKey == (int)KeyPressedType.ENTER)
             {
                 LogInfo.WriteLaneEvent("Press ENTER");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ ENTER : manualLogin={bManualLogin}, staffCodeLen={szLoginKey?.Length ?? 0}");
                 if (bManualLogin)
                 {
                     if (szLoginKey.Trim() != "")
@@ -2896,6 +3042,8 @@ namespace TCT_App
 
                 setLaneTypeMode();
             }
+            else
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ KeyPressed : no handler for key={TCT_Lib.KeyMapName(iKey)} on page={TCT_Lib.eCurAppPage}");
         }
 
         protected bool CheckManualStafffLogin()
@@ -2972,6 +3120,7 @@ namespace TCT_App
                                 return;
                         }
             */
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AddAvcTimer : id={iAvcTimer}, replace {iWaitAvcTimerIds.Count} pending, waitAVC={bEnableWaitAVC} -> True");
             RemoveAvcTimer();
             iWaitAvcTimerIds.Add(iAvcTimer);
             bEnableWaitAVC = true;
@@ -2979,6 +3128,8 @@ namespace TCT_App
 
         protected void RemoveAvcTimer()
         {
+            if (iWaitAvcTimerIds.Count > 0 || bEnableWaitAVC)
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ RemoveAvcTimer : remove {iWaitAvcTimerIds.Count} timer(s), waitAVC={bEnableWaitAVC} -> False");
             foreach (uint iAvcTimer in iWaitAvcTimerIds.ToList())
                 GLib.Source.Remove(iAvcTimer);
             iWaitAvcTimerIds.Clear();
@@ -2994,12 +3145,15 @@ namespace TCT_App
                                 return;
                         }
             */
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AddSirenTimer : id={iSirenTimer}, replace {iSirenTimerIds.Count} pending");
             RemoveSirenTimer();
             iSirenTimerIds.Add(iSirenTimer);
         }
 
         protected void RemoveSirenTimer()
         {
+            if (iSirenTimerIds.Count > 0)
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ RemoveSirenTimer : remove {iSirenTimerIds.Count} timer(s)");
             foreach (uint iTimer in iSirenTimerIds.ToList())
                 GLib.Source.Remove(iTimer);
             iSirenTimerIds.Clear();
@@ -3013,6 +3167,7 @@ namespace TCT_App
             endTransactionThread.Priority       = ThreadPriority.AboveNormal;
             endTransactionThread.IsBackground   = true;
             endTransactionThread.Start();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ InitialEndTransactionThread : thread started");
         }
 
 
@@ -3022,6 +3177,7 @@ namespace TCT_App
         //--- The body was never implemented, so the thread now exits immediately.
         private void ThreadEndTransaction()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ ThreadEndTransaction : stub thread, exit immediately");
             return;
         }
 
@@ -3030,6 +3186,7 @@ namespace TCT_App
         protected bool Perform_ForceEndTransaction()
         {
             LogInfo.WriteLog("+ Force End Transaction");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Perform_ForceEndTransaction : class={TCT_Lib.iCurTC_Class}, afterPay={TCT_Lib.bAfterPayment}, loopCar={TCT_Lib.LoopCarCount()}, towing={TCT_Lib.eTowingState}, nTrx={TCT_Lib.nTrx} -> AVC class=255 (force end)");
             try
             {
                 int iAutoClass      = 255;
@@ -3057,12 +3214,15 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLog("- Error Perform_AutoEndTransaction : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- Perform_ForceEndTransaction stack : " + err.StackTrace);
                 return false;
             }
         }
 
         protected bool Perform_ForceEventAVC()
         {
+            if (!bEnableWaitAVC)
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Perform_ForceEventAVC : skip, wait AVC not enabled");
             if (!bEnableWaitAVC)
                 return false;
 
@@ -3072,6 +3232,8 @@ namespace TCT_App
             //--------------------------------------------------
             if (TCT_Lib.bMaintenanceMode)
             {
+                if (TCT_Lib.eCurAppPage != AppPage.Main)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Perform_ForceEventAVC : skip, maintenance mode and page={TCT_Lib.eCurAppPage}");
                 if (TCT_Lib.eCurAppPage != AppPage.Main)
                     return false;
             }
@@ -3093,6 +3255,7 @@ namespace TCT_App
 #else
             int iAutoClass          = 255;
 #endif
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Perform_ForceEventAVC : fire AVC class={iAutoClass} (force end), towingAVC={bTowingAVC}, class={TCT_Lib.iCurTC_Class}, loopCar={TCT_Lib.LoopCarCount()}");
             bAutoAVC        = true;
             LaneSocket_AvcLaneEvent(iAutoClass, 0, 0, 0, 0, 0, 0, true);
             LogInfo.WriteLaneEvent($"Auto AVC : AutoClass={iAutoClass}");
@@ -3144,6 +3307,8 @@ namespace TCT_App
         protected bool Perform_ChkEventAVC()
         {
             if (!bEnableWaitAVC)
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Perform_ChkEventAVC : skip, wait AVC not enabled (AVC already received)");
+            if (!bEnableWaitAVC)
                 return false;
 
             if (iWaitAvcTimerIds.Count > 0)
@@ -3152,6 +3317,8 @@ namespace TCT_App
             //--------------------------------------------------
             if (TCT_Lib.bMaintenanceMode)
             {
+                if (TCT_Lib.eCurAppPage != AppPage.Main)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Perform_ChkEventAVC : skip, maintenance mode and page={TCT_Lib.eCurAppPage}");
                 if (TCT_Lib.eCurAppPage != AppPage.Main)
                     return false;
             }
@@ -3173,6 +3340,7 @@ namespace TCT_App
 #else
             int iAutoClass          = 255;
 #endif
+            LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning Perform_ChkEventAVC : AVC timeout, fire auto AVC class={iAutoClass}, class={TCT_Lib.iCurTC_Class}, loopCar={TCT_Lib.LoopCarCount()}");
             bAutoAVC        = true;
             LaneSocket_AvcLaneEvent(iAutoClass, 0, 0, 0, 0, 0, 0);
             LogInfo.WriteLaneEvent($"Auto AVC : AutoClass={iAutoClass}");
@@ -3191,6 +3359,7 @@ namespace TCT_App
             Console.WriteLine(string.Format("+ AVC Event : class={0}, direction={1}, axle={2}, wheel={3}, dualwheel={4}, height={5}, error={6}",
                                             classType, direction, axle, wheel, dualwheel, height, error));
             LogInfo.WriteLaneEvent($"AVC : class={classType}, axle={axle}, wheel={wheel}, dualwheel={dualwheel}, direction={direction}, error={error}");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : forceEnd={bForceEndTrans}, autoAVC={bAutoAVC}, height={height}, page={TCT_Lib.eCurAppPage}, laneType={TCT_Lib.eCurLaneType}, mode={TCT_Lib.eCurLaneMode}, class={TCT_Lib.iCurTC_Class}, afterPay={TCT_Lib.bAfterPayment}, towing={TCT_Lib.eTowingState}, loopCar={TCT_Lib.LoopCarCount()}, violation={bHasViolation}, loopBack={bDetectLoopBack}, waitAVC={bEnableWaitAVC}");
 
             if (iWaitAvcTimerIds.Count > 0)
                 RemoveAvcTimer();
@@ -3199,11 +3368,15 @@ namespace TCT_App
             if (TCT_Lib.bMaintenanceMode)
             {
                 if (TCT_Lib.eCurAppPage != AppPage.Main)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : ignored, maintenance mode and page={TCT_Lib.eCurAppPage}");
+                if (TCT_Lib.eCurAppPage != AppPage.Main)
                     return;
             }
             //--------------------------------------------------
             if (TCT_Lib.eCurLaneType == LaneType.ETC)
             {
+                if (bHasViolation)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ AvcLaneEvent : ETC lane, violation True -> False");
                 if (bHasViolation)
                     bHasViolation = false;
             }
@@ -3219,6 +3392,7 @@ namespace TCT_App
                 //int iFoundOB = numPos & 1;
                 bRealPassLoop = TCT_Lib.GetBit((byte)error, 1);
                 bRealPassOB   = TCT_Lib.GetBit((byte)error, 2);
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : status from AVC error bits, realPassLoop={bRealPassLoop}, realPassOB={bRealPassOB}");
             }
 
             //--- 2022-04-27 : Fix not found staff id from login multiple smart card
@@ -3226,6 +3400,8 @@ namespace TCT_App
             {
                 if (TCT_Lib.LaneDB != null)
                 {
+                    if ((TCT_Lib.szStaffID.Trim() == "") && (TCT_Lib.iStaffShiftID > 0))
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning AvcLaneEvent : staff id is empty, reload staff from staffShiftId={TCT_Lib.iStaffShiftID}");
                     if ((TCT_Lib.szStaffID.Trim() == "") && (TCT_Lib.iStaffShiftID > 0))
                         TCT_Lib.LaneDB.SetStaffFromStaffShift(TCT_Lib.iStaffShiftID);
                 }
@@ -3243,11 +3419,13 @@ namespace TCT_App
             //    || (bFoundLoop && !bFoundOB && !bTrigDownOB & !bDetectObBack)
             //    || (bFoundLoop && bFoundOB && bDetectLoopBack && bDetectObBack && !bHasViolation && (TCT_Lib.eTowingState != TowingState.SecPayType))
             //    )
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : sensors foundLoop={bFoundLoop}, foundOB={bFoundOB}, trigDownOB={bTrigDownOB}, loopBack={bDetectLoopBack}, obBack={bDetectObBack}, towingAVC={bTowingAVC}, nextClass={TCT_Lib.iNextTC_Class}, totalQueue={TCT_Lib.iTotalQueue}");
             if ((!bFoundLoop || bHasViolation || (bDetectLoopBack && !bDetectObBack) || (!bFoundOB && !bTrigDownOB & bDetectObBack)
                 || (bFoundLoop && !bFoundOB && !bTrigDownOB & !bDetectObBack)
                 || (bFoundLoop && bFoundOB && bDetectLoopBack && bDetectObBack && !bHasViolation && (TCT_Lib.eTowingState != TowingState.SecPayType))
                 ) || (TCT_Lib.eCurLaneType == LaneType.ETC))
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : violation check path (missing loop/OB sequence or ETC lane), towing={TCT_Lib.eTowingState}, mode={TCT_Lib.eCurLaneMode}");
                 if (TCT_Lib.eTowingState == TowingState.None)
                 {
                     if (TCT_Lib.eCurLaneMode != LaneMode.HPMC)
@@ -3276,6 +3454,7 @@ namespace TCT_App
                             int iTC_Class       = iTotalLoop == 0 ? TCT_Lib.iCurTC_Class : TCT_Lib.xListLoopCar[0].iTC_Class;
                             Pay_Info xPayment   = iTotalLoop == 0 ? TCT_Lib.xCurPayment : TCT_Lib.xListLoopCar[0].xPayment;
                             string szTransRemark = iTotalLoop == 0 ? TCT_Lib.szCurTransRemark : TCT_Lib.xListLoopCar[0].szTransRemark;
+                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : head car class={iTC_Class}, payType={xPayment?.payType}, remark={szTransRemark ?? "null"}, loopCar={iTotalLoop}, sinceLastTrans={span.TotalMilliseconds:0} ms");
                             showTotalLoop();
 
                             //-------------------
@@ -3436,6 +3615,7 @@ namespace TCT_App
                 {
                     //--- 2021-11-06
                     //--- Check Violation for Towing
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : towing violation check, towing={TCT_Lib.eTowingState}, loopCar={TCT_Lib.LoopCarCount()}, towingClass={TCT_Lib.iTowingTC_Class}, towingFare={TCT_Lib.fTowingFareAmount}");
                     if ((TCT_Lib.eTowingState != TowingState.SecPayType) &&
                         (TCT_Lib.xListLoopCar.Count == 0))
                     //(((TCT_Lib.iCurTC_Class == 0) && (TCT_Lib.xListLoopCar.Count <= 1)) ||
@@ -3521,6 +3701,7 @@ namespace TCT_App
 
             //-----------------------------------------------------------
             //--- End Lane Process
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : store AVC class={classType} to {((bTowingAVC && TCT_Lib.eTowingState != TowingState.None) ? "towing" : "current")} vehicle, violation={bHasViolation}, convoy={TCT_Lib.bConvoyMode}");
             if (bTowingAVC && (TCT_Lib.eTowingState != TowingState.None))
             {
                 TCT_Lib.xTowingAVC.avcClass         = classType;
@@ -3543,6 +3724,8 @@ namespace TCT_App
             if ((TCT_Lib.eCurLaneType == LaneType.MTC) || (TCT_Lib.eCurLaneType == LaneType.DUAL))
             {
                 //--- Incase cannot detect OB, then auto decrease queue
+                if (!bDetectObBack)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : OB back not detected, totalQueue {TCT_Lib.iTotalQueue} -> {Math.Max(TCT_Lib.iTotalQueue - 1, 0)}");
                 if (!bDetectObBack)
                 {
                     TCT_Lib.iTotalQueue--;
@@ -3625,6 +3808,7 @@ namespace TCT_App
             //---------------------------------------------------------------------------------------------------------
             if (bTowingAVC && (TCT_Lib.eTowingState != TowingState.None))
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : end towing, class={TCT_Lib.iCurTC_Class}, towingClass={TCT_Lib.iTowingTC_Class}, towingAVC={TCT_Lib.xTowingAVC?.avcClass}, mode={TCT_Lib.eCurLaneMode}");
                 //--- Towing Mode --- Manual Close ALB
                 //LogInfo.WriteLog("- ClearUI from AVC - Towing");
                 clearPanelUiLaneControl();
@@ -3641,6 +3825,7 @@ namespace TCT_App
                 //--- Check MIS Event
                 if (TCT_Lib.iTowingTC_Class != TCT_Lib.xTowingAVC.avcClass)
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : towing class mismatch (DIS), towingClass={TCT_Lib.iTowingTC_Class}, avc={TCT_Lib.xTowingAVC.avcClass}");
                     TCT_Lib.bClassDisFlag = true;
                     if (TCT_Lib.xTowingAVC.avcClass != 255)
                     {
@@ -3675,6 +3860,9 @@ namespace TCT_App
                 int iTowingTransID = (int)TCT_Lib.LaneDB.WriteLaneTransaction_Towing(TCT_Lib.iAvcStatusType == 0 ? bDetectLoopBack : bRealPassLoop,
                                                                                         TCT_Lib.iAvcStatusType == 0 ? bFoundOB : bRealPassOB,
                                                                                         bForceEndTrans);
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : towing transaction id={iTowingTransID}, totalSum={iTotalSum}, avcStatusType={TCT_Lib.iAvcStatusType}, loopBack={bDetectLoopBack}, foundOB={bFoundOB}, forceEnd={bForceEndTrans}");
+                if (iTowingTransID == 0)
+                    LogInfo.WriteLaneEvent(LogLevel.WARN, "- Warning AvcLaneEvent : towing transaction id=0, not sent to DC/RTO/SupAdjust");
                 bTowingAVC      = false;
                 //========================================================================================================
                 if (TCT_Lib.iVideoNVR_CaptureImageMethod == 3)
@@ -3689,6 +3877,9 @@ namespace TCT_App
                         long iCaptureRunningNo      = TCT_Lib.LaneDB.GetCaptureRunningNoOfTrans(_iJobNo, _nTrx, iTowingTransID, DateTime.Now);
                         //using (StreamWriter writer  = File.CreateText(Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, $"ImageCamera_Trans{iTransID}_J{_iJobNo}_N{_nTrx}.json")))
                         string szCaptureJsonFile    = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, $"ImageCamera_Trans{iTowingTransID}_N{iCaptureRunningNo.ToString("000000")}.json");
+                        LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ AvcLaneEvent : towing capture json, transId={iTowingTransID}, job={_iJobNo}, nTrx={_nTrx}, runningNo={iCaptureRunningNo}, file={szCaptureJsonFile}");
+                        if (LogInfo.IsEnabled(LogLevel.TRACE))
+                            LogInfo.WriteLogVideoCapture(LogLevel.TRACE, "+ AvcLaneEvent : towing capture json = " + szImageCameraJson);
                         try
                         {
                             if (TCT_Lib.szVideoLane_CaptureImagePath != "")
@@ -3715,6 +3906,7 @@ namespace TCT_App
                             LogInfo.WriteLog($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                             LogInfo.WriteLaneEvent($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                             LogInfo.WriteLogVideoCapture($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
+                            LogInfo.WriteLog(LogLevel.DEBUG, "- AvcLaneEvent (towing capture) stack : " + err.StackTrace);
                         }
                     }
                     else
@@ -3739,6 +3931,7 @@ namespace TCT_App
                     //    TCT_Lib.SendLaneTransObjToMTS(iTowingTransID);
                 }
 
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : towing transaction {iTowingTransID} sent={iTowingTransID != 0}, clear current trans data, autoAVC={bAutoAVC}");
                 TCT_Lib.ClearCurTransData();
 
                 //----------------------------------------------------------------
@@ -3770,11 +3963,14 @@ namespace TCT_App
                 bFoundLoop                  = false;
                 showModeType(TCT_Lib.bAllowETC ? "ETC" : "MTC");
                 show_nTrxControl(TCT_Lib.nTrx);
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : towing done, towingAVC=False, loopBack/obBack/foundOB/foundLoop reset, nTrx={TCT_Lib.nTrx}");
             }
             else
             {
                 if (TCT_Lib.eCurLaneType == LaneType.ETC)
                 {
+                    if (bHasViolation)
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ AvcLaneEvent : ETC lane, violation True -> False");
                     if (bHasViolation)
                         bHasViolation = false;
                 }
@@ -3783,6 +3979,7 @@ namespace TCT_App
                 {
                     int iTC_Class       = TCT_Lib.xListLoopCar.Count == 0 ? TCT_Lib.iCurTC_Class : TCT_Lib.xListLoopCar[0].iTC_Class;
                     Pay_Info xPayment   = TCT_Lib.xListLoopCar.Count == 0 ? TCT_Lib.xCurPayment : TCT_Lib.xListLoopCar[0].xPayment;
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : normal path, head class={iTC_Class}, payType={xPayment?.payType}, avc={TCT_Lib.xCurAVC.avcClass}, loopCar={TCT_Lib.LoopCarCount()}, violation={bHasViolation}, forceEnd={bForceEndTrans}, obBack={bDetectObBack}");
 
                     if (TCT_Lib.xCurAVC.avcClass > 0)
                     {
@@ -3791,6 +3988,7 @@ namespace TCT_App
                             //--- Check MIS Event
                             if (iTC_Class != TCT_Lib.xCurAVC.avcClass)
                             {
+                                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : class mismatch (DIS), tcClass={iTC_Class}, avc={TCT_Lib.xCurAVC.avcClass}");
                                 if ((iTC_Class == (int)VehicleType.EXEMPT) || (iTC_Class == (int)VehicleType.LEFT_EXIT))
                                     TCT_Lib.bClassDisFlag = false;
                                 else
@@ -3827,10 +4025,12 @@ namespace TCT_App
                         //=============================================================================================
                         //--- Abnormal Mode of IO
                         bool bClosed = false;
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : IO check foundLoop={bFoundLoop}, foundOB={bFoundOB}, trigDownLoop={bTrigDownLoop}, trigDownOB={bTrigDownOB}, obBack={bDetectObBack}, loopBack={bDetectLoopBack}, curPassageLoop={bCurPassageLoop}, isTowing={TCT_Lib.iIsTowing}, allowETC={TCT_Lib.bAllowETC}");
                         if ((!bFoundLoop && bFoundOB && (TCT_Lib.iIsTowing == 0)) ||
                             (!bFoundOB && !bTrigDownOB && bDetectObBack && (TCT_Lib.iIsTowing == 0)) ||
                             (!bFoundOB && !bTrigDownOB && !bDetectObBack && (TCT_Lib.iIsTowing == 0)))      // Only Loop On => No OB
                         {
+                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ AvcLaneEvent : abnormal IO sequence (OB without loop or loop without OB), nextCar -> 0");
                             iStepNextCar = 0;
                             if (!bTrigDownLoop && !bDetectLoopBack && (TCT_Lib.iCurTC_Class != 0) && (TCT_Lib.xCurPayment.payType != 0 && TCT_Lib.xCurPayment.payType != 9))
                             {
@@ -3872,6 +4072,7 @@ namespace TCT_App
                         //if (!bDetectLoopBack && bDetectObBack)
                         if (!bFoundLoop && bFoundOB && !bHasViolation && !bCurPassageLoop && (TCT_Lib.iIsTowing == 0))
                         {
+                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : OB only (no loop), close ALB={(TCT_Lib.eCurLaneMode != LaneMode.HPMC) && (!TCT_Lib.bAllowETC)}, alreadyClosed={bClosed}");
                             if ((TCT_Lib.eCurLaneMode != LaneMode.HPMC) && (!TCT_Lib.bAllowETC))
                             {
                                 //--- When Found only OB (No Loop), Force Close ALB
@@ -3899,6 +4100,7 @@ namespace TCT_App
                         //--- Loop On of second car (Always loop)
                         if (bFoundLoop && bFoundOB && bTrigDownOB && (TCT_Lib.iIsTowing == 0))
                         {
+                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : loop ON of next car, close ALB={(TCT_Lib.eCurLaneMode != LaneMode.HPMC) && (!TCT_Lib.bAllowETC)}");
                             if ((TCT_Lib.eCurLaneMode != LaneMode.HPMC) && (!TCT_Lib.bAllowETC))
                             {
                                 //--- When Found only OB (No Loop), Force Close ALB
@@ -3971,6 +4173,7 @@ namespace TCT_App
                         if (bTowingAVC)
                             bTowingAVC = false;
 
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : create transaction={(iTC_Class != 0) || ((iTC_Class == 0) && (TCT_Lib.xCurAVC.avcClass != 255) && !bAutoAVC) || ((iTC_Class == 0) && (TCT_Lib.xCurAVC.avcClass == 255) && bAutoAVC)}, tcClass={iTC_Class}, avc={TCT_Lib.xCurAVC.avcClass}, autoAVC={bAutoAVC}");
                         if ((iTC_Class != 0) ||      // Normal Case
                             ((iTC_Class == 0) && (TCT_Lib.xCurAVC.avcClass != 255) && !bAutoAVC) ||    // Violation with class
                             ((iTC_Class == 0) && (TCT_Lib.xCurAVC.avcClass == 255) && bAutoAVC))       // Auto AVC
@@ -4009,6 +4212,7 @@ namespace TCT_App
                                     iTransID = (int)TCT_Lib.LaneDB.WriteLaneTransaction(TCT_Lib.iAvcStatusType == 0 ? bDetectLoopBack : bRealPassLoop,
                                                                                         TCT_Lib.iAvcStatusType == 0 ? bFoundOB : bRealPassOB,
                                                                                         bForceEndTrans);
+                                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : transaction id={iTransID}, laneType={TCT_Lib.eCurLaneType}, mode={TCT_Lib.eCurLaneMode}, sinceLast={dtTimeSpan.TotalMilliseconds:0} ms, forceEnd={bForceEndTrans}");
                                 dtLastTrans     = DateTime.Now;
                                 //========================================================================================================
                                 if (TCT_Lib.iVideoNVR_CaptureImageMethod == 3)
@@ -4050,6 +4254,7 @@ namespace TCT_App
                                             LogInfo.WriteLog($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                                             LogInfo.WriteLaneEvent($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                                             LogInfo.WriteLogVideoCapture($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
+                                            LogInfo.WriteLog(LogLevel.DEBUG, "- AvcLaneEvent (capture json) stack : " + err.StackTrace);
                                         }
                                     }
                                     else
@@ -4079,6 +4284,7 @@ namespace TCT_App
                                 if ((TCT_Lib.eTowingState != TowingState.None) &&
                                 (((TCT_Lib.iCurTC_Class == 0) && (TCT_Lib.xListLoopCar.Count == 1))))
                                 {
+                                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : first towing vehicle passed, towingParentId {TCT_Lib.iTowingParentID} -> {iTransID}, towingAVC -> True");
                                     TCT_Lib.iTowingParentID     = iTransID;
                                     bTowingAVC                  = true;
                                     updateUI_TowingFirstPass();
@@ -4089,6 +4295,7 @@ namespace TCT_App
                                     {
                                         if (!bForceEndTrans)
                                         {
+                                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : towing finished, clear towing transId={iTransID}, queueALB={iQueueALB} -> {Math.Max(iQueueALB - 1, 0)}, allowETC={TCT_Lib.bAllowETC}, closed={bClosed}");
                                             iQueueALB--;
                                             if (iQueueALB < 0)
                                                 iQueueALB = 0;
@@ -4190,6 +4397,7 @@ namespace TCT_App
                                 }
 
                                 //--- Send Lane Transaction to RabbitMQ
+                                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : send transId={iTransID}, toRTO={(TCT_Lib.iVideoNVR_CaptureImageMethod != 3) && (iTransID != 0)}, toDC/SupAdjust={(TCT_Lib.iVideoNVR_CaptureImageMethod != 3) && (iTransID != 0) && (TCT_Lib.xCurTAG?.tagPAN == null)}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}");
                                 if (TCT_Lib.iVideoNVR_CaptureImageMethod != 3)
                                 {
                                     if (iTransID != 0)
@@ -4253,6 +4461,7 @@ namespace TCT_App
             }
 
             show_nTrxControl(TCT_Lib.nTrx);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : loopCar={TCT_Lib.LoopCarCount()} -> {(TCT_Lib.eCurLaneType == LaneType.ETC ? "clear all" : "remove head")}, openALB_RTO={TCT_Lib.bStatusOpenALB_RTO}");
             if (TCT_Lib.xListLoopCar.Count > 0)
             {
                 if (TCT_Lib.eCurLaneType == LaneType.ETC)
@@ -4317,10 +4526,12 @@ namespace TCT_App
             bEditDual       = false;
 
             bCurPassageOB   = false;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AvcLaneEvent : done, class={TCT_Lib.iCurTC_Class}, afterPay={TCT_Lib.bAfterPayment}, loopCar={TCT_Lib.LoopCarCount()}, towing={TCT_Lib.eTowingState}, towingAVC={bTowingAVC}, violation={bHasViolation}, queueALB={iQueueALB}, totalQueue={TCT_Lib.iTotalQueue}, nTrx={TCT_Lib.nTrx}");
         }
 
         protected void Process_RefreshPresenceLoop(bool bPaid = true)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Process_RefreshPresenceLoop : paid={bPaid}, towingAVC={bTowingAVC}, obBack={bDetectObBack}, class={TCT_Lib.iCurTC_Class}, payType={TCT_Lib.xCurPayment?.payType}, mode={TCT_Lib.eCurLaneMode}, towing={TCT_Lib.eTowingState}, loopCar={TCT_Lib.LoopCarCount()}, nextClass={TCT_Lib.iNextTC_Class}");
             if (!bTowingAVC)
             {
                 if (!bDetectObBack)
@@ -4328,6 +4539,7 @@ namespace TCT_App
                     //--- If car touch loop (Not OB), and no class type of payment, then TCT will wait, no hide
                     if ((TCT_Lib.iCurTC_Class == 0) || (TCT_Lib.xCurPayment.payType == 0))
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ Process_RefreshPresenceLoop : car on loop without class/payment -> wait, loopMis=True");
                         bLoopMis = true;
                         return;
                     }
@@ -4355,6 +4567,7 @@ namespace TCT_App
                 xLoopCar.szTransRemark              = szVehicle_HPMC;
                 TCT_Lib.xListLoopCar.Add(xLoopCar);
                 showTotalLoop();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Process_RefreshPresenceLoop : HPMC car added, loopCar={TCT_Lib.LoopCarCount()}");
                 return;
             }
 
@@ -4417,6 +4630,7 @@ namespace TCT_App
             }
 
             showTotalLoop();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Process_RefreshPresenceLoop : car added (class={xLoopCar.iTC_Class}, payType={xLoopCar.xPayment?.payType}, towingAVC={bTowingAVC}), loopCar={TCT_Lib.LoopCarCount()}");
 
             if (bPaid)
             {
@@ -4448,6 +4662,7 @@ namespace TCT_App
                 //--- Check Next car in current queue and select car already (First Time)
                 if (TCT_Lib.iNextTC_Class > 0)
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Process_RefreshPresenceLoop : next car preselected class={TCT_Lib.iNextTC_Class} -> replay class key");
                     //LaneSocket_KeyPressedEvent(KeyBoardType.VK, (TCT_Lib.iNextTC_Class == 1) ? (int)KeyPressedType.CLASS_1 : (int)KeyPressedType.CLASS_2);
                     if (TCT_Lib.iNextTC_Class == (int)VehicleType.CLASS_1)
                         LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_1);
@@ -4471,6 +4686,7 @@ namespace TCT_App
 
                     TCT_Lib.iNextTC_Class = 0;
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Process_RefreshPresenceLoop : done, class=0, nextCar={iStepNextCar}, afterPay={TCT_Lib.bAfterPayment}, totalQueue={TCT_Lib.iTotalQueue}, loopCar={TCT_Lib.LoopCarCount()}");
                 //iStepNextCar = 0;
 
                 //TCT_Lib.bAfterPayment = false;
@@ -4505,9 +4721,12 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLog("- Error LaneSocket_DigitalInputLaneEvent => Values Error : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- LaneSocket_DigitalInputLaneEvent : values.Length={values?.Length ?? -1}, stack : {err.StackTrace}");
                 return;
             }
 
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLaneEventIO(LogLevel.TRACE, $"+ DigitalInputLaneEvent : mtc={bMTC}, values=[{string.Join(",", values)}]");
             if (digitalInputLaneControl != null)
                 digitalInputLaneControl(values);
 
@@ -4603,10 +4822,12 @@ namespace TCT_App
                 if (!bCurPassageLoop && bInPassageLoop)     // Loop ON
                 {
                     bDetectLoopBack = true;
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI PassageLoop ON : loopBack -> True, class={TCT_Lib.iCurTC_Class}, payType={TCT_Lib.xCurPayment?.payType}, loopCar={TCT_Lib.LoopCarCount()}, totalQueue={TCT_Lib.iTotalQueue}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}");
                     //TCT_Lib.bAfterPayment   = false;    // Unlock key new car
 
                     if ((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.xListLoopCar.Count == 0) && (TCT_Lib.xCurPayment.payType > 0))
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DI PassageLoop ON : paid car -> loop list, totalQueue - 1");
                         Process_RefreshPresenceLoop();
                         TCT_Lib.iTotalQueue--;
                         if (TCT_Lib.iTotalQueue < 0)
@@ -4632,6 +4853,7 @@ namespace TCT_App
                 }
                 if (bCurPassageLoop && !bInPassageLoop)     // Exit Loop
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI PassageLoop OFF : loopBack={bDetectLoopBack}, obBack={bDetectObBack}, class={TCT_Lib.iCurTC_Class}, loopCar={TCT_Lib.LoopCarCount()}, curPassageOB={bCurPassageOB}");
                     if (!bDetectLoopBack)
                     {
                         if ((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.xListLoopCar.Count == 0))
@@ -4646,6 +4868,7 @@ namespace TCT_App
 
                     if (!bDetectObBack)
                         bDetectLoopBack = false;
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI PassageLoop OFF : foundLoop={bFoundLoop}, trigDownLoop=True, loopBack={bDetectLoopBack}");
 
                     //--------------------------------------------------
                     //TCT_Lib.bMTS_NetworkStatus = true;      // For Testing
@@ -4657,6 +4880,7 @@ namespace TCT_App
                                 dtChkLoopOnOB = DateTime.Now;
 
                             TCT_Lib.iCounterLoopNoOB++;
+                            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ DI LoopNoOB : counter={TCT_Lib.iCounterLoopNoOB}, threshold={TCT_Lib.iMTS_Monitor_TimeAlertLoopNoOB}, intervalSec={TCT_Lib.iMTS_Monitor_IntervalSecAlertLoopNoOB}, alertSent={TCT_Lib.bSendLoopNoOB_MTS}");
                             if (TCT_Lib.iCounterLoopNoOB >= TCT_Lib.iMTS_Monitor_TimeAlertLoopNoOB)
                             {
                                 //--------------------------------------------
@@ -4775,9 +4999,11 @@ namespace TCT_App
                 {
                     bDetectObBack = true;
                     bTrigDownOB = false;
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI PassageOB ON : obBack -> True, loopBack={bDetectLoopBack}, class={TCT_Lib.iCurTC_Class}, payType={TCT_Lib.xCurPayment?.payType}, loopCar={TCT_Lib.LoopCarCount()}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}");
 
                     if ((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.xListLoopCar.Count == 0) && (TCT_Lib.xCurPayment.payType > 0))
                     {
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DI PassageOB ON : paid car -> loop list, totalQueue - 1");
                         Process_RefreshPresenceLoop();
                         TCT_Lib.iTotalQueue--;
                         if (TCT_Lib.iTotalQueue < 0)
@@ -4826,6 +5052,7 @@ namespace TCT_App
                     TCT_Lib.iTotalQueue--;
                     if (TCT_Lib.iTotalQueue < 0)
                         TCT_Lib.iTotalQueue = 0;
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI PassageOB OFF : foundOB={bFoundOB}, trigDownOB=True, loopBack={bDetectLoopBack}, foundLoop={bFoundLoop}, totalQueue={TCT_Lib.iTotalQueue}, loopCar={TCT_Lib.LoopCarCount()}");
 
                     if (!bDetectLoopBack)
                         bDetectObBack = false;
@@ -4943,6 +5170,7 @@ namespace TCT_App
                 iEventID = (int)TCT_Lib.LaneDB.WriteLaneEventRTO_Device((int)Cmd_DI_Type.OTL, bInOTL ? 1 : 0);
                 TCT_Lib.SendLaneEventObjToRTO(iEventID);
                 bCurOTL = bInOTL;
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI OTL : {(bInOTL ? "ON" : "OFF")}, maintenance={TCT_Lib.bMaintenanceMode}, LSD={TCT_Lib.bEnableLSD}, lsdKeepAlive={TCT_Lib.iLSD_KeepAliveSec}, lsdMethod={TCT_Lib.iLSD_MethodType}, laneType={TCT_Lib.eCurLaneType}");
 
                 //-------------------------------------------------------------------
 
@@ -5076,6 +5304,8 @@ namespace TCT_App
             if (TCT_Lib.bMaintenanceMode)
             {
                 if (TCT_Lib.eCurAppPage != AppPage.Main)
+                    LogInfo.WriteLaneEvent(LogLevel.TRACE, $"+ DigitalInputLaneEvent : skip lane logic, maintenance mode and page={TCT_Lib.eCurAppPage}");
+                if (TCT_Lib.eCurAppPage != AppPage.Main)
                     return;
             }
             //--------------------------------------------------
@@ -5127,6 +5357,7 @@ namespace TCT_App
                         if ((bTrigPassageOB && !bInPassageOB && bDetectLoopBack) ||
                             (!bInPassageOB && bTrigDownOB && bDetectLoopBack))
                         {
+                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI : passage OB exit after loop, violation check laneType={TCT_Lib.eCurLaneType}, editDual={bEditDual}, violation={bHasViolation}, class={TCT_Lib.iCurTC_Class}, loopCar={TCT_Lib.LoopCarCount()}");
                             if ((TCT_Lib.eCurLaneType == LaneType.MTC) ||
                                 ((TCT_Lib.eCurLaneType == LaneType.DUAL) && bEditDual))
                             {
@@ -5179,11 +5410,13 @@ namespace TCT_App
                                                 //uint iAvcTimerId = GLib.Timeout.Add((uint)TCT_Lib.iTimerSecAutoAVC * 1000, new GLib.TimeoutHandler(Perform_ChkEventAVC));
                                                 uint iAvcTimerId = GLib.Timeout.Add((uint)((TCT_Lib.iTimerSecAutoAVC * 1000)+700), new GLib.TimeoutHandler(Perform_ChkEventAVC));
                                                 AddAvcTimer(iAvcTimerId);
+                                                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI : violation car passed OB, ALB close, auto AVC armed ({TCT_Lib.iTimerSecAutoAVC * 1000 + 700} ms)");
                                             }
                                         }
                                     }
                                     else
                                     {
+                                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DI : no violation, startEndLoop -> True");
                                         TCT_Lib.bStartEndLoop = true;
                                     }
                                 }
@@ -5202,6 +5435,7 @@ namespace TCT_App
                             (bTrigDownOB && TCT_Lib.bStartEndLoop && bFoundOB && !bInPassageLoop))
                         //if (bTrigPassageOB && !bInPassageOB && TCT_Lib.bStartEndLoop)
                         {
+                            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI : end loop before AVC, obBack={bDetectObBack}, loopBack={bDetectLoopBack}, foundOB={bFoundOB}, violation={bHasViolation}, class={TCT_Lib.iCurTC_Class}, laneType={TCT_Lib.eCurLaneType}");
                             //--- End Loop before AVC
                             //--- Clear LC (Clear CRS, TFI, Loop => Close -> ALB, LTL)
                             szPrevPAN = "";
@@ -5218,6 +5452,7 @@ namespace TCT_App
 
                             if (bDetectObBack && bDetectLoopBack)
                             {
+                                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DI : loop+OB sequence complete, armAutoAVC={(TCT_Lib.eCurLaneType == LaneType.MTC) && !bHasViolation} ({TCT_Lib.iTimerSecAutoAVC * 1000 + 700} ms), close ALB, startEndLoop -> False");
                                 if (TCT_Lib.eCurLaneType == LaneType.MTC)
                                 {
                                     if (!bHasViolation)
@@ -5284,11 +5519,13 @@ namespace TCT_App
             {
                 Console.WriteLine("- Error LaneSocket_DigitalInputLaneEvent : " + err.Message);
                 LogInfo.WriteLog("- Error LaneSocket_DigitalInputLaneEvent : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- LaneSocket_DigitalInputLaneEvent stack : " + err.StackTrace);
             }
         }
 
         private bool CheckIsViolation()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ CheckIsViolation : laneType={TCT_Lib.eCurLaneType}, passageOB={bInPassageOB}, curPassageLoop={bCurPassageLoop}, loopCar={TCT_Lib.LoopCarCount()}, class={TCT_Lib.iCurTC_Class}, payType={TCT_Lib.xCurPayment?.payType}");
             if (TCT_Lib.eCurLaneType == LaneType.ETC)
                 return false;
 
@@ -5338,6 +5575,7 @@ namespace TCT_App
 
         private bool Perform_AutoAVC()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Perform_AutoAVC : timer id={iTimerAutoAVC} fired, inject AVC class=1");
             Application.Invoke(delegate
             {
                 LaneSocket_AvcLaneEvent(1, 0, 0, 0, 0, 0, 0);
@@ -5366,6 +5604,8 @@ namespace TCT_App
             bTFI_Reset      = values[13] == 1;
             bLoop_Reset     = values[14] == 1;
             bIPC_Reset      = values[15] == 1;
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLaneEventIO(LogLevel.TRACE, $"+ DeviceOuputLaneEvent : values=[{string.Join(",", values)}]");
 
             if (digitalOutputLaneControl != null)
                 digitalOutputLaneControl(values);
@@ -5373,6 +5613,7 @@ namespace TCT_App
 
         public void SendDigitalOutput_CmdALB_Open_V0()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SendDigitalOutput_CmdALB_Open_V0 : pulse ALB_Open 50 ms");
 #if __SIM__
             TCT_Lib.webSocketLane.SendDeviceInput_Controller((int)Cmd_DI_Type.ALB, ON);
 #else
@@ -5384,6 +5625,7 @@ namespace TCT_App
 
         public void SendDigitalOutput_CmdALB_Close_V0()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SendDigitalOutput_CmdALB_Close_V0 : pulse ALB_Close 50 ms");
 #if __SIM__
             TCT_Lib.webSocketLane.SendDeviceInput_Controller((int)Cmd_DI_Type.ALB, OFF);
 #else
@@ -5410,6 +5652,7 @@ namespace TCT_App
         {
             LogInfo.WriteLaneEvent("Recv Cmd ALB Open from RTO");
             TCT_Lib.bStatusOpenALB_RTO = true;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SendDigitalOutput_CmdALB_Open_RTO : openALB_RTO -> True, nTrx={TCT_Lib.nTrx}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}");
 
             //--------------------------------------------
             //=== 2023-08-01 Add capture image when RTO send Open ALB
@@ -5446,6 +5689,7 @@ namespace TCT_App
 
         private bool Thread_CmdControlOffALB_Open()
         {
+            LogInfo.WriteLaneEvent(LogLevel.TRACE, "+ Thread_CmdControlOffALB_Open : ALB_Open OFF, re-pulse in 100 ms");
             Application.Invoke(delegate
             {
                 TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Open, OFF);
@@ -5464,6 +5708,7 @@ namespace TCT_App
 
         private bool Thread_CmdControlOffALB_Open_2()
         {
+            LogInfo.WriteLaneEvent(LogLevel.TRACE, "+ Thread_CmdControlOffALB_Open_2 : ALB_Open OFF");
             Application.Invoke(delegate
             {
                 TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Open, OFF);
@@ -5474,6 +5719,7 @@ namespace TCT_App
 
         public void SendDigitalOutput_CmdALB_Close()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SendDigitalOutput_CmdALB_Close : queueALB={iQueueALB}, maintenance={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, editDual={bEditDual}, inALB={bInALB}");
             if (iQueueALB < 0)
                 iQueueALB = 0;
             if (TCT_Lib.bMainUiReady)
@@ -5517,6 +5763,8 @@ namespace TCT_App
                 {
                     //if (bEditDual && TCT_Lib.bEtcCtrlIO)
                     if (bEditDual)
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SendDigitalOutput_CmdALB_Close : skip, maintenance DUAL lane in edit mode");
+                    if (bEditDual)
                         return;
                 }
             }
@@ -5535,6 +5783,7 @@ namespace TCT_App
 
         private bool Thread_CmdControlOffALB_Close()
         {
+            LogInfo.WriteLaneEvent(LogLevel.TRACE, "+ Thread_CmdControlOffALB_Close : ALB_Close OFF, re-pulse in 100 ms");
             Application.Invoke(delegate
             {
                 TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Close, OFF);
@@ -5553,6 +5802,7 @@ namespace TCT_App
 
         private bool Thread_CmdControlOffALB_Close_2()
         {
+            LogInfo.WriteLaneEvent(LogLevel.TRACE, "+ Thread_CmdControlOffALB_Close_2 : ALB_Close OFF");
             Application.Invoke(delegate
             {
                 TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.ALB_Close, OFF);
@@ -5582,6 +5832,7 @@ namespace TCT_App
         //--- Send when force open (HPMC, Towing)
         public void SendEtcRabbitMq_CmdALB_ForceOpen(string szReason = "", bool bForceMode = false)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SendEtcRabbitMq_CmdALB_ForceOpen : reason={szReason}, forceMode={bForceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, towing={TCT_Lib.eTowingState}, vehicle={eCurVehicleType}");
             if (bForceMode)
             {
                 //-- Force from RTO
@@ -5592,6 +5843,7 @@ namespace TCT_App
 
                 //------------------------------------------------------------------
                 int iTransID = (int)TCT_Lib.LaneDB.WriteLaneTransaction_ETC_AutoSignalCode("81", "Open ALB from RTO");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SendEtcRabbitMq_CmdALB_ForceOpen : RTO force open, signal code 81 transId={iTransID}, send={iTransID != 0}");
 
                 //--- Send Lane Transaction to RabbitMQ
                 if (iTransID != 0)
@@ -5617,6 +5869,8 @@ namespace TCT_App
             {
                 // In Dual mode, if pay with card, ETC will control IO
                 if (TCT_Lib.bEtcCtrlIO)
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SendEtcRabbitMq_CmdALB_ForceOpen : skip, ETC controls IO (paid by card)");
+                if (TCT_Lib.bEtcCtrlIO)
                     return;
                 else
                 {
@@ -5639,6 +5893,7 @@ namespace TCT_App
 
                     //--------------------------------------------------------
                     TCT_Lib.etcRabbitMQ.SendALB_ModeToETC(ALB_Mode.Open, szReason);
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ SendEtcRabbitMq_CmdALB_ForceOpen : sent ALB Open, reason={szReason}");
                     if (TCT_Lib.bMainUiReady)
                         drawETC_AlbMode(1);
                     return;
@@ -5649,6 +5904,7 @@ namespace TCT_App
         //--- Send when normal case, payment approve, and closed after vehicle leaves
         public void SendEtcRabbitMq_CmdALB_Normal(string szReason = "Normal Mode", bool bForceMode = false)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SendEtcRabbitMq_CmdALB_Normal : reason={szReason}, forceMode={bForceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, towingAVC={bTowingAVC}");
             if (bForceMode)
             {
                 TCT_Lib.etcRabbitMQ.SendALB_ModeToETC(ALB_Mode.Normal, szReason);
@@ -5691,6 +5947,7 @@ namespace TCT_App
 
         private void SendEtcRabbitMq_CmdALB_Close(bool bForceMode = false)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SendEtcRabbitMq_CmdALB_Close : forceMode={bForceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, vehicle={eCurVehicleType}, openALB_RTO={TCT_Lib.bStatusOpenALB_RTO}");
             if (TCT_Lib.bMainUiReady)
                 drawETC_AlbMode(2);
             //LogInfo.WriteLog("+++++++++ ALB_CLOSE");
@@ -5729,6 +5986,7 @@ namespace TCT_App
                         if (TCT_Lib.bMainUiReady)
                             drawETC_AlbMode(2);
                         TCT_Lib.etcRabbitMQ.SendALB_ModeToETC(ALB_Mode.Normal, szReason);
+                        LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ SendEtcRabbitMq_CmdALB_Close : sent ALB Closed + Normal, reason={szReason}");
                         if (TCT_Lib.bMainUiReady)
                             drawETC_AlbMode(0);
                     }
@@ -5758,6 +6016,7 @@ namespace TCT_App
                 if (TCT_Lib.bMainUiReady)
                     drawETC_AlbMode(2);
                 TCT_Lib.etcRabbitMQ.SendALB_ModeToETC(ALB_Mode.Normal, szReason);
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ SendEtcRabbitMq_CmdALB_Close : sent ALB Closed + Normal (force), reason={szReason}");
                 if (TCT_Lib.bMainUiReady)
                     drawETC_AlbMode(0);
             }
@@ -5802,6 +6061,7 @@ namespace TCT_App
         {
             LogInfo.WriteLaneEvent("+ Success EMV Payment Type : " + (iEmvType == 0 ? "Credit Card" : "QR Code") + ", JobNo=" + TCT_Lib.iJobNo + ", nTrx=" + (TCT_Lib.eTowingState == TowingState.SecClassType ? TCT_Lib.nTrx+1 : TCT_Lib.nTrx));
             LogInfo.WriteLogEDC("+ Success EMV Payment Type : " + (iEmvType == 0 ? "Credit Card" : "QR Code") + ", JobNo=" + TCT_Lib.iJobNo + ", nTrx=" + (TCT_Lib.eTowingState == TowingState.SecClassType ? TCT_Lib.nTrx + 1 : TCT_Lib.nTrx));
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ SuccessEmvPayment : emvType={iEmvType}, towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class}, fare={TCT_Lib.fCurFareAmount}, towingClass={TCT_Lib.iTowingTC_Class}, towingFare={TCT_Lib.fTowingFareAmount}, vehicle={eCurVehicleType}");
             if (TCT_Lib.eTowingState == TowingState.None)
             {
                 TCT_Lib.xCurPayment.payType     = iEmvType == 0 ? (int)PayType.EMV : (int)PayType.QrCode;
@@ -5810,6 +6070,7 @@ namespace TCT_App
                 eCurPayType                     = iEmvType == 0 ? PayType.EMV : PayType.QrCode;
 
                 TCT_Lib.xCurPayment.emvDetailID = TCT_Lib.LaneDB.WriteEdcDetail(TCT_Lib.xCurPayment.payType);
+                LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ SuccessEmvPayment : EDC detail saved, emvDetailId={TCT_Lib.xCurPayment.emvDetailID}, payType={TCT_Lib.xCurPayment.payType}");
 
                 LogInfo.WriteLogEDC("+ Finish Pay EMV");
                 payTypeLaneControl(eCurPayType);
@@ -5851,6 +6112,7 @@ namespace TCT_App
                 SendEtcRabbitMq_CmdALB_Normal("Normal Payment - EMV");
                 TCT_Lib.bAfterPayment   = true;
                 iStepNextCar            = 1;
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SuccessEmvPayment : paid {eCurPayType}, afterPay=True, nextCar=1, allowETC={TCT_Lib.bAllowETC}");
                 //LogInfo.WriteLogEDC("+10");
                 //---------------------------------------------------------------------------------------
 #if __SIM__
@@ -5863,6 +6125,7 @@ namespace TCT_App
                 //--- Towing Mode
                 if (TCT_Lib.eTowingState == TowingState.FirstClassType)
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SuccessEmvPayment : towing FirstClassType -> FirstPayType, emvType={iEmvType}");
                     TCT_Lib.eTowingState            = TowingState.FirstPayType;
                     TCT_Lib.xCurPayment.payType     = iEmvType == 0 ? (int)PayType.EMV : (int)PayType.QrCode;
                     TCT_Lib.xCurPayment.payTypeName = TCT_Lib.GetPayMethodName(iEmvType == 0 ? (int)PayType.EMV : (int)PayType.QrCode);
@@ -5870,6 +6133,7 @@ namespace TCT_App
                     eCurPayType = iEmvType == 0 ? PayType.EMV : PayType.QrCode;
 
                     TCT_Lib.xCurPayment.emvDetailID = TCT_Lib.LaneDB.WriteEdcDetail(TCT_Lib.xCurPayment.payType);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ SuccessEmvPayment : towing first vehicle EDC detail saved, emvDetailId={TCT_Lib.xCurPayment.emvDetailID}");
 
                     payTypeLaneControl(eCurPayType);
                     WriteTextCRS(GetStrClassTypeCRS(eCurVehicleType), GetStrPayTypeCRS(eCurPayType));
@@ -5883,12 +6147,14 @@ namespace TCT_App
                 }
                 else if (TCT_Lib.eTowingState == TowingState.SecClassType)
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SuccessEmvPayment : towing SecClassType -> SecPayType, emvType={iEmvType}, towingClass={TCT_Lib.iTowingTC_Class}");
                     TCT_Lib.eTowingState                = TowingState.SecPayType;
                     TCT_Lib.xTowingPayment.payType      = iEmvType == 0 ? (int)PayType.EMV : (int)PayType.QrCode;
                     TCT_Lib.xTowingPayment.payTypeName  = TCT_Lib.GetPayMethodName(iEmvType == 0 ? (int)PayType.EMV : (int)PayType.QrCode);
                     TCT_Lib.xTowingPayment.payDateTime  = DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB);
 
                     TCT_Lib.xTowingPayment.emvDetailID = TCT_Lib.LaneDB.WriteEdcDetail(TCT_Lib.xTowingPayment.payType, true);
+                    LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ SuccessEmvPayment : towing second vehicle EDC detail saved, emvDetailId={TCT_Lib.xTowingPayment.emvDetailID}");
 
                     payTypeLaneControl(iEmvType == 0 ? PayType.EMV : PayType.QrCode);
                     WriteTextCRS(TCT_Lib.iTowingTC_Class.ToString(), GetStrPayTypeCRS(iEmvType == 0 ? PayType.EMV : PayType.QrCode));
@@ -5907,11 +6173,14 @@ namespace TCT_App
                     SimLanePassageLoop();
 #endif
                 }
+                else
+                    LogInfo.WriteLogEDC(LogLevel.WARN, $"- Warning SuccessEmvPayment : payment not applied, towing state={TCT_Lib.eTowingState} is not waiting for payment");
             }
         }
 
         public void WriteTextCRS(string szStr1, string szStr2)
         {
+            LogInfo.WriteLaneEventIO(LogLevel.TRACE, $"+ WriteTextCRS : '{szStr1}', '{szStr2}'");
             Application.Invoke(delegate
             {
                 if (iTimerClearCRS > 0)
@@ -5924,6 +6193,7 @@ namespace TCT_App
 
         private bool ClearTextCRS()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.TRACE, "+ ClearTextCRS : timer fired, clear CRS");
             Application.Invoke(delegate
             {
                 TCT_Lib.webSocketLane.OutIo_WriteCRS("", "");
@@ -5937,6 +6207,7 @@ namespace TCT_App
 
         public void ClearTextCRS_EndJob()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ ClearTextCRS_EndJob : clear CRS, cancel timers siren={iSirenTimerIds.Count}, avc={iWaitAvcTimerIds.Count}, clearCRS={iTimerClearCRS}, passage={iPassageTimerId}");
             Application.Invoke(delegate
             {
                 TCT_Lib.webSocketLane.OutIo_WriteCRS_EndJob();
@@ -5969,6 +6240,7 @@ namespace TCT_App
 
         public void ClearAndInitialVar()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ ClearAndInitialVar : passageOB={bInPassageOB}, loopBack={bDetectLoopBack}, trigDownOB={bTrigDownOB}, violation={bHasViolation} -> all False");
             bInPassageOB = false;
             bDetectLoopBack = false;
             bTrigDownOB = false;
@@ -5978,12 +6250,14 @@ namespace TCT_App
         //---------------------------------------------------------
         public void SendCmdReadDigitalInputOutput()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.TRACE, "+ SendCmdReadDigitalInputOutput : request DI/DO state");
             TCT_Lib.webSocketLane.SendRequest_DigitalInputOutput();
         }
 
         protected bool Perform_StopSiren()
         {
             RemoveSirenTimer();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Perform_StopSiren : violation={bHasViolation}, loopCar={TCT_Lib.LoopCarCount()}, towing={TCT_Lib.eTowingState}, class={TCT_Lib.iCurTC_Class} -> reset lane state, clear loop list");
 
             LogInfo.WriteLaneEvent("IO - Siren : OFF, ASB : OFF");
             TCT_Lib.webSocketLane.SendDigitalOutput_Controller((int)Cmd_DO_Type.Siren, OFF);
@@ -6044,6 +6318,7 @@ namespace TCT_App
 
         protected bool Perform_StopASB()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Perform_StopASB : violation={bHasViolation} -> {(bHasViolation ? "StopSiren (full reset)" : "ASB/Siren OFF only")}");
             if (bHasViolation)
                 Perform_StopSiren();
             else
@@ -6063,6 +6338,8 @@ namespace TCT_App
         public void SendLaneCurrentState()
         {
             if (!TCT_Lib.bRTO_Connected)
+                LogInfo.WriteLog(LogLevel.TRACE, "+ SendLaneCurrentState : skip, RTO not connected");
+            if (!TCT_Lib.bRTO_Connected)
                 return;
 
             object objParams = new {
@@ -6078,6 +6355,8 @@ namespace TCT_App
                 SumCurVehicles  = TCT_Lib.LaneDB.GetTotalTransSumVehicles(),
             };
             TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToClient("LANE_STATE", objParams);
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ SendLaneCurrentState : LANE_STATE " + JsonConvert.SerializeObject(objParams));
             //LogInfo.WriteLog("+ Send LaneState");
             //-----------------------------------------------------
             if (TCT_Lib.szSupervisorID == "")
@@ -6096,15 +6375,19 @@ namespace TCT_App
                 LcioState   = TCT_Lib.bLCIO_Connected ? 1 : 0,
             };
             TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToClient("REALTIME_STATE", objParams);
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ SendLaneRealTimeState : REALTIME_STATE " + JsonConvert.SerializeObject(objParams));
         }
 
         public void SendLaneCloseApp()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ SendLaneCloseApp : send CLOSE_APP to RTO");
             TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToClient("CLOSE_APP", null);
         }
 
         public void StartShiftProcess()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ StartShiftProcess : laneMode {TCT_Lib.eCurLaneMode} -> NORMAL, staffShiftId={TCT_Lib.iStaffShiftID}");
             TCT_Lib.webSocketLane.OutIo_ClearCRS();
             TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.Welcome, (int)TFI_Pattern.Normal, "", "", "", szTFI_StartLane1, szTFI_StartLane2);
             //----------------------------------------------------------------------------------------
@@ -6116,6 +6399,7 @@ namespace TCT_App
         public void EndShiftProcess()
         {
             LogInfo.WriteLaneEvent("+ Clear CRS, Clear TFI");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EndShiftProcess : laneMode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, laneConfigType={TCT_Lib.iLaneConfigType}, loopCar={TCT_Lib.LoopCarCount()}, convoy={TCT_Lib.bConvoyMode}, staffShiftId={TCT_Lib.iStaffShiftID}");
             TCT_Lib.webSocketLane.OutIo_ClearCRS();
             TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.CloseLane, (int)TFI_Pattern.Normal, "", "", "", szTFI_CloseLane, "");
             LogInfo.WriteLaneEvent("Send to IO - ASB : OFF, Siren : OFF, LTL : OFF");
@@ -6135,6 +6419,7 @@ namespace TCT_App
                 TCT_Lib.szStaffGroupName    = "";
                 TCT_Lib.eCurLaneMode        = LaneMode.CLOSED;
             }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EndShiftProcess : laneMode now={TCT_Lib.eCurLaneMode}, convoy -> False, queue -> 0");
 
             TCT_Lib.bConvoyMode     = false;
             TCT_Lib.iConvoyClass1   = TCT_Lib.iTotalConvoyClass1 = 0;
@@ -6168,6 +6453,7 @@ namespace TCT_App
             if (TCT_Lib.eCurLaneType == LaneType.ETC)
                 TCT_Lib.BackupLogFile();
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EndShiftProcess : tariff reloaded, auto resend EOJ to DC staffShiftId={TCT_Lib.iStaffShiftID}");
             TCT_Lib.AutoResendEndJobToDC(TCT_Lib.iStaffShiftID);
 
             /*
@@ -6181,10 +6467,13 @@ namespace TCT_App
         {
             object objParams = TCT_Lib.LaneDB.GetCurrentStatistic(TCT_Lib.iStaffShiftID);
             TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToClient("LANE_STATISTIC", objParams);
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ SendLaneCurrentTransStatistic : LANE_STATISTIC " + JsonConvert.SerializeObject(objParams));
         }
 
         public void ClearQueueProcesss()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ ClearQueueProcesss : totalQueue {TCT_Lib.iTotalQueue} -> 0, allowETC={TCT_Lib.bAllowETC}");
             TCT_Lib.iTotalQueue = 0;
             clearQueueLaneControl();
 
@@ -6206,6 +6495,7 @@ namespace TCT_App
 
         public void EnableSecondaryReaderProcesss()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ EnableSecondaryReaderProcesss : send EnableSecondaryReader to ETC");
             TCT_Lib.etcRabbitMQ.Send_EnableSecondaryReader_ToETC();
         }
 
@@ -6219,6 +6509,7 @@ namespace TCT_App
                 return;
             }
             LaneType eOldLaneType = TCT_Lib.eCurLaneType;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ ChangeLaneType : laneType {eOldLaneType} -> {(LaneType)iLaneType} (raw={iLaneType}), save config, notify UI/RTO");
             //-------------------------------------
             if (iLaneType == (int)LaneType.MTC)
                 TCT_Lib.eCurLaneType = LaneType.MTC;
@@ -6246,18 +6537,21 @@ namespace TCT_App
                 return;
             }
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ ExitMaintenanceMode : page={TCT_Lib.eCurAppPage}, laneMode={TCT_Lib.eCurLaneMode}");
             exitMaintenanceMode();
             SendLaneCurrentState();
         }
 
         public void RemoteLoginFromRTO(string szStaffCode)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ RemoteLoginFromRTO : staffCode={szStaffCode ?? "null"}, page={TCT_Lib.eCurAppPage}");
             remoteLoginFromRTO(szStaffCode);
             SendLaneCurrentState();
         }
 
         public void RemoteLogoutFromRTO()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ RemoteLogoutFromRTO : staffGroupId={TCT_Lib.szStaffGroupID}, staffShiftId={TCT_Lib.iStaffShiftID}, LSD={TCT_Lib.bEnableLSD}");
             //--- Process Logout
             //--- Check current Staff is Supervisor or Chief Toll Collector
             if ((TCT_Lib.szStaffGroupID != "30") && (TCT_Lib.szStaffGroupID != "40"))
@@ -6312,6 +6606,8 @@ namespace TCT_App
             TCT_Lib.SendEndJobObjToDC(TCT_Lib.iStaffShiftID);
             TCT_Lib.webSocketLane.SendCollectorJob(0);              // Repeat send EOJ to BIS
             WebService_BeginEndJob.CallWebService_EndOfJob(dtEndShift, ref szErrMsg);
+            if (!string.IsNullOrEmpty(szErrMsg))
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning RemoteLogoutFromRTO : WebService EndOfJob message = {szErrMsg}");
             EndShiftProcess();
             endShiftLaneControl();
 
@@ -6343,6 +6639,7 @@ namespace TCT_App
                 string szSupervisorGroupID      = (string)objSupervisor["supervisorGroupId"];
                 string szSupervisorGroupName    = (string)objSupervisor["supervisorGroupName"];
                 DateTime dtSupervisorStartShift = (DateTime)objSupervisor["supervisorStartShift"];
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ SetCurrentSupervisor : shiftId={iSupervisorShiftID}, code={szSupervisorCode}, name={szSupervisorName}, group={szSupervisorGroupID}/{szSupervisorGroupName}, start={dtSupervisorStartShift:yyyy-MM-dd HH:mm:ss}, laneType={TCT_Lib.eCurLaneType}");
                 LogInfo.WriteLog("+ Update Current Supervisor in DB");
                 TCT_Lib.LaneDB.UpdateCurrentSupervisor(iSupervisorShiftID, szSupervisorID, szSupervisorCode, szSupervisorName,
                                                     szSupervisorGroupID, szSupervisorGroupName, dtSupervisorStartShift);
@@ -6367,6 +6664,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLog("- \tError SetCurrentSupervisor : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- SetCurrentSupervisor stack : " + err.StackTrace);
             }
         }
 
@@ -6374,6 +6672,7 @@ namespace TCT_App
         {
             //--- Auto Close current shift
             DateTime dtEndShift = TCT_Lib.LaneDB.WriteLaneEndStaffShift(TCT_Lib.iStaffShiftID, 1);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AutoChangeStaffOfAutoLoginETC : end staffShiftId={TCT_Lib.iStaffShiftID} at {dtEndShift:yyyy-MM-dd HH:mm:ss}, send EOJ, switch staff to supervisor code={TCT_Lib.szSupervisorCode}");
             TCT_Lib.LaneDB.WriteLaneEventHQ(EventTypeHQ.JOB, 0);
             TCT_Lib.webSocketLane.SendCollectorJob(0);
             TCT_Lib.SendEndJobObjToRTO(TCT_Lib.iStaffShiftID);
@@ -6400,6 +6699,7 @@ namespace TCT_App
             LogInfo.WriteLaneEvent($"+ Start Main Process => StartShiftID={TCT_Lib.iStaffShiftID}, JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}");
             TCT_Lib.dtStaffStartShift               = DateTime.Now;
             TCT_Lib.LaneDB.WriteLaneStartStaffShift(LoginType.ETC_Auto);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ AutoChangeStaffOfAutoLoginETC : new shift started, staffShiftId={TCT_Lib.iStaffShiftID}, jobNo={TCT_Lib.iJobNo}, send BOJ");
 
             //----------------------------------------------------------------------------------
             Thread.Sleep(1500);
@@ -6419,6 +6719,8 @@ namespace TCT_App
         public void EtcRabbitMQ_LaneStateFromEtcRabbitMQ(dynamic objLaneState)
         {
             showModeType(bEditModeETC ? "MTC" : "ETC");
+            if (bEditModeETC || TCT_Lib.eCurLaneType == LaneType.MTC || (TCT_Lib.eCurLaneType == LaneType.DUAL && bEditBlockETC))
+                LogInfo.WriteEtcRabbitMQ(LogLevel.TRACE, $"+ EtcLaneState : skip, editModeETC={bEditModeETC}, laneType={TCT_Lib.eCurLaneType}, editBlockETC={bEditBlockETC}");
             if (bEditModeETC)
                 return;
 
@@ -6435,6 +6737,8 @@ namespace TCT_App
             try
             {
                 string szSeqNo = (objLaneState["header"]["sequenceNumber"] == null) ? "" : (string)objLaneState["header"]["sequenceNumber"];
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.TRACE, $"+ EtcLaneState : seq={szSeqNo}, hasInputDevices={(bool)(objLaneState["inputDevices"] != null)}, hasVehicleQueue={(bool)(objLaneState["vehicleQueue"] != null)}");
                 //LogInfo.WriteLog("+ sequenceNumber : " + szSeqNo);
                 dynamic jValue = objLaneState["inputDevices"];
                 if (jValue != null)
@@ -6457,6 +6761,7 @@ namespace TCT_App
                         {
                             dynamic vehicleETC      = jVehicles[0];
                             string szPaymentStatus  = vehicleETC["paymentStatus"] ?? "";
+                            LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcLaneState : seq={szSeqNo}, queue={jVehicles.Count}, paymentStatus={szPaymentStatus}, class={TCT_Lib.iCurTC_Class}, mode={TCT_Lib.eCurLaneMode}");
                             if (szPaymentStatus == "OBU_NOT_PRESENT")
                             {
                                 //--- Not found TAG
@@ -6513,6 +6818,7 @@ namespace TCT_App
                                 TCT_Lib.xCurTAG.tagBalance      = fBalance;
                                 TCT_Lib.xCurTAG.tagType         = bMCard ? 0 : 1;
                                 eCurPayType                     = bMCard ? PayType.MPass : PayType.EasyPass;
+                                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcLaneState : OBU {(bMCard ? "M-Pass" : "EasyPass")}, panLen={szPAN.Length}, balance={fBalance}, vehicleClass={iVehicleClass}, rejectReason={szRejectReason}, fare={TCT_Lib.fCurFareAmount}, etcCtrlIO -> {TCT_Lib.eCurLaneMode != LaneMode.HPMC}");
                             }
                             else
                             {
@@ -6521,6 +6827,7 @@ namespace TCT_App
                                 TCT_Lib.xCurPayment.payDateTime = DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB);
                                 TCT_Lib.xCurTAG.tagPAN          = "";
                                 eCurPayType                     = PayType.NONE;
+                                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "+ EtcLaneState : vehicle without OBU info, payType=NONE");
                             }
 
                             if (TCT_Lib.eCurLaneMode != LaneMode.HPMC)
@@ -6556,6 +6863,8 @@ namespace TCT_App
 
         void EtcRabbitMQ_CompiledPassageFromEtcRabbitMQ(dynamic objCompiledPassage)
         {
+            if (TCT_Lib.eCurLaneType == LaneType.MTC || !TCT_Lib.bMainUiReady)
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcCompiledPassage : ignored, laneType={TCT_Lib.eCurLaneType}, mainUiReady={TCT_Lib.bMainUiReady}");
             if (TCT_Lib.eCurLaneType == LaneType.MTC)
                 return;
 
@@ -6563,6 +6872,7 @@ namespace TCT_App
                 return;
 
             int iTransID        = (int)TCT_Lib.LaneDB.WriteLaneTransaction_ETC_CompliedPassage(objCompiledPassage);
+            LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcCompiledPassage : transId={iTransID}, laneType={TCT_Lib.eCurLaneType}, mode={TCT_Lib.eCurLaneMode}");
             try
             {
                 dynamic objParams   = objCompiledPassage["params"];
@@ -6593,6 +6903,7 @@ namespace TCT_App
                 if (TCT_Lib.eCurLaneType == LaneType.DUAL)
                 {
                     string szSignalCode = (objCompiledPassage["params"]["signalCode"] == null) ? "" : (string)objCompiledPassage["params"]["signalCode"];
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcCompiledPassage : DUAL signalCode={szSignalCode}, mode={TCT_Lib.eCurLaneMode}, siren={(TCT_Lib.eCurLaneMode == LaneMode.NORMAL && szSignalCode == "22")}");
                     if (TCT_Lib.eCurLaneMode == LaneMode.NORMAL)
                     {
                         if (szSignalCode == "22")
@@ -6613,6 +6924,7 @@ namespace TCT_App
                 string direction = objParams["direction"] ?? "";
                 if (direction == "REVERSE_DIRECTION")
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ EtcCompiledPassage : REVERSE_DIRECTION -> inject EDIT key");
                     LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.EDIT);
                 }
             }
@@ -6638,6 +6950,7 @@ namespace TCT_App
 
         void LaneSocketServerRTO_EtcChangeLaneMode(int iEtcLaneMode, int iEtcLaneState)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EtcChangeLaneMode : etcLaneMode={iEtcLaneMode}, etcLaneState={iEtcLaneState}, page={TCT_Lib.eCurAppPage}, laneMode={TCT_Lib.eCurLaneMode}");
             if (iEtcLaneMode == (int)LaneMode.CLOSED)
             {
                 if (TCT_Lib.eCurAppPage != AppPage.Main)
@@ -6663,9 +6976,13 @@ namespace TCT_App
                 TCT_Lib.SendEndJobObjToSupAdjust(TCT_Lib.iStaffShiftID);
                 TCT_Lib.SendEndJobObjToDC(TCT_Lib.iStaffShiftID);
                 WebService_BeginEndJob.CallWebService_EndOfJob(dtEndShift, ref szErrMsg);
+                if (!string.IsNullOrEmpty(szErrMsg))
+                    LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning EtcChangeLaneMode : WebService EndOfJob message = {szErrMsg}");
                 EndShiftProcess();
                 endShiftLaneControl();
             }
+            else
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EtcChangeLaneMode : ignored, only CLOSED is handled (mode={iEtcLaneMode})");
         }
 
         //==================================================================
@@ -6676,11 +6993,13 @@ namespace TCT_App
             chkNetworkThread.Priority       = ThreadPriority.AboveNormal;
             chkNetworkThread.IsBackground   = true;
             chkNetworkThread.Start();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ InitialCheckNetworkStatusThread : thread started");
         }
 
         async private void ThreadCheckNetworkStatus()
         {
             int iCounting = 0;
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ ThreadCheckNetworkStatus : thread loop start, interval 10 s");
             while (true)
             {
                 try
@@ -6799,6 +7118,7 @@ namespace TCT_App
                             TCT_Lib.bLSD_Connected          = TCT_Lib.bEnableLSD ? await IsPortReachable(TCT_Lib.szLSD_IPAddress, TCT_Lib.iLSD_SocketPort) : false;
                             TCT_Lib.bLCSD_Connected         = await IsPortReachable(TCT_Lib.szLCSD_SocketIPAddress, TCT_Lib.iLCSD_SocketPort);
                             TCT_Lib.bLCIO_Connected         = await IsPortReachable(TCT_Lib.szLCIO_SocketIPAddress, TCT_Lib.iLCIO_SocketPort);
+                            LogInfo.WriteLog(LogLevel.TRACE, $"+ ThreadCheckNetworkStatus : iter={iCounting}, DC={TCT_Lib.bDC_NetworkStatus}, SupAdjust={TCT_Lib.bSupAdjust_Connected}, EMV={TCT_Lib.bEMV_Connected}, mainAnt={TCT_Lib.bMainAntenna_Connected}, secAnt={TCT_Lib.bSecAntenna_Connected}, LSD={TCT_Lib.bLSD_Connected}, LCSD={TCT_Lib.bLCSD_Connected}, LCIO={TCT_Lib.bLCIO_Connected}");
 
                             SendLaneRealTimeState();
                         }
@@ -6810,6 +7130,8 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     Console.WriteLine("- Error ThreadCheckNetworkStatus : " + err.Message);
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadCheckNetworkStatus : {err.Message} (retry in 10 s)");
+                    LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadCheckNetworkStatus stack : " + err.StackTrace);
                     //Thread.Sleep(5 * 1000);
                     await Task.Delay(10 * 1000);
                 }
@@ -6828,8 +7150,11 @@ namespace TCT_App
                     if (TCT_Lib.iEdcVersionType == 1)
                     {
                         var xEdcHandshaking_V1 = new EdcHandShaking_V1();
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ CheckEdcHankShaking : V1 handshake result={xEdcHandshaking_V1.bOutResult}");
                         return xEdcHandshaking_V1.bOutResult;
                     }
+                    else
+                        LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ CheckEdcHankShaking : handshake not supported for EDC version {TCT_Lib.iEdcVersionType}, result=False");
                 }
                 else
                 {
@@ -6848,11 +7173,13 @@ namespace TCT_App
             chkNetworkEdcThread.Priority        = ThreadPriority.AboveNormal;
             chkNetworkEdcThread.IsBackground    = true;
             chkNetworkEdcThread.Start();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ InitialCheckNetworkEdcStatusThread : thread started");
         }
 
         async private void ThreadCheckNetworkEdcStatus()
         {
             bool bFirstTime = true;
+            LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ ThreadCheckNetworkEdcStatus : thread loop start, EDC={TCT_Lib.bEnableEdc}, chkType={TCT_Lib.iEdcChkNetworkType}, intervalMin={TCT_Lib.iEdcChkKeepAliveIntervalMin}");
             while (true)
             {
                 try
@@ -6911,6 +7238,8 @@ namespace TCT_App
                                         LogInfo.WriteLogEDC("");
                                     }
                                 }
+                                else
+                                    LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ ThreadCheckNetworkEdcStatus : skip check, EMV page is active");
                             }
                         }
                     }
@@ -6922,6 +7251,8 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     Console.WriteLine("- Error ThreadCheckNetworkEdcStatus : " + err.Message);
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadCheckNetworkEdcStatus : {err.Message} (retry in {TCT_Lib.iEdcChkKeepAliveIntervalMin} min)");
+                    LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadCheckNetworkEdcStatus stack : " + err.StackTrace);
                     await Task.Delay(TCT_Lib.iEdcChkKeepAliveIntervalMin * 60 * 1000);
                 }
             }
@@ -6941,6 +7272,7 @@ namespace TCT_App
             if (szIPAddress == "")
             {
                 Console.WriteLine("- Fail TestNetworkConnection : No IPAddress");
+                LogInfo.WriteLog(LogLevel.TRACE, $"- TestNetworkConnection : no IP address, port={iPort}");
                 return false;
             }
             try
@@ -6949,12 +7281,14 @@ namespace TCT_App
                 //if (client.ConnectAsync(szIPAddress, iPort).Wait((int)(0.3*1000)))
                 if (client.ConnectAsync(szIPAddress, iPort).Wait(timeoutMs))
                 {
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ TestNetworkConnection : {szIPAddress}:{iPort} connected");
                     client.Close();
                     client = null;
                     return true;
                 }
                 else
                 {
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ TestNetworkConnection : {szIPAddress}:{iPort} not connected within {timeoutMs} ms");
                     client.Close();
                     client = null;
                     return false;
@@ -6963,6 +7297,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 Console.WriteLine("- Fail TestNetworkConnection : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Fail TestNetworkConnection : {szIPAddress}:{iPort}, {err.Message}");
                 return false;
             }
         }
@@ -6972,6 +7307,7 @@ namespace TCT_App
             if (szIPAddress == "")
             {
                 Console.WriteLine("- Fail TestNetworkConnection : No IPAddress");
+                LogInfo.WriteLog(LogLevel.TRACE, $"- TestNetworkConnectionAsync : no IP address, port={iPort}");
                 return false;
             }
             try
@@ -6979,6 +7315,7 @@ namespace TCT_App
                 var client = new TcpClient();
                 var result = client.BeginConnect(szIPAddress, iPort, null, null);
                 result.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(timeoutMs));
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ TestNetworkConnectionAsync : {szIPAddress}:{iPort} connected={client.Connected} (timeout {timeoutMs} ms)");
                 if (client.Connected)
                 {
                     client.Close();
@@ -6995,12 +7332,15 @@ namespace TCT_App
             catch (Exception err)
             {
                 Console.WriteLine("- Fail TestNetworkConnection : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Fail TestNetworkConnectionAsync : {szIPAddress}:{iPort}, {err.Message}");
                 return false;
             }
         }
 
         public async Task<bool> IsPortReachable(string host, int port = 80, int msTimeout = 300)
         {
+            if (string.IsNullOrEmpty(host))
+                LogInfo.WriteLog(LogLevel.TRACE, $"- IsPortReachable : no host, port={port}");
             if (string.IsNullOrEmpty(host))
                 return false;
             //throw new ArgumentNullException("host");
@@ -7022,6 +7362,7 @@ namespace TCT_App
                     clientDone.Reset();
                     socket.ConnectAsync(socketEventArg);
                     clientDone.WaitOne(msTimeout);
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ IsPortReachable : {host}:{port} reachable={reachable} (timeout {msTimeout} ms)");
 
                     return reachable;
                 }
@@ -7078,16 +7419,20 @@ namespace TCT_App
             autoResendTransThread.Priority      = ThreadPriority.Normal;
             autoResendTransThread.IsBackground  = true;
             autoResendTransThread.Start();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ InitialAutoResendTransThread : thread started");
         }
 
         async void ThreadAutoResendTrans()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : thread start, first run in 60 s, interval={TCT_Lib.iTimerAutoResendTrans} s");
             Thread.Sleep(60 * 1000);
             while (true)
             {
                 try
                 {
                     LogInfo.WriteLog("+--- Start Thread AutoResendTrans()");
+                    var swResend = System.Diagnostics.Stopwatch.StartNew();
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC={TCT_Lib.bEnableDcRabbitMQ}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}, staffShiftId={TCT_Lib.iStaffShiftID}");
                     //--- Resend data to DC (Data Center)
                     if (TCT_Lib.bEnableDcRabbitMQ)
                     {
@@ -7095,12 +7440,15 @@ namespace TCT_App
                         //if (await IsPortReachable(TCT_Lib.szDC_RabbitMQ_ServerIPAddress, TCT_Lib.iDC_RabbitMQ_ServerPort))
                         {
                             bool bResult = await TCT_Lib.AutoResendLaneTransactionToDC();
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC lane transaction resend result={bResult}");
                             if (bResult)
                             {
                                 bResult = await TCT_Lib.AutoResendLaneEventToDC();
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC lane event resend result={bResult}");
                                 if (bResult)
                                 {
                                     bResult = await TCT_Lib.AutoResendBeginJobToDC(TCT_Lib.iStaffShiftID);
+                                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC begin job resend result={bResult}");
                                     //if (bResult)
                                     //    await TCT_Lib.AutoResendEndJobToDC(TCT_Lib.iStaffShiftID);
                                 }
@@ -7118,9 +7466,11 @@ namespace TCT_App
                     //if (TestNetworkConnection(TCT_Lib.szRTO_IPAddress, TCT_Lib.iRTO_SocketPort - 1))
                     {
                         bool bResult = await TCT_Lib.AutoResendLaneTransactionToRTO();
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : RTO lane transaction resend result={bResult}");
                         if (bResult)
                         {
                             bResult = await TCT_Lib.AutoResendBeginJobToRTO();
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : RTO begin job resend result={bResult}");
                             if (bResult)
                                 await TCT_Lib.AutoResendEndJobToRTO();
                         }
@@ -7136,9 +7486,11 @@ namespace TCT_App
                     {
                         //LogInfo.WriteLog("+ Start Auto Resend to SupAdjust");
                         bool bResult = await TCT_Lib.AutoResendLaneTransactionToSupAdjust();
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : SupAdjust lane transaction resend result={bResult}");
                         if (bResult)
                         {
                             bResult = await TCT_Lib.AutoResendBeginJobToSupAdjust();
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : SupAdjust begin job resend result={bResult}");
                             if (bResult)
                                 await TCT_Lib.AutoResendEndJobToSupAdjust();
                         }
@@ -7155,16 +7507,20 @@ namespace TCT_App
                     {
                         LogInfo.WriteLog("+ Start Auto Resend to CaptureImageCamera");
                         bool bResult = await TCT_Lib.AutoResendImageCaptureCamera();
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : capture image resend result={bResult}");
                     }
 
 
                     //---------------------------------------------------------------
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : cycle done in {swResend.ElapsedMilliseconds} ms, next in {TCT_Lib.iTimerAutoResendTrans} s");
                     LogInfo.WriteLog("+--- End Thread AutoResendTrans()");
                     Thread.Sleep(TCT_Lib.iTimerAutoResendTrans * 1000);
                 }
                 catch (Exception err)
                 {
                     Console.WriteLine("- Error ThreadAutoResendTrans : " + err.Message);
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadAutoResendTrans : {err.Message} (retry in {TCT_Lib.iTimerAutoResendTrans} s)");
+                    LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadAutoResendTrans stack : " + err.StackTrace);
                     Thread.Sleep(TCT_Lib.iTimerAutoResendTrans * 1000);
                 }
             }
@@ -7177,10 +7533,12 @@ namespace TCT_App
             chkDeviceStatusThread.Priority  = ThreadPriority.AboveNormal;
             chkDeviceStatusThread.IsBackground = true;
             chkDeviceStatusThread.Start();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ InitialChkDeviceStatusThread : thread started");
         }
 
         async private void ThreadChkDeviceStatus()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadChkDeviceStatus : thread loop start, interval={TCT_Lib.iTimerSecCheckDeviceStatus} s, EDC={TCT_Lib.bEnableEdc}, LSD={TCT_Lib.bEnableLSD}, antenna={TCT_Lib.bEnableAntenna}");
             while (true)
             {
                 try
@@ -7242,6 +7600,8 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     Console.WriteLine("- Error ThreadChkDeviceStatus : " + err.Message);
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadChkDeviceStatus : {err.Message} (retry in {TCT_Lib.iTimerSecCheckDeviceStatus} s)");
+                    LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadChkDeviceStatus stack : " + err.StackTrace);
                     //Thread.Sleep(TCT_Lib.iTimerSecCheckDeviceStatus * 1000);
                     await Task.Delay(TCT_Lib.iTimerSecCheckDeviceStatus * 1000);
                 }
@@ -7254,21 +7614,26 @@ namespace TCT_App
             tfiTransferThread.Priority      = ThreadPriority.AboveNormal;
             tfiTransferThread.IsBackground  = true;
             tfiTransferThread.Start();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ InitialTfiTransferFileThread : thread started");
         }
 
         async private void ThreadTfiTransferFile()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ ThreadTfiTransferFile : thread loop start, interval 180 s");
             while (true)
             {
                 try
                 {
                     LogInfo.WriteLog("+ Start ThreadTfiTransferFle()");
                     bool bResult = await TCT_Lib.LaneDB.TfiTransferImageFile();
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadTfiTransferFile : transfer result={bResult}");
 
                 }
                 catch (Exception err)
                 {
                     Console.WriteLine("- Error ThreadTfiTransferFile : " + err.Message);
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadTfiTransferFile : {err.Message} (retry in 180 s)");
+                    LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadTfiTransferFile stack : " + err.StackTrace);
                     //Thread.Sleep(TCT_Lib.iTimerSecCheckDeviceStatus * 1000);
                 }
                 await Task.Delay(180 * 1000);
@@ -7279,6 +7644,7 @@ namespace TCT_App
         //=====================================================================
         protected void CreateMonitorCameraNetworkThread()
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CreateMonitorCameraNetworkThread : camera1={(TCT_Lib.szVideoLane_IPCamera1 ?? "").Trim() != ""}, camera2={(TCT_Lib.szVideoLane_IPCamera2 ?? "").Trim() != ""}");
             if (TCT_Lib.szVideoLane_IPCamera1.Trim() != "")
             {
                 chkNetworkCamera1Thread = new Thread(new ThreadStart(ThreadChkNetworkCamera1));
@@ -7297,6 +7663,7 @@ namespace TCT_App
 
         async private void ThreadChkNetworkCamera1()
         {
+            LogInfo.WriteLogNetworkCamera(1, LogLevel.DEBUG, $"+ ThreadChkNetworkCamera1 : thread loop start, ip={TCT_Lib.szVideoLane_IPCamera1}, interval 3 s");
             while (true)
             {
                 try
@@ -7311,6 +7678,7 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     LogInfo.WriteLogNetworkCamera(1, "- Error Exception - Camera 1 = " + err.Message);
+                    LogInfo.WriteLogNetworkCamera(1, LogLevel.DEBUG, "- ThreadChkNetworkCamera1 stack : " + err.StackTrace);
                     await Task.Delay(3 * 1000);
                 }
             }
@@ -7318,6 +7686,7 @@ namespace TCT_App
 
         async private void ThreadChkNetworkCamera2()
         {
+            LogInfo.WriteLogNetworkCamera(2, LogLevel.DEBUG, $"+ ThreadChkNetworkCamera2 : thread loop start, ip={TCT_Lib.szVideoLane_IPCamera2}, interval 3 s");
             while (true)
             {
                 try
@@ -7332,6 +7701,7 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     LogInfo.WriteLogNetworkCamera(2, "- Error Exception - Camera 2 = " + err.Message);
+                    LogInfo.WriteLogNetworkCamera(2, LogLevel.DEBUG, "- ThreadChkNetworkCamera2 stack : " + err.StackTrace);
                     await Task.Delay(3 * 1000);
                 }
             }
@@ -7340,6 +7710,7 @@ namespace TCT_App
         //==================================================================
         protected void CreateProcessVideoCaptureImage(int nTrx, bool bIsTowing = false, bool bViolation = false)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage : method={TCT_Lib.iVideoNVR_CaptureImageMethod}, nTrx={nTrx}, towing={bIsTowing}, violation={bViolation}");
             if (TCT_Lib.iVideoNVR_CaptureImageMethod == 0)
                 CreateProcessVideoCaptureImage_Method_0(nTrx, bIsTowing);
             else if (TCT_Lib.iVideoNVR_CaptureImageMethod == 1)
@@ -7352,6 +7723,7 @@ namespace TCT_App
 
         private void CreateProcessVideoCaptureImage_Method_0(int nTrx, bool bIsTowing = false)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_0 : nTrx={nTrx}, towing={bIsTowing}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, maintenance={TCT_Lib.bMaintenanceMode}, page={TCT_Lib.eCurAppPage}, captureTrx={iCapture_nTrx}");
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
@@ -7383,6 +7755,7 @@ namespace TCT_App
                     nTrx += 1;
             }
             iCapture_nTrx = nTrx;
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_0 : capture nTrx={nTrx} (3 cameras), towing={bIsTowing}");
 
             LogInfo.WriteLaneEvent($"+ CreateProcessVideoCaptureImage : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx}");
             //---------------------------------------------------------------------------------------
@@ -7412,6 +7785,7 @@ namespace TCT_App
 
         private void ThreadVideoCaptureImage_Towing(int nTrx)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Towing : wait {TCT_Lib.iVideoNVR_TowingTimeLapseMillisec} ms, then capture nTrx={nTrx + 1}");
             //Thread.Sleep(2000);
             Thread.Sleep(TCT_Lib.iVideoNVR_TowingTimeLapseMillisec);
             LogInfo.WriteLog($"+ CreateProcessVideoCaptureImage-Towing : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx + 1}");
@@ -7436,6 +7810,7 @@ namespace TCT_App
                 }
                 catch (ThreadAbortException exception)
                 {
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error ProcessVideoCaptureThread : {exception.Message}");
                     //Thread.ResetAbort();
                 }
             }
@@ -7460,6 +7835,7 @@ namespace TCT_App
         //[SecurityPermissionAttribute(SecurityAction.Demand, ControlThread = true)]
         private void ThreadVideoCaptureImage(int nTrx, int index, CameraPosition camPosition, bool bIsTowing)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage : nTrx={nTrx}, index={index}, camera={camPosition}, towing={bIsTowing}");
             if (camPosition == CameraPosition.FrontCamera)
             {
                 if (TCT_Lib.szVideoNVR_FrontCaptureUrl.Trim() == "")
@@ -7503,6 +7879,7 @@ namespace TCT_App
                 }
                 catch (ThreadAbortException exception)
                 {
+                    LogInfo.WriteLogVideoCapture(LogLevel.ERROR, $"- Error ThreadVideoCaptureImage : {exception.Message}");
                     //Thread.ResetAbort();
                 }
             }
@@ -7527,6 +7904,7 @@ namespace TCT_App
                 TimeSpan dtSpan     = DateTime.Now.Subtract(dtStart);
                 string szStr        = "Video Capture Time : " + dtSpan.TotalSeconds.ToString("0") + " sec. Request : " + szCaptureUrl;
                 LogInfo.WriteLogVideoCapture("+ >>>>> End ThreadVideoCaptureImage : " + szStr);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage : nTrx={nTrx}, index={index}, file={szVideoImgFileName}, result={bResult}, elapsed={dtSpan.TotalMilliseconds:0} ms");
 
                 //if (!bResult)
                 //    videoCaptureThread.Abort();
@@ -7538,8 +7916,9 @@ namespace TCT_App
                 //            .GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
 
             }
-            catch (ThreadAbortException)
+            catch (ThreadAbortException errAbort)
             {
+                LogInfo.WriteLogVideoCapture(LogLevel.ERROR, $"- Error ThreadVideoCaptureImage : thread aborted, nTrx={nTrx}, index={index}, {errAbort.Message}");
                 //Thread.ResetAbort();
             }
             catch (Exception err)
@@ -7547,6 +7926,7 @@ namespace TCT_App
                 Console.WriteLine("- Error ThreadVideoCaptureImage : " + err.Message);
                 if (!err.Message.Contains("Thread was being aborted"))
                     LogInfo.WriteLogVideoCapture("- Error ThreadVideoCaptureImage : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- ThreadVideoCaptureImage : nTrx={nTrx}, index={index}, error={err.Message}, stack : {err.StackTrace}");
             }
             finally
             {
@@ -7611,6 +7991,7 @@ namespace TCT_App
                 TimeSpan dtSpan     = DateTime.Now.Subtract(dtStart);
                 string szStr        = "Video Capture Time : " + dtSpan.TotalSeconds.ToString("0") + " sec. Request : " + szCaptureUrl;
                 LogInfo.WriteLogVideoCapture("+ End ThreadVideoCaptureImage : " + szStr);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_V0 : nTrx={nTrx}, index={index}, result={bResult}, elapsed={dtSpan.TotalMilliseconds:0} ms");
 
                 //videoCaptureThread.Abort();
             }
@@ -7619,6 +8000,7 @@ namespace TCT_App
                 Console.WriteLine("- Error ThreadVideoCaptureImage : " + err.Message);
                 if (!err.Message.Contains("Thread was being aborted"))
                     LogInfo.WriteLogVideoCapture("- Error ThreadVideoCaptureImage : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- ThreadVideoCaptureImage_V0 : index={index}, error={err.Message}, stack : {err.StackTrace}");
             }
             finally
             {
@@ -7632,6 +8014,7 @@ namespace TCT_App
         //==============================================================================
         private void CreateProcessVideoCaptureImage_Method_1(int nTrx, bool bIsTowing = false, bool bViolation = false)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_1 : nTrx={nTrx}, towing={bIsTowing}, violation={bViolation}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, captureTrx={iCapture_nTrx}");
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
@@ -7680,6 +8063,7 @@ namespace TCT_App
 
         private void ThreadVideoCaptureImage_Towing_Method_1(int nTrx, long iCaptureRunningNo)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Towing_Method_1 : wait {TCT_Lib.iVideoNVR_TowingTimeLapseMillisec} ms, then capture nTrx={nTrx + 1}, runningNo={iCaptureRunningNo}");
             //Thread.Sleep(2000);
             Thread.Sleep(TCT_Lib.iVideoNVR_TowingTimeLapseMillisec);
             LogInfo.WriteLog($"+ CreateProcessVideoCaptureImage-Towing : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx + 1}, CaptureRunningNo={iCaptureRunningNo}");
@@ -7703,6 +8087,7 @@ namespace TCT_App
         {
             string szCaptureUrl = "", szUserName = "", szPassword = "";
             string szShortCamera = "";
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Method_1 : nTrx={nTrx}, index={index}, camera={camPosition}, runningNo={iCaptureRunningNo}, towing={bIsTowing}, violation={bViolation}");
             if (camPosition == CameraPosition.FrontCamera)
             {
                 if (TCT_Lib.szVideoLane_FrontCameraUrl.Trim() == "")
@@ -7753,6 +8138,7 @@ namespace TCT_App
                 TimeSpan dtSpan     = DateTime.Now.Subtract(dtStart);
                 string szStr        = "Video Capture Time : " + dtSpan.TotalSeconds.ToString("0") + " sec. Request : " + szCaptureUrl;
                 LogInfo.WriteLogVideoCapture($"+ >>>>> End ThreadVideoCaptureImage : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx}, index={index} : {szStr}");
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Method_1 : nTrx={nTrx}, index={index}, file={szVideoImgFileName}, result={bResult}, elapsed={dtSpan.TotalMilliseconds:0} ms");
 
                 //string szVideoImgFileName   = $"{TCT_Lib.szLaneName}_{szShortCamera}_D{DateTime.Now.ToString("yyyyMMdd")}_T{DateTime.Now.ToString("HHmmssfff")}_N{iCaptureRunningNo.ToString("000000")}{index}.jpg";
                 //DateTime dtStart            = DateTime.Now;
@@ -7774,6 +8160,9 @@ namespace TCT_App
                     //long iCaptureRunningNo      = TCT_Lib.LaneDB.GetCaptureRunningNoOfTrans(_iJobNo, _nTrx, iTransID);
                     //using (StreamWriter writer  = File.CreateText(Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, $"ImageCamera_Trans{iTransID}_J{_iJobNo}_N{_nTrx}cdh")))
                     string szCaptureJsonFile = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, $"ImageCamera_Trans{iTransID}_N{iCaptureRunningNo.ToString("000000")}.json");
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Method_1 : violation last image, transId={iTransID}, job={_iJobNo}, nTrx={_nTrx}, file={szCaptureJsonFile}");
+                    if (LogInfo.IsEnabled(LogLevel.TRACE))
+                        LogInfo.WriteLogVideoCapture(LogLevel.TRACE, "+ ThreadVideoCaptureImage_Method_1 : capture json = " + szImageCameraJson);
 
                     try
                     {
@@ -7801,6 +8190,7 @@ namespace TCT_App
                         LogInfo.WriteLog($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                         LogInfo.WriteLaneEvent($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                         LogInfo.WriteLogVideoCapture($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
+                        LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadVideoCaptureImage_Method_1 (capture json) stack : " + err.StackTrace);
 
                         //-----------------------------------
 
@@ -7816,6 +8206,7 @@ namespace TCT_App
                 Console.WriteLine("- Error ThreadVideoCaptureImage : " + err.Message);
                 if (!err.Message.Contains("Thread was being aborted"))
                     LogInfo.WriteLogVideoCapture("- Error ThreadVideoCaptureImage : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- ThreadVideoCaptureImage_Method_1 : nTrx={nTrx}, index={index}, error={err.Message}, stack : {err.StackTrace}");
             }
             finally
             {
@@ -7833,6 +8224,7 @@ namespace TCT_App
         //----------------------------------------------------------------------------------------
         private void CreateProcessVideoCaptureImage_Method_2(int nTrx, bool bIsTowing = false)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_2 : nTrx={nTrx}, towing={bIsTowing}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, captureTrx={iCapture_nTrx}");
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
@@ -7881,6 +8273,7 @@ namespace TCT_App
 
         private void ThreadVideoCaptureImage_Towing_Method_2(int nTrx, long iCaptureRunningNo)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Towing_Method_2 : wait {TCT_Lib.iVideoNVR_TowingTimeLapseMillisec} ms, then capture nTrx={nTrx + 1}, runningNo={iCaptureRunningNo}");
             //Thread.Sleep(2000);
             Thread.Sleep(TCT_Lib.iVideoNVR_TowingTimeLapseMillisec);
             LogInfo.WriteLog($"+ CreateProcessVideoCaptureImage-Towing : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx + 1}, CaptureRunningNo={iCaptureRunningNo}");
@@ -7902,6 +8295,7 @@ namespace TCT_App
         {
             string szCaptureUrl = "", szUserName = "", szPassword = "";
             string szShortCamera = "";
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Method_2 : nTrx={nTrx}, index={index}, camera={camPosition}, runningNo={iCaptureRunningNo}, towing={bIsTowing}");
             if (camPosition == CameraPosition.FrontCamera)
             {
                 if (TCT_Lib.szVideoLane_FrontCameraUrl.Trim() == "")
@@ -7955,6 +8349,7 @@ namespace TCT_App
                 TimeSpan dtSpan = DateTime.Now.Subtract(dtStart);
                 string szStr    = "Video Capture Time : " + dtSpan.TotalSeconds.ToString("0") + " sec. Request : " + szCaptureUrl;
                 LogInfo.WriteLogVideoCapture("+ End ThreadVideoCaptureImage : " + szStr);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Method_2 : nTrx={nTrx}, index={index}, file={szVideoImgFileName}, result={bResult}, elapsed={dtSpan.TotalMilliseconds:0} ms");
 
                 //if (!bResult)
                 //    videoCaptureThread_Method_2.Abort();
@@ -7967,6 +8362,7 @@ namespace TCT_App
                 Console.WriteLine("- Error ThreadVideoCaptureImage : " + err.Message);
                 if (!err.Message.Contains("Thread was being aborted"))
                     LogInfo.WriteLogVideoCapture("- Error ThreadVideoCaptureImage : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- ThreadVideoCaptureImage_Method_2 : nTrx={nTrx}, index={index}, error={err.Message}, stack : {err.StackTrace}");
                 //return "";
             }
             finally
@@ -7984,6 +8380,7 @@ namespace TCT_App
         //----------------------------------------------------------------------------------------
         protected void CreateProcessVideoCaptureImage_Method_3(int idx, int nTrx, bool bIsTowing = false, bool bViolation = false, bool bWaitLoop = false)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_3 : idx={idx}, nTrx={nTrx}, towing={bIsTowing}, violation={bViolation}, waitLoop={bWaitLoop}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, captureTrx={iCapture_nTrx}");
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
@@ -8025,6 +8422,7 @@ namespace TCT_App
                 iCaptureRunningNo = iRunningNo-1;
             }
 
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_3 : runIdx {iCurRunIdx} -> {idx}, runningNo={iCaptureRunningNo} (db={iRunningNo})");
             iCurRunIdx = idx;
 
             LogInfo.WriteLaneEvent($"+ CreateProcessVideoCaptureImage Method_3 : Index={idx}, JobNo={TCT_Lib.iJobNo}, nTrx={nTrx}, CaptureRunningNo={iCaptureRunningNo}");
@@ -8070,6 +8468,7 @@ namespace TCT_App
         {
             string szCaptureUrl = "", szUserName = "", szPassword = "";
             string szShortCamera = "";
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Method_3 : nTrx={nTrx}, index={index}, camera={camPosition}, runningNo={iCaptureRunningNo}, towing={bIsTowing}");
             if (camPosition == CameraPosition.RearCamera)
             {
                 if (TCT_Lib.szVideoLane_RearCameraUrl.Trim() == "")
@@ -8149,6 +8548,7 @@ namespace TCT_App
                 TimeSpan dtSpan             = DateTime.Now.Subtract(dtStart);
                 string szStr                = "Video Capture Time : " + dtSpan.TotalSeconds.ToString("0") + " sec. Request : " + szCaptureUrl;
                 LogInfo.WriteLogVideoCapture("+ End ThreadVideoCaptureImage : " + szStr);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadVideoCaptureImage_Method_3 : nTrx={nTrx}, index={index}, file={szVideoImgFileName}, result={bResult}, elapsed={dtSpan.TotalMilliseconds:0} ms");
 
                 //if (!bResult)
                 //    videoCaptureThread_Method_3.Abort();
@@ -8165,6 +8565,7 @@ namespace TCT_App
                 Console.WriteLine("- Error ThreadVideoCaptureImage : " + err.Message);
                 if (!err.Message.Contains("Thread was being aborted"))
                     LogInfo.WriteLogVideoCapture("- Error ThreadVideoCaptureImage : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- ThreadVideoCaptureImage_Method_3 : nTrx={nTrx}, index={index}, error={err.Message}, stack : {err.StackTrace}");
                 //return "";
             }
             finally
@@ -8181,6 +8582,7 @@ namespace TCT_App
 
         protected void ProcessCreateImageCameraSendJsonFileThread_Method_3(int iTransID)
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ProcessCreateImageCameraSendJsonFileThread_Method_3 : transId={iTransID}, start thread (delay 2 s)");
             Thread createImageCameraSendJsonFileThread_Method_3             = new Thread(() => ThreadCreateImageCameraSendJsonFile_Method_3(iTransID));
             createImageCameraSendJsonFileThread_Method_3.Priority           = ThreadPriority.Normal;
             createImageCameraSendJsonFileThread_Method_3.IsBackground       = true;
@@ -8189,6 +8591,7 @@ namespace TCT_App
 
         async protected void ThreadCreateImageCameraSendJsonFile_Method_3(int iTransID) 
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadCreateImageCameraSendJsonFile_Method_3 : start, transId={iTransID}");
             await Task.Delay(2000);
             int _iJobNo = 0, _nTrx = 0;
             var xImageCameraObj         = TCT_Obj.GenerateCaptureImageCamera(iTransID, ref _iJobNo, ref _nTrx);
@@ -8196,6 +8599,9 @@ namespace TCT_App
             long iCaptureRunningNo      = TCT_Lib.LaneDB.GetCaptureRunningNoOfTrans(_iJobNo, _nTrx, iTransID, DateTime.Now);
             //using (StreamWriter writer  = File.CreateText(Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, $"ImageCamera_Trans{iTransID}_J{_iJobNo}_N{_nTrx}.json")))
             string szCaptureJsonFile    = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, $"ImageCamera_Trans{iTransID}_N{iCaptureRunningNo.ToString("000000")}.json");
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadCreateImageCameraSendJsonFile_Method_3 : transId={iTransID}, job={_iJobNo}, nTrx={_nTrx}, runningNo={iCaptureRunningNo}, file={szCaptureJsonFile}");
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLogVideoCapture(LogLevel.TRACE, "+ ThreadCreateImageCameraSendJsonFile_Method_3 : capture json = " + szImageCameraJson);
 
             try
             {
@@ -8228,12 +8634,14 @@ namespace TCT_App
                         TCT_Lib.SendLaneTransObjToSupAdjust(iTransID);
                     }
                 }
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadCreateImageCameraSendJsonFile_Method_3 : done, transId={iTransID}, sendTrans={iTransID != 0}, toDC/SupAdjust={(iTransID != 0) && (TCT_Lib.xCurTAG?.tagPAN == null)}");
             }
             catch (Exception err)
             {
                 LogInfo.WriteLog($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                 LogInfo.WriteLaneEvent($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                 LogInfo.WriteLogVideoCapture($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadCreateImageCameraSendJsonFile_Method_3 stack : " + err.StackTrace);
             }
         }
 
@@ -8292,10 +8700,12 @@ namespace TCT_App
             mtsStatusThread.Priority        = ThreadPriority.Normal;
             mtsStatusThread.IsBackground    = true;
             mtsStatusThread.Start();
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ InitialMtsStatusThread : thread started");
         }
 
         async private void ThreadMtsStatus()
         {
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ ThreadMtsStatus : thread start, interval={TCT_Lib.iMTS_TimerSecCheckStatus} s");
             TCT_MTS.InitialProcessUsage();
             TCT_MTS.CreateGetEdcStatusThread();
             await Task.Delay(5 * 1000);
@@ -8308,6 +8718,7 @@ namespace TCT_App
                     //await TCT_MTS_Alarm.SendJsonMsgMtsAlarmToRabbitMQ();    //--- Testing
                     //---------------------------------------------
 
+                    LogInfo.WriteLogMTS(LogLevel.TRACE, $"+ ThreadMtsStatus : cycle, networkStatus={TCT_Lib.bMTS_NetworkStatus}");
                     if (TCT_Lib.bMTS_NetworkStatus)
                     {
                         await TCT_MTS.SendJsonMsgMtsDataToRabbitMQ();

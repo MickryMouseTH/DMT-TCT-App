@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Globalization;
 using Gtk;
 using Pango;
 using TCT_App.EMV.EMV_V1;
@@ -22,9 +23,12 @@ namespace TCT_App.LaneView.MiscDlg
         Gdk.Color clHeaderCoupon2_Selected  = new Gdk.Color(10, 110, 170);
 
         Gdk.Color clBkCoupon1_UnSelect      = new Gdk.Color(0x00, 0xb3, 0x3c);
-        Gdk.Color clBkCoupon1_Selected      = new Gdk.Color(10, 110, 17);
         Gdk.Color clBkCoupon2_UnSelect      = new Gdk.Color(10, 110, 170);
-        Gdk.Color clBkCoupon2_Selected      = new Gdk.Color(32, 74, 135);
+        //--- v2.0.4: selected coupon = faded (light) colour of its group + dark text + check mark
+        Gdk.Color clBkCoupon1_Selected      = new Gdk.Color(0xB8, 0xE6, 0xC6);
+        Gdk.Color clFgCoupon1_Selected      = new Gdk.Color(0x0A, 0x5A, 0x1E);
+        Gdk.Color clBkCoupon2_Selected      = new Gdk.Color(0xB8, 0xD4, 0xEA);
+        Gdk.Color clFgCoupon2_Selected      = new Gdk.Color(0x14, 0x3C, 0x6E);
 
         Gdk.Color clBkPayUnSel              = new Gdk.Color(50, 50, 50);
         Gdk.Color clBkPaySelect             = new Gdk.Color(30, 130, 30);
@@ -44,6 +48,10 @@ namespace TCT_App.LaneView.MiscDlg
         int iTotalCoupon_Type1 = 0, iTotalCoupon_Type2 = 0;
 
         objCreditCardInfo xCreditCardInfo = null;
+        //--- v2.0.4
+        bool bClosed    = false;        // Respond() already sent -> ignore every later key / touch
+        bool bMsgOpen   = false;        // a MessageDialog is running on top of this popup
+        readonly Dictionary<Widget, Gdk.Color> dicBg = new Dictionary<Widget, Gdk.Color>();
         //string szCouponType1 = "35", szCouponType2 = "80";
         string szCouponType1 = "", szCouponType2 = "";
         //------------------------------------------------------------------------
@@ -58,6 +66,7 @@ namespace TCT_App.LaneView.MiscDlg
             UiTheme.StyleKey(btnPrintReceipt,   UiTheme.Purple, UiTheme.PopupBtnFont);
             UiTheme.StyleKey(btnCancel,         UiTheme.Red,    UiTheme.PopupBtnFont);
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : popup opened, page {TCT_Lib.eCurAppPage} -> SalesCoupon");
             TCT_Lib.eCurAppPage     = AppPage.SalesCoupon;
             iSelHeaderCouponType    = 1; 
             iSelPayType             = 0;
@@ -86,6 +95,16 @@ namespace TCT_App.LaneView.MiscDlg
             TCT_Lib.laneController.manageProcessSalesCoupon += LaneController_ManageProcessSalesCoupon;
 
             this.Activate();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : ready, type1 '{szCouponType1}' x{iTotalCoupon_Type1} @{fCouponPrice_Type1}, type2 '{szCouponType2}' x{iTotalCoupon_Type2} @{fCouponPrice_Type2}, edcVer {TCT_Lib.iEdcVersionType}, maint {TCT_Lib.bMaintenanceMode}");
+        }
+
+        //--- v2.0.4: log helper (read-only) -> "header 1, pay 0, total 1 / 35 THB"
+        string LogState()
+        {
+            int iTotalCoupon        = 0;
+            decimal fTotalAmount    = 0;
+            Calc_TotalSalesCoupon(ref iTotalCoupon, ref fTotalAmount);
+            return $"header {iSelHeaderCouponType}, pay {iSelPayType}, total {iTotalCoupon} / {fTotalAmount:#,0} THB";
         }
 
         private void InitUI()
@@ -158,8 +177,8 @@ namespace TCT_App.LaneView.MiscDlg
             }
             if (iTotalCoupon_Type1 > 0)
             {
-                fCouponPrice_Type1 = decimal.Parse(dtCoupon1.Rows[0]["CouponPrice"].ToString());
-                LogInfo.WriteLaneEvent("+ Load Coupon Price = " + decimal.Parse(dtCoupon1.Rows[0]["CouponPrice"].ToString()));
+                fCouponPrice_Type1 = ParsePrice(dtCoupon1.Rows[0]["CouponPrice"]);
+                LogInfo.WriteLaneEvent("+ Load Coupon Price = " + fCouponPrice_Type1);
             }
 
             szQuery = "SELECT * FROM SalesCouponList " +
@@ -175,9 +194,31 @@ namespace TCT_App.LaneView.MiscDlg
             }
             if (iTotalCoupon_Type2 > 0)
             {
-                fCouponPrice_Type2 = decimal.Parse(dtCoupon2.Rows[0]["CouponPrice"].ToString());
-                LogInfo.WriteLaneEvent("+ Load Coupon Price = " + decimal.Parse(dtCoupon2.Rows[0]["CouponPrice"].ToString()));
+                fCouponPrice_Type2 = ParsePrice(dtCoupon2.Rows[0]["CouponPrice"]);
+                LogInfo.WriteLaneEvent("+ Load Coupon Price = " + fCouponPrice_Type2);
             }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : loaded type1 '{szCouponType1}' {iTotalCoupon_Type1} coupons, type2 '{szCouponType2}' {iTotalCoupon_Type2} coupons");
+        }
+
+        //--- v2.0.4: price column may be NULL / come back with the machine locale -> never throw
+        static decimal ParsePrice(object objValue)
+        {
+            decimal fPrice;
+            string szValue = (objValue == null || objValue == DBNull.Value) ? "" : objValue.ToString();
+            if (decimal.TryParse(szValue, NumberStyles.Any, CultureInfo.InvariantCulture, out fPrice))
+                return fPrice;
+            LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning SalesCoupon : coupon price '{szValue}' not numeric -> 0");
+            return 0;
+        }
+
+        //--- v2.0.4: ModifyBg() inside an expose handler re-queues a redraw every paint (same bug as I8)
+        void SetBgIfChanged(Widget w, Gdk.Color c)
+        {
+            Gdk.Color old;
+            if (dicBg.TryGetValue(w, out old) && old.Equal(c))
+                return;
+            dicBg[w] = c;
+            w.ModifyBg(StateType.Normal, c);
         }
 
         protected void ShowSumSaleCoupon()
@@ -213,14 +254,42 @@ namespace TCT_App.LaneView.MiscDlg
         [GLib.ConnectBefore]
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
-            if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
-                TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue], 1);
+            int iKeyValue = (int)args.Event.KeyValue;
+            if (TCT_Lib.keyMapping.ContainsKey(iKeyValue))
+            {
+                int iKey = TCT_Lib.keyMapping[iKeyValue];
+                //--- v2.0.4: a mapped key is ours only. Without RetVal GTK also ran its own binding:
+                //--- Escape closed the popup behind our back (delete-event) and the LaneController
+                //--- handler stayed registered -> the next popup received keys for a disposed dialog.
+                args.RetVal = true;
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : keyboard {args.Event.Key} -> virtual key {(KeyPressedType)iKey}");
+                TCT_Lib.webSocketLane.SendVirtualKeyboard(iKey, 1);
+            }
+            else if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLaneEvent(LogLevel.TRACE, $"+ SalesCoupon : keyboard {args.Event.Key} not mapped");
+        }
+
+        //--- v2.0.4: window close (Escape / window manager) goes through the same path as [แก้ไข]
+        protected override bool OnDeleteEvent(Gdk.Event evnt)
+        {
+            LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : delete-event -> {(bPayCompleted ? "ignored, already paid" : (bMsgOpen ? "ignored, message popup open" : "cancel"))}");
+            if (!bPayCompleted && !bMsgOpen)
+                Action_BtnCancel();
+            return true;        // never let GTK close the popup by itself
         }
 
         private void LaneController_ManageProcessSalesCoupon(int iKey)
         {
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLaneEvent(LogLevel.TRACE, $"+ SalesCoupon : key {(KeyPressedType)iKey} queued to UI thread");
             Application.Invoke(delegate
             {
+                if (bClosed || bMsgOpen)
+                {
+                    LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : key {(KeyPressedType)iKey} ignored ({(bClosed ? "popup already closed" : "message popup open")})");
+                    return;
+                }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : key {(KeyPressedType)iKey} ({LogState()}, paid {bPayCompleted})");
                 if (iKey == (int)KeyPressedType.LEFT)
                     Action_ClickHeaderCouponType(1);
                 else if (iKey == (int)KeyPressedType.RIGHT)
@@ -310,6 +379,17 @@ namespace TCT_App.LaneView.MiscDlg
                 {
                     Action_OnBtnSelPayment(1);
                     Perform_ProcessEMV();
+                }
+                else if (iKey == (int)KeyPressedType.PAY_QRCODE)
+                {
+                    //--- v2.0.4: the QR key was accepted by LaneController but never handled here
+                    if (btnSelPayQrCode.Visible)
+                    {
+                        Action_OnBtnSelPayment(2);
+                        Perform_ProcessQrCode();
+                    }
+                    else
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : QR ignored, not available with EDC version {TCT_Lib.iEdcVersionType}");
                 }
                 else if (iKey == (int)KeyPressedType.CONFIRM)
                 {
@@ -401,12 +481,12 @@ namespace TCT_App.LaneView.MiscDlg
             //renderer.SetOverrideColor(RenderPart.Foreground, new Gdk.Color(255, 255, 255));
             if (iCouponType == 1)
             {
-                headerCoupon_Type1.ModifyBg(StateType.Normal, iSelHeaderCouponType == 1 ? clHeaderCoupon1_Selected : clHeaderCoupon1_UnSelect);
+                SetBgIfChanged(headerCoupon_Type1, iSelHeaderCouponType == 1 ? clHeaderCoupon1_Selected : clHeaderCoupon1_UnSelect);
                 drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 8, layout, iSelHeaderCouponType == 1 ? clWhite : clGray, iSelHeaderCouponType == 1 ? clHeaderCoupon1_Selected : clHeaderCoupon1_UnSelect);
             }
             else
             {
-                headerCoupon_Type2.ModifyBg(StateType.Normal, iSelHeaderCouponType == 2 ? clHeaderCoupon2_Selected : clHeaderCoupon2_UnSelect);
+                SetBgIfChanged(headerCoupon_Type2, iSelHeaderCouponType == 2 ? clHeaderCoupon2_Selected : clHeaderCoupon2_UnSelect);
                 drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 8, layout, iSelHeaderCouponType == 2 ? clWhite : clGray, iSelHeaderCouponType == 2 ? clHeaderCoupon2_Selected : clHeaderCoupon2_UnSelect);
             }
 
@@ -564,12 +644,13 @@ namespace TCT_App.LaneView.MiscDlg
             { 
                 int iKeyNo = idx == 9 ? 0 : idx + 1;
                 //layout.SetText((iSelCouponList_Type1[idx] == 0 ? "" : "\u2713  ") + (iSelHeaderCouponType == 1 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type1[idx]);
-                layout.SetText((iSelHeaderCouponType == 1 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type1[idx]);
+                layout.SetText((iSelCouponList_Type1[idx] == 0 ? "" : "✓ ") + (iSelHeaderCouponType == 1 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type1[idx]);
             }
-            drawArea.ModifyBg(StateType.Normal, iSelCouponList_Type1[idx] == 0 ? clBkCoupon1_UnSelect : clBkCoupon1_Selected);
+            Gdk.Color clBk = iSelCouponList_Type1[idx] == 0 ? clBkCoupon1_UnSelect : clBkCoupon1_Selected;
+            SetBgIfChanged(drawArea, clBk);
+            FillCouponBk(drawArea, clBk, iWidth, iHeight);
             int iTextY = FitCouponText(layout, iWidth, iHeight);    // v2.0.2: one line, fit width, centre
-            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, iTextY, layout, iSelCouponList_Type1[idx] == 0 ? clWhite : clGray,
-                                        iSelCouponList_Type1[idx] == 0 ? clBkCoupon1_UnSelect : clBkCoupon1_Selected);
+            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, iTextY, layout, iSelCouponList_Type1[idx] == 0 ? clWhite : clFgCoupon1_Selected, clBk);
                 
             renderer.Drawable       = null;
             renderer.Gc             = null;
@@ -595,6 +676,16 @@ namespace TCT_App.LaneView.MiscDlg
             layout.Width = Units.FromPixels(iWidth);
             layout.GetPixelSize(out iW, out iH);
             return Math.Max(0, (iHeight - iH) / 2);
+        }
+
+        //--- v2.0.4: paint the whole cell now (ModifyBg inside expose only takes effect on the next clear)
+        static void FillCouponBk(DrawingArea drawArea, Gdk.Color clBk, int iWidth, int iHeight)
+        {
+            using (var gc = new Gdk.GC(drawArea.GdkWindow))
+            {
+                gc.RgbFgColor = clBk;
+                drawArea.GdkWindow.DrawRectangle(gc, true, 0, 0, iWidth, iHeight);
+            }
         }
 
         protected void OnCouponType2_ExposeEvent(object o, int idx)
@@ -625,12 +716,13 @@ namespace TCT_App.LaneView.MiscDlg
             {
                 int iKeyNo = idx == 9 ? 0 : idx + 1;
                 //layout.SetText((iSelCouponList_Type2[idx] == 0 ? "" : "\u2713  ") + (iSelHeaderCouponType == 2 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type2[idx]);
-                layout.SetText((iSelHeaderCouponType == 2 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type2[idx]);
+                layout.SetText((iSelCouponList_Type2[idx] == 0 ? "" : "✓ ") + (iSelHeaderCouponType == 2 ? "[" + iKeyNo + "] " : "") + szCouponNoList_Type2[idx]);
             }
-            drawArea.ModifyBg(StateType.Normal, iSelCouponList_Type2[idx] == 0 ? clBkCoupon2_UnSelect : clBkCoupon2_Selected);
+            Gdk.Color clBk = iSelCouponList_Type2[idx] == 0 ? clBkCoupon2_UnSelect : clBkCoupon2_Selected;
+            SetBgIfChanged(drawArea, clBk);
+            FillCouponBk(drawArea, clBk, iWidth, iHeight);
             int iTextY = FitCouponText(layout, iWidth, iHeight);    // v2.0.2: one line, fit width, centre
-            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, iTextY, layout, iSelCouponList_Type2[idx] == 0 ? clWhite : clGray,
-                                        iSelCouponList_Type2[idx] == 0 ? clBkCoupon2_UnSelect : clBkCoupon2_Selected);
+            drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, iTextY, layout, iSelCouponList_Type2[idx] == 0 ? clWhite : clFgCoupon2_Selected, clBk);
                                    
             //renderer.SetOverrideColor(RenderPart.Foreground, Gdk.Color.Zero);
             renderer.Drawable   = null;
@@ -641,12 +733,14 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnHeaderCouponType1ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : touch header type1");
             Action_ClickHeaderCouponType(1);
             args.RetVal = true;
         }
 
         protected void OnHeaderCouponType2ButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : touch header type2");
             Action_ClickHeaderCouponType(2);
             args.RetVal = true;
         }
@@ -654,11 +748,28 @@ namespace TCT_App.LaneView.MiscDlg
         protected void Action_ClickHeaderCouponType(int iSelCouponType)
         {
             if (bPayCompleted)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : header type{iSelCouponType} ignored, already paid");
                 return;
+            }
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : header type {iSelHeaderCouponType} -> {iSelCouponType}, redraw headers + all coupons");
             iSelHeaderCouponType = iSelCouponType;
+            RedrawAllCoupons();
+        }
+
+        //--- v2.0.4: the "[n]" key prefix is drawn only on the selected header's coupons. Changing the
+        //--- header used to redraw just the headers (or the one touched cell); the other cells kept the
+        //--- old text, and a later partial expose (e.g. after the EMV popup closed) mixed old and new text.
+        void RedrawAllCoupons()
+        {
             headerCoupon_Type1.QueueDraw();
             headerCoupon_Type2.QueueDraw();
+            foreach (var w in new Widget[] { btnType1_Coupon1, btnType1_Coupon2, btnType1_Coupon3, btnType1_Coupon4, btnType1_Coupon5,
+                                             btnType1_Coupon6, btnType1_Coupon7, btnType1_Coupon8, btnType1_Coupon9, btnType1_CouponZ,
+                                             btnType2_Coupon1, btnType2_Coupon2, btnType2_Coupon3, btnType2_Coupon4, btnType2_Coupon5,
+                                             btnType2_Coupon6, btnType2_Coupon7, btnType2_Coupon8, btnType2_Coupon9, btnType2_CouponZ })
+                w.QueueDraw();
         }
 
         protected void OnBtnType1Coupon1ButtonPressEvent(object o, ButtonPressEventArgs args)
@@ -764,38 +875,60 @@ namespace TCT_App.LaneView.MiscDlg
         protected void OnBtnType1_ButtonPressEvent(object o, int idx)
         {
             if (bPayCompleted)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : coupon type1[{idx}] ignored, already paid");
                 return;
+            }
 
             if (szCouponNoList_Type1[idx] == "")
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : coupon type1[{idx}] ignored, empty slot");
                 return;
+            }
 
             txtMsg.Text         = $"";
             txtMsg.UseMarkup    = true;
 
 
             var btn                     = (DrawingArea) o;
+            bool bHeaderChanged         = iSelHeaderCouponType != 1;
             iSelHeaderCouponType        = 1;
             iSelCouponList_Type1[idx]   = iSelCouponList_Type1[idx] == 0 ? 1 : 0;
-            btn.QueueDraw();
+            if (bHeaderChanged)
+                RedrawAllCoupons();     // v2.0.4: key prefixes move to this group
+            else
+                btn.QueueDraw();
             ShowSumSaleCoupon();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : coupon type1 [{(idx == 9 ? 0 : idx + 1)}] {szCouponNoList_Type1[idx]} -> {(iSelCouponList_Type1[idx] == 1 ? "selected" : "unselected")}, {LogState()}");
         }
 
         protected void OnBtnType2_ButtonPressEvent(object o, int idx)
         {
             if (bPayCompleted)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : coupon type2[{idx}] ignored, already paid");
                 return;
+            }
 
             if (szCouponNoList_Type2[idx] == "")
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : coupon type2[{idx}] ignored, empty slot");
                 return;
+            }
 
             txtMsg.Text         = $"";
             txtMsg.UseMarkup    = true;
 
             var btn                     = (DrawingArea) o;
+            bool bHeaderChanged         = iSelHeaderCouponType != 2;
             iSelHeaderCouponType        = 2;
             iSelCouponList_Type2[idx]   = iSelCouponList_Type2[idx] == 0 ? 1 : 0;
-            btn.QueueDraw();
+            if (bHeaderChanged)
+                RedrawAllCoupons();     // v2.0.4: key prefixes move to this group
+            else
+                btn.QueueDraw();
             ShowSumSaleCoupon();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : coupon type2 [{(idx == 9 ? 0 : idx + 1)}] {szCouponNoList_Type2[idx]} -> {(iSelCouponList_Type2[idx] == 1 ? "selected" : "unselected")}, {LogState()}");
         }
 
         //====================================================================================
@@ -841,19 +974,19 @@ namespace TCT_App.LaneView.MiscDlg
             if (iPayType == 0)
             {
                 layout.SetText((iSelPayType == 0 ? "\u2611  " : "") + szPayTypeName);
-                btnSelPayCash.ModifyBg(StateType.Normal, iSelPayType == 0 ? clBkPaySelect : clBkPayUnSel);
+                SetBgIfChanged(btnSelPayCash, iSelPayType == 0 ? clBkPaySelect : clBkPayUnSel);
                 drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 10, layout, iSelPayType == 0 ? clFgPaySelect : clFgPayUnSel, iSelPayType == 0 ? clBkPaySelect : clBkPayUnSel);
             }
             else if (iPayType == 1)
             {
                 layout.SetText((iSelPayType == 1 ? "\u2611  " : "") + szPayTypeName);
-                btnSelPayEMV.ModifyBg(StateType.Normal, iSelPayType == 1 ? clBkPaySelect : clBkPayUnSel);
+                SetBgIfChanged(btnSelPayEMV, iSelPayType == 1 ? clBkPaySelect : clBkPayUnSel);
                 drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 15, layout, iSelPayType == 1 ? clFgPaySelect : clFgPayUnSel, iSelPayType == 1 ? clBkPaySelect : clBkPayUnSel);
             }
             else if (iPayType == 2)
             {
                 layout.SetText((iSelPayType == 2 ? "\u2611  " : "") + szPayTypeName);
-                btnSelPayQrCode.ModifyBg(StateType.Normal, iSelPayType == 2 ? clBkPaySelect : clBkPayUnSel);
+                SetBgIfChanged(btnSelPayQrCode, iSelPayType == 2 ? clBkPaySelect : clBkPayUnSel);
                 drawArea.GdkWindow.DrawLayoutWithColors(drawArea.Style.TextGC(StateType.Normal), 0, 15, layout, iSelPayType == 2 ? clFgPaySelect : clFgPayUnSel, iSelPayType == 2 ? clBkPaySelect : clBkPayUnSel);
             }
 
@@ -865,11 +998,13 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnBtnSelPayCashButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : touch pay Cash");
             Action_OnBtnSelPayment(0);
         }
 
         protected void OnBtnSelPayEMVButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : touch pay EMV");
             Action_OnBtnSelPayment(1);
             //----------------------------------
             Perform_ProcessEMV();
@@ -877,6 +1012,7 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnBtnSelPayQrCodeButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : touch pay QR Code");
             Action_OnBtnSelPayment(2);
             //----------------------------------
             Perform_ProcessQrCode();
@@ -885,335 +1021,280 @@ namespace TCT_App.LaneView.MiscDlg
         protected void Action_OnBtnSelPayment(int iPayType)
         {
             if (bPayCompleted)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : pay type {iPayType} ignored, already paid");
                 return;
+            }
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : pay type {iSelPayType} -> {iPayType} (0=Cash 1=EMV 2=QR), redraw pay buttons");
             iSelPayType     = iPayType;
             btnSelPayCash.QueueDraw();
             btnSelPayEMV.QueueDraw();
             btnSelPayQrCode.QueueDraw();
         }
 
-        protected void Perform_ProcessEMV()
+        //=== v2.0.4: card payment ==========================================================================
+        void BackToCash(string szReason)
         {
-            if (TCT_Lib.bActiveEMVDlg)
-                return;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : {szReason} -> back to pay Cash");
+            iSelPayType = 0;
+            btnSelPayCash.QueueDraw();
+            btnSelPayEMV.QueueDraw();
+            btnSelPayQrCode.QueueDraw();
+        }
 
-            //----------------------------------------
+        //--- a MessageDialog on top of this popup: keys from the LaneController are ignored meanwhile
+        void ShowMessage(string szText, string szLogName)
+        {
+            MessageDialog md = new MessageDialog(this, DialogFlags.DestroyWithParent,
+                                    MessageType.Error, ButtonsType.Ok, true,
+                                    "<span font_size='large' fgcolor='#000000'>" + szText + "</span>");
+            UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
+            bMsgOpen = true;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : popup '{szLogName}' opened");
+            try
+            {
+                md.Run();
+            }
+            finally
+            {
+                md.Destroy();
+                bMsgOpen = false;
+            }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : popup '{szLogName}' closed");
+        }
+
+        //--- common checks before an EMV / QR popup may be opened
+        bool CheckCanStartCardPayment(string szPayName, ref int iTotalCoupon, ref decimal fTotalAmount)
+        {
+            if (bPayCompleted)
+            {
+                //--- v2.0.4: a second [EMV]/[QR] after an approval charged the card again
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : {szPayName} ignored, already paid");
+                return false;
+            }
+            if (TCT_Lib.bActiveEMVDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : {szPayName} ignored, EMV dialog already open");
+                return false;
+            }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : {szPayName} start, {LogState()}, check TA {TCT_Lib.szLaneWebService_ServerIPAddress}:{TCT_Lib.iLaneWebService_ServerPort}");
+
             //--- Check current is online, if online then open dialog for sales coupon, else ignore sales coupon
             if (!TCT_Lib.laneController.TestNetworkConnection(TCT_Lib.szLaneWebService_ServerIPAddress, TCT_Lib.iLaneWebService_ServerPort))
             {
                 Console.WriteLine($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
                 LogInfo.WriteLog($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
                 LogInfo.WriteLaneEvent($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
-
-                string str          = @"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้. โปรดตรวจสอบระบบ Network TA Server.";
-                MessageDialog md    = new MessageDialog(this, DialogFlags.DestroyWithParent,
-                MessageType.Error, ButtonsType.Ok, true,
-                "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
-                //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
-                md.Run();
-                md.Destroy();
-
-                return;
+                BackToCash("TA Server offline");
+                ShowMessage(@"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้. โปรดตรวจสอบระบบ Network TA Server.", "TA Server offline");
+                return false;
             }
 
-            //---------------------------------------------------
-            int iTotalCoupon        = 0;
-            decimal fTotalAmount    = 0;
             Calc_TotalSalesCoupon(ref iTotalCoupon, ref fTotalAmount);
             if (fTotalAmount == 0)
             {
-                iSelPayType = 0;
-                btnSelPayCash.QueueDraw();
-                btnSelPayEMV.QueueDraw();
-                btnSelPayQrCode.QueueDraw();
-
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : {szPayName} ignored, no coupon selected");
+                BackToCash("no coupon selected");
                 txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ไม่พบการเลือกคูปอง</span>";
                 txtMsg.UseMarkup    = true;
-                return;
+                return false;
             }
-           
             if (fTotalAmount >= 1500)
             {
-                iSelPayType = 0;
-                btnSelPayCash.QueueDraw();
-                btnSelPayEMV.QueueDraw();
-                btnSelPayQrCode.QueueDraw();
-
-                string str = @"ไม่สามารถทำการจ่ายเงินด้วย EMV เกิน 1,500 บาทได้. โปรดเลือกประเภทการจ่ายเงินใหม่";
-                MessageDialog md = new MessageDialog(this, DialogFlags.DestroyWithParent,
-                MessageType.Error, ButtonsType.Ok, true,
-                "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
-                //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
-                md.Run();
-                md.Destroy();
-                return;
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : {szPayName} refused, amount {fTotalAmount} >= 1500");
+                BackToCash($"{szPayName} limit");
+                ShowMessage($"ไม่สามารถทำการจ่ายเงินด้วย {szPayName} ตั้งแต่ 1,500 บาทขึ้นไปได้. โปรดเลือกประเภทการจ่ายเงินใหม่", $"{szPayName} limit 1,500");
+                return false;
             }
+            return true;
+        }
+
+        //--- run one EDC popup for the coupon sale and return the approved card (null = not approved).
+        //---  * The EDC popups reset TCT_Lib.xCurEMV / xCurEDC / xCurQR in their constructor: those are the
+        //---    card data of the CURRENT CAR, written to EmvDetail only when the car passes. A coupon sale
+        //---    (allowed after the car has paid) must not touch them -> save before, restore after.
+        //---  * The popup is disposed here in every case (approved, declined, cancelled, exception) like
+        //---    MainWindow does; before v2.0.4 a declined/cancelled popup was never disposed.
+        objCreditCardInfo RunEdcDialog(string szDlgName, Func<Gtk.Dialog> fnCreate, Func<Gtk.Dialog, objCreditCardInfo> fnCard,
+                                       decimal fTotalAmount, int iTotalCoupon)
+        {
+            EMV_Info xSaveEMV   = TCT_Lib.xCurEMV;
+            EDC_Info xSaveEDC   = TCT_Lib.xCurEDC;
+            EMV_Info xSaveQR    = TCT_Lib.xCurQR;
+            objCreditCardInfo xCard = null;
+            Gtk.Dialog frmDlg   = null;
+            try
+            {
+                frmDlg = fnCreate();
+                frmDlg.ModifyBg(StateType.Normal, new Gdk.Color(0x3E, 0x3E, 0x3E));
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : {szDlgName} opened, amount {fTotalAmount}, coupons {iTotalCoupon}");
+                ResponseType xResult = (ResponseType)frmDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : {szDlgName} closed -> {xResult}");
+                if (xResult == ResponseType.Ok)
+                {
+                    xCard = fnCard(frmDlg);
+                    if (xCard == null)
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning SalesCoupon : {szDlgName} answered Ok without card data -> treated as not approved");
+                }
+            }
+            catch (Exception err)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.ERROR, $"- Error SalesCoupon {szDlgName} : {err.Message}");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "- SalesCoupon StackTrace : " + err.StackTrace);
+                xCard = null;
+            }
+            finally
+            {
+                TCT_Lib.xCurEMV = xSaveEMV;
+                TCT_Lib.xCurEDC = xSaveEDC;
+                TCT_Lib.xCurQR  = xSaveQR;
+                if (frmDlg != null)
+                {
+                    try
+                    {
+                        frmDlg.Dispose();
+                        frmDlg.Destroy();
+                    }
+                    catch (Exception err)
+                    {
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning SalesCoupon : dispose {szDlgName} : {err.Message}");
+                    }
+                }
+                TCT_Lib.eCurAppPage     = AppPage.SalesCoupon;
+                TCT_Lib.bActiveEMVDlg   = false;
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : {szDlgName} disposed, current-car card data restored, page -> SalesCoupon");
+            }
+            return xCard;
+        }
+
+        void AfterCardPayment(objCreditCardInfo xCard, string szPayName)
+        {
+            if (xCard != null)
+            {
+                Console.WriteLine("+ Show Response " + szPayName);
+                LogInfo.WriteLaneEvent($"+ Success Pay Sales Coupon with {szPayName}");
+                xCreditCardInfo             = xCard;
+
+                txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCard.szCardNo}</span>";
+                txtCreditCardNo.UseMarkup   = true;
+
+                txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCard.szRef3}</span>";
+                txtReference.UseMarkup      = true;
+
+                txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCard.szApprovalCode}</span>";
+                txtMsg.UseMarkup            = true;
+
+                LogInfo.WriteLaneEvent($"+ Pay Sales Coupon with {szPayName} : CreditCard No = " + xCard.szCardNo);
+                LogInfo.WriteLaneEvent($"+ Pay Sales Coupon with {szPayName} : Reference = " + xCard.szRef3);
+                LogInfo.WriteLaneEvent($"+ Pay Sales Coupon with {szPayName} : Approve Code = " + xCard.szApprovalCode);
+
+                //--- Disable active button (cancel is also refused by Action_BtnCancel from the keyboard)
+                btnCancel.Sensitive     = false;
+                bPayCompleted           = true;
+                this.Activate();
+            }
+            else
+                BackToCash("payment not approved");
+
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : payment step done, {LogState()}, paid {bPayCompleted}");
+        }
+
+        protected void Perform_ProcessEMV()
+        {
+            int iTotalCoupon        = 0;
+            decimal fTotalAmount    = 0;
+            if (!CheckCanStartCardPayment("EMV", ref iTotalCoupon, ref fTotalAmount))
+                return;
 
             iSelPayType = 1;
             btnSelPayCash.QueueDraw();
             btnSelPayEMV.QueueDraw();
             btnSelPayQrCode.QueueDraw();
 
-            //-------------------------------------------------------------------
+            objCreditCardInfo xCard;
             if (TCT_Lib.iEdcVersionType == 0)
-            {
-                var frmEdcPaymentDlg    = new EdcPaymentDlg(fTotalAmount, false);
-                Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
-                frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
-                Console.WriteLine("+ Before Show dialog EMV");
-                ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
-
-                if (xResult == ResponseType.Ok)
-                {
-                    Console.WriteLine("+ Show Response EMV");
-                    LogInfo.WriteLaneEvent("+ Success Pay Sales Coupon with EMV");
-                    xCreditCardInfo             = frmEdcPaymentDlg.xOutCreditCard;
-
-                    txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
-                    txtCreditCardNo.UseMarkup   = true;
-
-                    txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
-                    txtReference.UseMarkup      = true;
-
-                    txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
-                    txtMsg.UseMarkup            = true;
-
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with EMV : CreditCard No = "+xCreditCardInfo.szCardNo);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with EMV : Reference = " + xCreditCardInfo.szRef3);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with EMV : Approve Code = " + xCreditCardInfo.szApprovalCode);
-
-                    //Console.WriteLine("+ After show Response");
-                    frmEdcPaymentDlg.Dispose();
-                    //Console.WriteLine("+ After Dispose");
-                    //--- Disable active button
-                    //panelCoupon_Type1.Sensitive = panelCoupon_Type2.Sensitive = false;
-                    btnCancel.Sensitive     = false;
-                    bPayCompleted           = true;
-                    this.Activate();
-                }
-                else
-                {
-                    //--- Back to Pay Cash
-                    iSelPayType = 0;
-                    btnSelPayCash.QueueDraw();
-                    btnSelPayEMV.QueueDraw();
-                    btnSelPayQrCode.QueueDraw();
-                }
-            }
+                xCard = RunEdcDialog("EdcPaymentDlg (V0)", () => new EdcPaymentDlg(fTotalAmount, false),
+                                     d => ((EdcPaymentDlg)d).xOutCreditCard, fTotalAmount, iTotalCoupon);
             else
-            {
-                var frmEdcPaymentDlg    = new EdcPaymentDlg_V1(fTotalAmount, false);
-                Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
-                frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
-                Console.WriteLine("+ Before Show dialog EMV");
-                ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
-
-                if (xResult == ResponseType.Ok)
-                {
-                    Console.WriteLine("+ Show Response EMV");
-                    LogInfo.WriteLaneEvent("+ Success Pay Sales Coupon with EMV");
-                    xCreditCardInfo             = frmEdcPaymentDlg.xOutCreditCard;
-
-                    txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
-                    txtCreditCardNo.UseMarkup   = true;
-
-                    txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
-                    txtReference.UseMarkup      = true;
-
-                    txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
-                    txtMsg.UseMarkup            = true;
-
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with EMV : CreditCard No = "+xCreditCardInfo.szCardNo);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with EMV : Reference = " + xCreditCardInfo.szRef3);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with EMV : Approve Code = " + xCreditCardInfo.szApprovalCode);
-
-                    //Console.WriteLine("+ After show Response");
-                    frmEdcPaymentDlg.Dispose();
-                    //Console.WriteLine("+ After Dispose");
-                    //--- Disable active button
-                    //panelCoupon_Type1.Sensitive = panelCoupon_Type2.Sensitive = false;
-                    btnCancel.Sensitive     = false;
-                    bPayCompleted           = true;
-                    this.Activate();
-                }
-                else
-                {
-                    //--- Back to Pay Cash
-                    iSelPayType = 0;
-                    btnSelPayCash.QueueDraw();
-                    btnSelPayEMV.QueueDraw();
-                    btnSelPayQrCode.QueueDraw();
-                }
-            }
-
-            TCT_Lib.eCurAppPage     = AppPage.SalesCoupon;
-            TCT_Lib.bActiveEMVDlg   = false;
+                xCard = RunEdcDialog("EdcPaymentDlg_V1", () => new EdcPaymentDlg_V1(fTotalAmount, false),
+                                     d => ((EdcPaymentDlg_V1)d).xOutCreditCard, fTotalAmount, iTotalCoupon);
+            AfterCardPayment(xCard, "EMV");
         }
 
         protected void Perform_ProcessQrCode()
         {
-            if (TCT_Lib.bActiveEMVDlg)
-                return;
-
-            //---------------------------------------------------
             int iTotalCoupon        = 0;
             decimal fTotalAmount    = 0;
-            Calc_TotalSalesCoupon(ref iTotalCoupon, ref fTotalAmount);
-            if (fTotalAmount == 0)
-            {
-                iSelPayType     = 0;
-                btnSelPayCash.QueueDraw();
-                btnSelPayEMV.QueueDraw();
-                btnSelPayQrCode.QueueDraw();
-
-                txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ไม่พบการเลือกคูปอง</span>";
-                txtMsg.UseMarkup    = true;
-
+            if (!CheckCanStartCardPayment("QR Code", ref iTotalCoupon, ref fTotalAmount))
                 return;
-            }
 
-            /*
-                        if (fTotalAmount >= 1500)
-                        {
-                            iSelPayType = 0;
-                            btnSelPayCash.QueueDraw();
-                            btnSelPayEMV.QueueDraw();
-                            btnSelPayQrCode.QueueDraw();
-                            return;
-                        }
-            */
+            iSelPayType = 2;
+            btnSelPayCash.QueueDraw();
+            btnSelPayEMV.QueueDraw();
+            btnSelPayQrCode.QueueDraw();
 
-            if (fTotalAmount >= 1500)
-            {
-                iSelPayType = 0;
-                btnSelPayCash.QueueDraw();
-                btnSelPayEMV.QueueDraw();
-                btnSelPayQrCode.QueueDraw();
-
-                string str          = @"ไม่สามารถทำการจ่ายเงินด้วย EMV เกิน 1,500 บาทได้. โปรดเลือกประเภทการจ่ายเงินใหม่";
-                MessageDialog md    = new MessageDialog(this, DialogFlags.DestroyWithParent,
-                MessageType.Error, ButtonsType.Ok, true,
-                "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
-                //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
-                UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
-                md.Run();
-                md.Destroy();
-                return;
-            }
-            //-------------------------------------------------------------------
+            objCreditCardInfo xCard;
             if (TCT_Lib.iEdcVersionType == 0)
-            {
-                var frmEdcPaymentDlg    = new EdcPayQrDlg(fTotalAmount, false);
-                Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
-                frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
-                Console.WriteLine("+ Before Show dialog QR Code");
-                ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
-
-                if (xResult == ResponseType.Ok)
-                {
-                    Console.WriteLine("+ Show Response QR Code");
-                    LogInfo.WriteLaneEvent("+ Success Pay Sales Coupon with QR Code");
-                    xCreditCardInfo             = frmEdcPaymentDlg.xOutCreditCard;
-
-                    txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
-                    txtCreditCardNo.UseMarkup   = true;
-
-                    txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
-                    txtReference.UseMarkup      = true;
-
-                    txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
-                    txtMsg.UseMarkup            = true;
-
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with QR Code : CreditCard No = " + xCreditCardInfo.szCardNo);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with QR Code : Reference = " + xCreditCardInfo.szRef3);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with QR Code : Approve Code = " + xCreditCardInfo.szApprovalCode);
-
-                    //Console.WriteLine("+ After show Response");
-                    frmEdcPaymentDlg.Dispose();
-                    //Console.WriteLine("+ After Dispose");
-                    //--- Disable active button
-                    //panelCoupon_Type1.Sensitive = panelCoupon_Type2.Sensitive = false;
-                    btnCancel.Sensitive     = false;
-                    bPayCompleted           = true;
-                    this.Activate();
-                }
-                else
-                {
-                    //--- Back to Pay Cash
-                    iSelPayType = 0;
-                    btnSelPayCash.QueueDraw();
-                    btnSelPayEMV.QueueDraw();
-                    btnSelPayQrCode.QueueDraw();
-                }
-            }
+                xCard = RunEdcDialog("EdcPayQrDlg (V0)", () => new EdcPayQrDlg(fTotalAmount, false),
+                                     d => ((EdcPayQrDlg)d).xOutCreditCard, fTotalAmount, iTotalCoupon);
             else
-            {
-                var frmEdcPaymentDlg    = new EdcPayQrDlg_V1(fTotalAmount, false);
-                Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
-                frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
-                Console.WriteLine("+ Before Show dialog QR Code");
-                ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
-
-                if (xResult == ResponseType.Ok)
-                {
-                    Console.WriteLine("+ Show Response QR Code");
-                    LogInfo.WriteLaneEvent("+ Success Pay Sales Coupon with QR Code");
-                    xCreditCardInfo             = frmEdcPaymentDlg.xOutCreditCard;
-
-                    txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
-                    txtCreditCardNo.UseMarkup   = true;
-
-                    txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
-                    txtReference.UseMarkup      = true;
-
-                    txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
-                    txtMsg.UseMarkup            = true;
-
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with QR Code : CreditCard No = " + xCreditCardInfo.szCardNo);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with QR Code : Reference = " + xCreditCardInfo.szRef3);
-                    LogInfo.WriteLaneEvent("+ Pay Sales Coupon with QR Code : Approve Code = " + xCreditCardInfo.szApprovalCode);
-
-                    //Console.WriteLine("+ After show Response");
-                    frmEdcPaymentDlg.Dispose();
-                    //Console.WriteLine("+ After Dispose");
-                    //--- Disable active button
-                    //panelCoupon_Type1.Sensitive = panelCoupon_Type2.Sensitive = false;
-                    btnCancel.Sensitive     = false;
-                    bPayCompleted           = true;
-                    this.Activate();
-                }
-                else
-                {
-                    //--- Back to Pay Cash
-                    iSelPayType = 0;
-                    btnSelPayCash.QueueDraw();
-                    btnSelPayEMV.QueueDraw();
-                    btnSelPayQrCode.QueueDraw();
-                }
-            }
-
-            TCT_Lib.eCurAppPage     = AppPage.SalesCoupon;
-            TCT_Lib.bActiveEMVDlg   = false;
+                xCard = RunEdcDialog("EdcPayQrDlg_V1", () => new EdcPayQrDlg_V1(fTotalAmount, false),
+                                     d => ((EdcPayQrDlg_V1)d).xOutCreditCard, fTotalAmount, iTotalCoupon);
+            AfterCardPayment(xCard, "QR Code");
         }
 
         protected void OnBtnConfirmPaymentClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : button Confirm Payment clicked");
             Action_BtnConfirmPayment();
         }
 
         protected void Action_BtnConfirmPayment()
-        { 
+        {
+            Perform_SaveSale(false);
+        }
+
+        protected void OnBtnPrintReceiptClicked(object sender, EventArgs e)
+        {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : button Print Receipt clicked");
+            Action_BtnPrintReceipt();
+        }
+
+        protected void Action_BtnPrintReceipt()
+        {
+            Perform_SaveSale(true);
+        }
+
+        //--- v2.0.4: [ยืนยัน] and [พิมพ์ใบเสร็จ] share one path. The popup closes only after the sale is in
+        //--- the database; a failed INSERT keeps the popup (coupons stay unsold) so the operator can retry.
+        bool Perform_SaveSale(bool bPrint)
+        {
+            string szAction = bPrint ? "print" : "confirm";
+            if (bClosed)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : {szAction} ignored, popup already closed");
+                return false;
+            }
+
             int iTotalCoupon        = 0;
             decimal fTotalAmount    = 0;
             Calc_TotalSalesCoupon(ref iTotalCoupon, ref fTotalAmount);
             if (iTotalCoupon == 0)
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ SalesCoupon : confirm/print ignored, no coupon selected");
                 txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ไม่พบการเลือกคูปอง</span>";
                 txtMsg.UseMarkup    = true;
-                return;
+                return false;
+            }
+            if ((iSelPayType != 0) && (!bPayCompleted || xCreditCardInfo == null))
+            {
+                //--- EMV / QR selected but no approval (a refused card payment normally falls back to cash)
+                LogInfo.WriteLaneEvent(LogLevel.WARN, $"+ SalesCoupon : {szAction} refused, pay type {iSelPayType} selected but no card approval");
+                txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ยังไม่ได้รับการอนุมัติจากบัตร กรุณาชำระใหม่</span>";
+                txtMsg.UseMarkup    = true;
+                BackToCash("no card approval");
+                return false;
             }
 
             int iTotalCoupon_Type1 = 0, iTotalCoupon_Type2 = 0;
@@ -1234,100 +1315,81 @@ namespace TCT_App.LaneView.MiscDlg
                     LogInfo.WriteLaneEvent("+ Select Sales Coupon Type 2 = " + szCouponNoList_Type2[i]);
                 }
             }
-            //---------------------------------------------
-            if (!TCT_Lib.bMaintenanceMode)
-            {
-                TCT_Lib.szCurSalesCouponReceiptNo = TCT_Lib.LaneDB.GetRunningReceiptNo(PrintReceiptType.SalesCoupon);   // "CP-DD01-2020000218";
-                TCT_Lib.LaneDB.WriteSalesCouponTransaction(iTotalCoupon_Type1, fCouponPrice_Type1, szSelCouponType1, szCouponType1, iTotalCoupon_Type2, fCouponPrice_Type2, szSelCouponType2, szCouponType2, iSelPayType, xCreditCardInfo);
-            }
-            else
-            {
-                TCT_Lib.szCurSalesCouponReceiptNo = "CP-xxxx-yyyyy";
-            }
-            //---------------------------------------------
-            this.Respond(ResponseType.Ok);
-            TCT_Lib.eCurAppPage             = AppPage.Main;
-            TCT_Lib.bActiveSalesCouponDlg   = false;
-            TCT_Lib.laneController.manageProcessSalesCoupon -= LaneController_ManageProcessSalesCoupon;
-            Destroy();
-            Dispose();
-        }
 
-        protected void OnBtnPrintReceiptClicked(object sender, EventArgs e)
-        {
-            Action_BtnPrintReceipt();
-        }
-
-        protected void Action_BtnPrintReceipt()
-        {
-            int iTotalCoupon        = 0;
-            decimal fTotalAmount    = 0;
-            Calc_TotalSalesCoupon(ref iTotalCoupon, ref fTotalAmount);
-            if (iTotalCoupon == 0)
-            {
-                txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ไม่พบการเลือกคูปอง</span>";
-                txtMsg.UseMarkup    = true;
-                return;
-            }
-
-            int iTotalCoupon_Type1 = 0, iTotalCoupon_Type2 = 0;
-            var szSelCouponType1    = new List<string>();
-            var szSelCouponType2    = new List<string>();
-            for (int i = 0; i < 10; i++)
-            {
-                if (iSelCouponList_Type1[i] == 1)
-                {
-                    iTotalCoupon_Type1++;
-                    szSelCouponType1.Add(szCouponNoList_Type1[i]);
-                }
-                if (iSelCouponList_Type2[i] == 1)
-                {
-                    iTotalCoupon_Type2++;
-                    szSelCouponType2.Add(szCouponNoList_Type2[i]);
-                }
-            }
-            //---------------------------------------------
-            if (!TCT_Lib.bMaintenanceMode)
-            {
-                TCT_Lib.szCurSalesCouponReceiptNo = TCT_Lib.LaneDB.GetRunningReceiptNo(PrintReceiptType.SalesCoupon);   // "CP-DD01-2020000218";
-                TCT_Lib.LaneDB.WriteSalesCouponTransaction(iTotalCoupon_Type1, fCouponPrice_Type1, szSelCouponType1, szCouponType1, iTotalCoupon_Type2, fCouponPrice_Type2, szSelCouponType2, szCouponType2, iSelPayType, xCreditCardInfo);
-            }
-            else
-            {
-                TCT_Lib.szCurSalesCouponReceiptNo = "CP-xxxx-yyyyy";
-            }
-            //--- Process Print Receipt SalesCopon
             string szPayTypeName = TCT_Lib.GetPayMethodName((int)PayType.CASH);
             if (iSelPayType == 1)
                 szPayTypeName = TCT_Lib.GetPayMethodName((int)PayType.EMV);
             else if (iSelPayType == 2)
                 szPayTypeName = TCT_Lib.GetPayMethodName((int)PayType.QrCode);
 
-            PrintSalesCouponLib.PrintSalesCoupon(szCouponType1, iTotalCoupon_Type1, fCouponPrice_Type1, szCouponType2, iTotalCoupon_Type2, fCouponPrice_Type2, szPayTypeName);
+            //---------------------------------------------
+            if (!TCT_Lib.bMaintenanceMode)
+            {
+                TCT_Lib.szCurSalesCouponReceiptNo = TCT_Lib.LaneDB.GetRunningReceiptNo(PrintReceiptType.SalesCoupon);   // "CP-DD01-2020000218";
+                long iTransID = TCT_Lib.LaneDB.WriteSalesCouponTransaction(iTotalCoupon_Type1, fCouponPrice_Type1, szSelCouponType1, szCouponType1,
+                                                                           iTotalCoupon_Type2, fCouponPrice_Type2, szSelCouponType2, szCouponType2,
+                                                                           iSelPayType, xCreditCardInfo);
+                if (iTransID <= 0)
+                {
+                    LogInfo.WriteLaneEvent(LogLevel.ERROR, $"- Error SalesCoupon : {szAction} - sale not written to database (receipt {TCT_Lib.szCurSalesCouponReceiptNo}, {szPayTypeName}), popup kept open");
+                    txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FF4444'>บันทึกการขายไม่สำเร็จ กรุณากด [ยืนยัน] อีกครั้ง</span>";
+                    txtMsg.UseMarkup    = true;
+                    return false;
+                }
+            }
+            else
+            {
+                TCT_Lib.szCurSalesCouponReceiptNo = "CP-xxxx-yyyyy";
+            }
+
+            //--- Process Print Receipt SalesCopon
+            if (bPrint)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SalesCoupon : print receipt {TCT_Lib.szCurSalesCouponReceiptNo}, type1 x{iTotalCoupon_Type1}, type2 x{iTotalCoupon_Type2}, {fTotalAmount:#,0} THB, {szPayTypeName}");
+                PrintSalesCouponLib.PrintSalesCoupon(szCouponType1, iTotalCoupon_Type1, fCouponPrice_Type1, szCouponType2, iTotalCoupon_Type2, fCouponPrice_Type2, szPayTypeName);
+            }
             //----------------------------------------------
-            this.Respond(ResponseType.Ok);
-            TCT_Lib.eCurAppPage             = AppPage.Main;
-            TCT_Lib.bActiveSalesCouponDlg   = false;
-            TCT_Lib.laneController.manageProcessSalesCoupon -= LaneController_ManageProcessSalesCoupon;
-            Destroy();
-            Dispose();
+            LogInfo.WriteLaneEvent(LogLevel.INFO, $"+ SalesCoupon : sold receipt {TCT_Lib.szCurSalesCouponReceiptNo}, type1 x{iTotalCoupon_Type1}, type2 x{iTotalCoupon_Type2}, {fTotalAmount:#,0} THB, pay {iSelPayType} ({szPayTypeName}), printed {bPrint}");
+            CloseDialog(ResponseType.Ok, bPrint ? "Ok, printed" : "Ok, no print");
+            return true;
         }
 
         protected void OnBtnCancelClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SalesCoupon : button Cancel clicked");
             Action_BtnCancel();
         }
 
         protected void Action_BtnCancel()
         {
-            this.Respond(ResponseType.Cancel);
+            if (bClosed)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ SalesCoupon : cancel ignored, popup already closed");
+                return;
+            }
+            if (bPayCompleted)
+            {
+                //--- v2.0.4: [แก้ไข] after a card approval closed the popup without a sale record (card charged)
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ SalesCoupon : cancel ignored, already paid by card -> press confirm / print");
+                txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FFFF00'>ชำระด้วยบัตรแล้ว กรุณากด [ยืนยัน] หรือ [พิมพ์ใบเสร็จ]</span>";
+                txtMsg.UseMarkup    = true;
+                return;
+            }
+            CloseDialog(ResponseType.Cancel, "Cancel");
+        }
+
+        //--- v2.0.4: single close path. The popup only answers Run(); MainWindow.LaneController_SalesCoupon
+        //--- disposes it afterwards (before v2.0.4 both sides called Dispose()/Destroy()).
+        void CloseDialog(ResponseType xResponse, string szReason)
+        {
+            if (bClosed)
+                return;
+            bClosed = true;
+            LogInfo.WriteLaneEvent(LogLevel.INFO, $"+ SalesCoupon : popup closed ({szReason}), {LogState()}, receipt {TCT_Lib.szCurSalesCouponReceiptNo}, page SalesCoupon -> Main");
             TCT_Lib.laneController.manageProcessSalesCoupon -= LaneController_ManageProcessSalesCoupon;
             TCT_Lib.eCurAppPage             = AppPage.Main;
             TCT_Lib.bActiveSalesCouponDlg   = false;
-            Dispose();
-            Destroy();
+            this.Respond(xResponse);
         }
-
-
     }
 }

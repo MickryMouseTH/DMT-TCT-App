@@ -118,6 +118,7 @@ namespace TCT_App
             TCT_Lib.bEnableEtcRabbitMQ = TCT_Lib.iLaneConfigType > 0;
             btn_ChangeLaneMode.Visible = TCT_Lib.iLaneConfigType == 2;
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : page {TCT_Lib.eCurAppPage} -> Login (startup), laneConfig {TCT_Lib.iLaneConfigType}, laneType {TCT_Lib.eCurLaneType}, allowETC {TCT_Lib.bAllowETC}, LSD {TCT_Lib.bEnableLSD}/method {TCT_Lib.iLSD_MethodType}");
             TCT_Lib.eCurAppPage     = AppPage.Login;
             Update_Clock();
             iTimerId1Sec            = GLib.Timeout.Add(1000, new GLib.TimeoutHandler(Update_Clock));
@@ -192,6 +193,7 @@ namespace TCT_App
                 sbDcStatus.Text = "<span fgcolor='#777777'>DC : DisConnect</span>";
             }
             sbDcStatus.UseMarkup = true;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : DC RabbitMQ connected {TCT_Lib.bDC_NetworkStatus}");
 
             /*
                         LogInfo.WriteLog("+ Start Connect ETC RabbitMQ");
@@ -210,6 +212,7 @@ namespace TCT_App
 
             if (TCT_Lib.bEnableMTS)
                 TCT_Lib.bMTS_NetworkStatus = (TCT_Lib.mtsRabbitMQ.ConnectMtsRabbitMQ());
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : MTS enable {TCT_Lib.bEnableMTS}, connected {TCT_Lib.bMTS_NetworkStatus}");
 
             //--- Initial State of LC
             if (TCT_Lib.bAllowETC)
@@ -274,6 +277,7 @@ namespace TCT_App
             LogInfo.WriteLaneEvent("+ Start WebLaneSocket");
             if (!TCT_Lib.webSocketLane.StartLaneSocket())
             {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ LoginWnd : Lane Control socket not connected -> login buttons disabled, retry every 5 s");
                 szTxtStatus     = szTxt_FailConnectLC;
                 clTxtStatus     = new Gdk.Color(255, 0, 0);
                 areaStatus.ModifyBg(StateType.Normal, clTxtStatus);
@@ -307,6 +311,7 @@ namespace TCT_App
             iTimerIdAutoSendSupAdjust   = GLib.Timeout.Add(1000 * 60 * 4, new GLib.TimeoutHandler(AutoSendDbSupAdjust));
             iTimerIdAutoSendDC          = GLib.Timeout.Add(1000 * 60 * 5, new GLib.TimeoutHandler(AutoSendDbRabbitMQ));
             iTimerIdSendScpTFI          = GLib.Timeout.Add(1000 * 60 * 2, new GLib.TimeoutHandler(AutoSendScpTFI));
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : timers started (clock {iTimerId1Sec}, RTO state {iTimerIdRTO}, RTO db {iTimerIdAutoSendRTO}, SupAdjust {iTimerIdAutoSendSupAdjust}, DC {iTimerIdAutoSendDC}, TFI {iTimerIdSendScpTFI})");
             //----------------------------------------------------------
             TCT_Lib.LaneDB.GetShiftNotCloseEndShift();
             int iLastShiftID = TCT_Lib.LaneDB.ChkAutoEndOfLastJob();
@@ -412,6 +417,8 @@ namespace TCT_App
 
         private bool SendLaneCurrentState()
         {
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ LoginWnd : timer SendLaneCurrentState (RTO connected {TCT_Lib.bRTO_Connected})");
             if (TCT_Lib.bRTO_Connected)
                 TCT_Lib.laneController.SendLaneCurrentState();
 
@@ -421,6 +428,7 @@ namespace TCT_App
         private bool AutoSendDbRTO()
         {
             //--- Background thread for auto send event, transaction, alarm to RTO database
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ LoginWnd : timer AutoSendDbRTO");
             TCT_Lib.AutoResendLaneTransactionToRTO();
             TCT_Lib.AutoResendBeginJobToRTO();
             TCT_Lib.AutoResendEndJobToRTO();
@@ -430,6 +438,7 @@ namespace TCT_App
         private bool AutoSendDbSupAdjust()
         {
             //--- Background thread for auto send event, transaction, to SupAdjust
+            LogInfo.WriteLog(LogLevel.DEBUG, "+ LoginWnd : timer AutoSendDbSupAdjust");
             TCT_Lib.AutoResendLaneTransactionToSupAdjust();
             TCT_Lib.AutoResendBeginJobToSupAdjust();
             TCT_Lib.AutoResendEndJobToSupAdjust();
@@ -500,6 +509,7 @@ namespace TCT_App
         {
             if (!TCT_Lib.webSocketLane.StartLaneSocket())
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : retry Lane Control socket -> still not connected");
                 szTxtStatus = szTxt_FailConnectLC;
                 clTxtStatus = new Gdk.Color(255, 0, 0);
                 areaStatus.ModifyBg(StateType.Normal, clTxtStatus);
@@ -511,6 +521,7 @@ namespace TCT_App
             }
             else
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : retry Lane Control socket -> connected, login buttons enabled");
                 szTxtStatus = szTxt_StartLogin;
                 clTxtStatus = new Gdk.Color(10, 110, 170);
                 areaStatus.ModifyBg(StateType.Normal, clTxtStatus);
@@ -580,14 +591,17 @@ namespace TCT_App
 
         protected void OnBtnLoginClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : button Login clicked");
             Action_LoginProcess(LoginType.Manual);
         }
 
         //=== 0=Use Smart Card Login, 1=Manual Login, 2=RTO remote login, 3=ETC auto login
         protected void Action_LoginProcess(LoginType eLoginType, string szCardSerialNo = "")
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : login {eLoginType} queued to UI thread");
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : login {eLoginType} start (page {TCT_Lib.eCurAppPage}, EDC {TCT_Lib.bEnableEdc})");
 
                 //------------------------------------------------------------------------------------
                 if (TCT_Lib.bEnableEdc)
@@ -614,6 +628,7 @@ namespace TCT_App
                     string szPassword   = edtUserPassword.Text;
 
                     //LogInfo.WriteLaneEvent($"+ Start Login Manual UserID={szUserID}, Password={szPassword}");
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : manual login staff '{szUserID}', password length {(szPassword ?? "").Length}");
                     LogInfo.WriteLaneEvent($"+ Start Login Manual UserID={szUserID}");
                     if (!TCT_Lib.LaneDB.CheckStaffManualUserPassword(szUserID, szPassword, ref szErrMsg))
                     {
@@ -695,6 +710,7 @@ namespace TCT_App
                         bMaintenanceStaff = true;
                 }
 
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : staff {TCT_Lib.szStaffCode} group {TCT_Lib.szStaffGroupID} -> maintenance {bMaintenanceStaff} (allow maint '{TCT_Lib.szAllowMaintenanceRoleGroupID}', allow toll '{TCT_Lib.szAllowTollRoleGroupID}')");
                 if (!bMaintenanceStaff)
                 {
                     if (TCT_Lib.szAllowTollRoleGroupID.Trim() == "")
@@ -805,6 +821,7 @@ namespace TCT_App
                 //----------------------------------------------------------------------------
                 //this.Dispose();
                 //this.Destroy();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : login accepted -> hide login window, stop login timers");
                 this.Hide();
 
                 GLib.Source.Remove(iTimerId1Sec);
@@ -834,6 +851,7 @@ namespace TCT_App
                             TCT_Lib.etcRabbitMQ.Send_SetLaneMode_ToETC(LaneMode.MAINTENANCE);
                     }
                     //--- Maintenance Mode
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : open MainMaintenance (staff {TCT_Lib.szStaffCode}, laneType {TCT_Lib.eCurLaneType})");
                     TCT_Lib.bMaintenanceMode = true;
                     maintenanceWnd  = new MainMaintenance();
                     maintenanceWnd.ModifyBg(StateType.Normal, colBk);
@@ -872,6 +890,7 @@ namespace TCT_App
                     //------------------------------------------------------------------------------
                     TCT_Lib.bAllowSendRTO       = true;
                     TCT_Lib.bMaintenanceMode    = false;
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : open MainWindow (staff {TCT_Lib.szStaffCode}, login {eLoginType}, laneType {TCT_Lib.eCurLaneType}, allowETC {TCT_Lib.bAllowETC})");
                     mainWnd     = new MainWindow(LoginMethod.MANUAL, eLoginType);
                     mainWnd.ModifyBg(StateType.Normal, colBk);
 
@@ -888,6 +907,7 @@ namespace TCT_App
 #if __FULL_SCREEN__
                     mainWnd.Fullscreen();
 #endif
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : MainWindow shown, page {TCT_Lib.eCurAppPage}");
                 }
             });
         }
@@ -984,6 +1004,7 @@ namespace TCT_App
 
         protected void OnBtnManualLoginClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : button Manual Login clicked -> show manual login panel");
             szUserName = "";
             szUserCode = "";
             szUserRole = "";
@@ -1002,6 +1023,7 @@ namespace TCT_App
         
         protected void OnBtnCloseManualLoginClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : button Close Manual Login clicked -> hide manual login panel");
             szUserName = "";
             szUserCode = "";
             szUserRole = "";
@@ -1020,11 +1042,13 @@ namespace TCT_App
 
         protected void OnBtnTouchCardClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : button Touch Card clicked");
             Action_LoginProcess(LoginType.SmartCard, "");
         }
 
         protected void OnAreaStatusButtonPressEvent(object o, ButtonPressEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : status area touched (devMode {TCT_Lib.iDevMode})");
             if (TCT_Lib.iDevMode > 0)
             {
                 LogInfo.WriteLog("+ Login => Click StatusBar for Close Application");
@@ -1043,6 +1067,7 @@ namespace TCT_App
         //-----------------------------------------------------------
         void ChangeLoginSmartCard()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : change to smart card login (manual panel visible {frameManualLogin.Visible})");
             if (frameManualLogin.Visible)
             {
                 //--- Clear Manual Login
@@ -1071,7 +1096,10 @@ namespace TCT_App
                 if (TCT_Lib.bMaintenanceMode)
                 {
                     if (bLogined)
+                    {
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, "+ LoginWnd : smart card ignored, maintenance mode and already logged in");
                         return;
+                    }
                 }
 
                 if (bLogined)
@@ -1110,6 +1138,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : start manual staff login -> show manual login panel");
                 szTxtStatus = szTxt_ManualLogin;
                 clTxtStatus = new Gdk.Color(10, 110, 170);
                 areaStatus.ModifyBg(StateType.Normal, clTxtStatus);
@@ -1132,6 +1161,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : cancel manual staff login -> hide manual login panel");
                 edtUserCode.Text = edtUserPassword.Text = "";
                 frameManualLogin.Visible = false;
             });
@@ -1141,6 +1171,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : staff code field = '{szStaffCode}'");
                 edtUserCode.Text = szStaffCode;
             });
         }
@@ -1149,6 +1180,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : staff password keyed (length {(szStaffPassword ?? "").Length})");
                 szUserName = "";
                 szUserCode = "";
                 szUserRole = "";
@@ -1167,6 +1199,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : manual staff login status {bResult} {szErrMsg}");
                 if (bResult)
                 {
                     //--- Manual Login Success
@@ -1196,6 +1229,7 @@ namespace TCT_App
                 TCT_Lib.bAllowETC = TCT_Lib.iLaneConfigType > 0;
                 if ((TCT_Lib.iLaneConfigType == 2) && (TCT_Lib.eCurLaneType == LaneType.MTC))
                     TCT_Lib.bAllowETC = false;
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : lane type shown {TCT_Lib.eCurLaneType}, allowETC {TCT_Lib.bAllowETC}{(TCT_Lib.eCurLaneType == LaneType.ETC ? " -> auto login ETC" : "")}");
 
                 if (TCT_Lib.eCurLaneType == LaneType.ETC)
                 {
@@ -1209,6 +1243,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : remote login from RTO, staff {staffCode}");
                 Action_LoginProcess(LoginType.RTO_Remote, staffCode);
             });
         }
@@ -1266,6 +1301,7 @@ namespace TCT_App
 
         protected void OnBtnKeyDELClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : button DEL clicked ({(iFocus == 0 ? "code" : "password")} field)");
             if (iFocus == 0)
             {
                 if (edtUserCode.Text == "")
@@ -1282,6 +1318,7 @@ namespace TCT_App
 
         protected void OnBtnKeyENTERClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : button ENTER clicked ({(iFocus == 0 ? "code -> password field" : "password -> login")})");
             if (iFocus == 0)
             {
                 iFocus = 1;
@@ -1293,26 +1330,38 @@ namespace TCT_App
 
         protected void OnEdtUserCodeFocusInEvent(object o, FocusInEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : focus -> code field");
             iFocus = 0;
         }
 
         protected void OnEdtUserPasswordFocusInEvent(object o, FocusInEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : focus -> password field");
             iFocus = 1;
         }
 
         protected void Action_Key(String szChar)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, iFocus == 0 ? $"+ LoginWnd : keypad '{szChar}' -> code field" : "+ LoginWnd : keypad '*' -> password field");
             if (iFocus == 0)
                 edtUserCode.Text += szChar;
             else
                 edtUserPassword.Text += szChar;
         }
 
+        //--- v2.0.4: key name for the log; a digit typed into the password field is masked
+        string LogKeyName(int iKey)
+        {
+            if (iFocus == 1 && iKey >= (int)KeyPressedType.NUM_0 && iKey <= (int)KeyPressedType.NUM_9)
+                return "NUM_*";
+            return ((KeyPressedType)iKey).ToString();
+        }
+
         void LaneController_UpdateUiSupervisor()
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : supervisor shown '{TCT_Lib.szSupervisorName}'");
                 txtSupervisorName.Text = TCT_Lib.szSupervisorName;
                 txtSupervisorName.ModifyFg(StateType.Normal, TCT_Lib.clLabelHeader);
 
@@ -1325,6 +1374,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : key {LogKeyName(iKey)} ({(iFocus == 0 ? "code" : "password")} field, manual panel {frameManualLogin.Visible})");
                 if (iKey == (int)KeyPressedType.MANUAL)
                 {
                     szUserName = "";
@@ -1418,6 +1468,7 @@ namespace TCT_App
 
         protected void OnShown(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : shown, page {TCT_Lib.eCurAppPage} -> Login, close MainWindow {mainWnd != null}, close MainMaintenance {maintenanceWnd != null}");
             if (mainWnd != null)
             {
                 mainWnd.Dispose();
@@ -1490,28 +1541,39 @@ namespace TCT_App
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : keyboard -> virtual key {LogKeyName(TCT_Lib.keyMapping[(int)args.Event.KeyValue])}");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue], 1);
+            }
         }
 
         protected void OnEdtUserCodeKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : keyboard (code field) -> virtual key {(KeyPressedType)TCT_Lib.keyMapping[(int)args.Event.KeyValue]}");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
+            }
         }
 
         protected void OnEdtUserPasswordKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : keyboard (password field) -> virtual key (masked)");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
+            }
         }
 
         protected void OnEdtUserCodeActivated(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : code field Enter -> virtual key ENTER");
             TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.ENTER);
         }
 
         protected void OnEdtUserPasswordActivated(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : password field Enter -> virtual key ENTER");
             TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.ENTER);
         }
 
@@ -1525,6 +1587,8 @@ namespace TCT_App
 
         protected void LaneController_CheckNetworkStatus(int iDeviceType, bool bIsConnected)
         {
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ LoginWnd : network status {(ChkDeviceType)iDeviceType} connected {bIsConnected}");
             Application.Invoke(delegate
             {
                 if (TCT_Lib.eCurAppPage != AppPage.Login)
@@ -1597,6 +1661,7 @@ namespace TCT_App
                     LogInfo.WriteLog("- Fail ETC Change Lane Mode : Current AppPage is not Login Page");
                     return;
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : ETC change lane mode {(LaneMode)iEtcLaneMode} state {iEtcLaneState}");
                 //----------------------------------------------------------
                 if (iEtcLaneMode == (int)LaneMode.NORMAL)
                 {
@@ -1636,6 +1701,7 @@ namespace TCT_App
                     if (bMaintenanceStaff)
                     {
                         //--- Maintenance Mode
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : ETC maintenance -> open MainMaintenance (supervisor {TCT_Lib.szStaffCode})");
                         TCT_Lib.etcRabbitMQ.Send_SetLaneMode_ToETC(LaneMode.MAINTENANCE);
                         TCT_Lib.bMaintenanceMode = true;
                         maintenanceWnd  = new MainMaintenance();
@@ -1658,6 +1724,7 @@ namespace TCT_App
 
         protected void OnBtnChangeLaneModeClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ LoginWnd : button Change Lane Mode clicked");
             Action_ProcessChangeLaneMode();
         }
 
@@ -1666,9 +1733,11 @@ namespace TCT_App
             var frmSetLaneTypeMode  = new SetLaneTypeMode();
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmSetLaneTypeMode.ModifyBg(StateType.Normal, colBk);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : SetLaneTypeMode popup run (current {TCT_Lib.eCurLaneType})");
             frmSetLaneTypeMode.Run();
             frmSetLaneTypeMode.Dispose();
             int iSelLaneTypeMode    =  frmSetLaneTypeMode.iOutSelLaneTypeMode;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : SetLaneTypeMode popup closed -> mode {iSelLaneTypeMode} (0=none 1=MTC 2=ETC 3=DUAL), page -> Login");
             //Console.WriteLine("+ After Dispose");
             TCT_Lib.eCurAppPage     = AppPage.Login;
             frmSetLaneTypeMode.Dispose();
@@ -1691,6 +1760,7 @@ namespace TCT_App
                 {
                     TCT_Lib.eCurLaneType = LaneType.DUAL;
                 }
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : lane type {eOldLaneType} -> {TCT_Lib.eCurLaneType}, save config LaneType={iSelLaneTypeMode - 1}");
                 TCT_Lib.WriteTCT_Configuration("Lane", "LaneType", iSelLaneTypeMode-1);
                 LaneController_ChangeCurrentLaneType();
                 TCT_Lib.laneController.SendLaneCurrentState();
@@ -1715,8 +1785,10 @@ namespace TCT_App
             TCT_Lib.eCurLsdMode     = LsdMode.LSD_CLOSE;
             TCT_Lib.lsdController   = new LaneSocketControl_LSD();
 
+            LogInfo.WriteLogLSD(LogLevel.DEBUG, "+ LoginWnd : LSD working thread started");
             await Task.Delay(2000);
             await TCT_Lib.lsdController.RunInitialLSD();
+            LogInfo.WriteLogLSD(LogLevel.DEBUG, "+ LoginWnd : LSD initial done");
 
             while (true)
             {

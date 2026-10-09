@@ -44,6 +44,7 @@ namespace TCT_App
         //-----------------------------------------------------
         public static void InitialProcessUsage()
         {
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ InitialProcessUsage : create CPU/RAM PerformanceCounter");
             cpuCounter = new PerformanceCounter(
                                 "Processor",
                                 "% Processor Time",
@@ -53,6 +54,7 @@ namespace TCT_App
 
             //------------------------------------------------------
             ramCounter = new PerformanceCounter("Memory", "Available MBytes", true);
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ InitialProcessUsage : done");
         }
 
         private static float GetProcessCpuUsage()
@@ -67,6 +69,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail GetProcessCpuUsage : " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetProcessCpuUsage : cpuCounter={(cpuCounter == null ? "null" : "ok")}, stack={err.StackTrace}");
                 return -1;
             }
         }
@@ -84,6 +87,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail GetProcessMemoryUsage: " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetProcessMemoryUsage : stack={err.StackTrace}");
                 return -1;
             }
         }
@@ -96,6 +100,8 @@ namespace TCT_App
             //LogInfo.WriteLogMTS("GetDiskSpace : " + Bash("df "+szPath));
             string szResult     = Bash("df -k " + szPath);
             if (szResult == "")
+                LogInfo.WriteLogMTS(LogLevel.WARN, $"- Warning GetDiskSpace : empty df output, Path={szPath} -> skip");
+            if (szResult == "")
                 return false;
             string szData       = szResult.Split('\n')[1];
             string[] szAryResult = szData.Split(' ');
@@ -106,6 +112,8 @@ namespace TCT_App
                     xListResult.Add(result);
             }
 
+            if (xListResult.Count != 6)
+                LogInfo.WriteLogMTS(LogLevel.WARN, $"- Warning GetDiskSpace : unexpected df columns={xListResult.Count} (expect 6), Path={szPath}, line=[{szData}] -> skip");
             if (xListResult.Count != 6)
                 return false;
 
@@ -137,6 +145,8 @@ namespace TCT_App
             }
 
             if (xListResult.Count != 6)
+                LogInfo.WriteLogMTS(LogLevel.WARN, $"- Warning GetDiskPath : unexpected df columns={xListResult.Count} (expect 6), line=[{szData}] -> skip");
+            if (xListResult.Count != 6)
                 return false;
 
             szRefPath       = xListResult[0];
@@ -167,14 +177,18 @@ namespace TCT_App
                         CreateNoWindow          = true,
                     }
                 };
+                var swBash = Stopwatch.StartNew();
                 process.Start();
                 string result = process.StandardOutput.ReadToEnd();
                 process.WaitForExit();
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ Bash : cmd=[{cmd}], exit={process.ExitCode}, outLen={result?.Length ?? 0} ({swBash.ElapsedMilliseconds} ms)");
+                LogInfo.WriteLogMTS(LogLevel.TRACE, $"+ Bash : cmd=[{cmd}] output=\n{result}");
                 return result;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail Bash GetDiskSpace : cmd=" + cmd + ", Error=" + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- Bash : stack={err.StackTrace}");
                 return "";
             }
         }
@@ -214,6 +228,7 @@ namespace TCT_App
             var szResultMem     = Array.FindAll(szAryResult, data => data != "");
             fTotalMem           = long.Parse(szResultMem[1]);
             fTotalUsed          = long.Parse(szResultMem[2]);
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetMemoryUsage : TotalMem={fTotalMem} kB, Used={fTotalUsed} kB");
 
             return true;
         }
@@ -240,6 +255,7 @@ namespace TCT_App
                 if (szData.Contains("Product=" + TCT_Lib.szMTS_Monitor_Product_Keyboard))
                     bKbStatus = true;
             }
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetUsbDeviceStatus : Printer[{TCT_Lib.szMTS_Monitor_Product_Printer}]={bPrinterStatus}, SCR[{TCT_Lib.szMTS_Monitor_Product_SCR}]={bScrStastus}, Keyboard[{TCT_Lib.szMTS_Monitor_Product_Keyboard}]={bKbStatus}");
 
             return true;
         }
@@ -256,6 +272,7 @@ namespace TCT_App
                 xMtsDataJson.method         = "MTS-Data";
 
                 LogInfo.WriteLogMTS("+ Get MTS Data");
+                var swMts                   = Stopwatch.StartNew();
                 var objMtsData              = new ObjMtsData();
                 objMtsData.requestId        = "MTS"+DateTime.Now.ToString("yyyyMMddHHmmssfff");
                 objMtsData.requestDateTime  = TCT_Lib.DateTime_ISO8601(DateTime.Now);
@@ -269,6 +286,7 @@ namespace TCT_App
                 objMtsData.cameraStatus     = GetCameraStatus();
                 objMtsData.lastAvcStatus    = TCT_Lib.iLastAvcStatus;
                 objMtsData.outBoxFile       = GetTotalOutBoxFile();
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ SendJsonMsgMtsDataToRabbitMQ : collected status ({swMts.ElapsedMilliseconds} ms), lastAvcStatus={objMtsData.lastAvcStatus}, outBoxFile={objMtsData.outBoxFile}, usageDiskPaths={objMtsData.usageDiskPaths?.Count ?? 0}");
 
                 //------------------------------------------------------
                 LogInfo.WriteLogMTS("+ Get ETC Status");
@@ -345,6 +363,7 @@ namespace TCT_App
                 catch (Exception err)
                 {
                     LogInfo.WriteLogMTS("- Fail GenerateJsonMsgData : " + err.Message);
+                    LogInfo.WriteLogMTS(LogLevel.WARN, $"- Warning SendJsonMsgMtsDataToRabbitMQ : bad ETC status value (ObuVersion={szObuVersion}, ObuListCount={szObuListCount}, ObuValidFrom={szObuValidFrom}, BlackListCount={szBlackListListCount}, BlackListValidFrom={szBlackListValidFrom}) -> ETC numbers set to 0");
                     iStatusListVersion                  = 0;
                     objMtsData.statusListRecord         = 0;
                     objMtsData.obuValidFrom             = 0;
@@ -381,13 +400,16 @@ namespace TCT_App
                 string szMtsData                    = JsonConvert.SerializeObject(xMtsDataJson, Formatting.Indented);
                 LogInfo.WriteLogMTS("+ MTS-Data : " + szMtsData);
 
-                TCT_Lib.mtsRabbitMQ.SendMtsMsgToRabbitMQ("MTS-Data", szMtsData);
+                var swSend = Stopwatch.StartNew();
+                bool bSendMts = TCT_Lib.mtsRabbitMQ.SendMtsMsgToRabbitMQ("MTS-Data", szMtsData);
+                LogInfo.WriteLogMTS(bSendMts ? LogLevel.DEBUG : LogLevel.WARN, $"{(bSendMts ? "+" : "- Warning")} SendJsonMsgMtsDataToRabbitMQ : send MTS-Data result={bSendMts} ({swSend.ElapsedMilliseconds} ms), total {swMts.ElapsedMilliseconds} ms");
 
                 return szMtsData;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail GenerateJsonMsgData : " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- SendJsonMsgMtsDataToRabbitMQ : mtsRabbitMQ={(TCT_Lib.mtsRabbitMQ == null ? "null" : "ok")}, stack={err.StackTrace}");
                 return "";
             }
         }
@@ -423,12 +445,14 @@ namespace TCT_App
                 xResource.memoryUsedMb      = fTotalUsedMem;
                 xResource.memoryPercentUsed = (fTotalUsedMem * 100) / fTotalMem;
                 xResource.upTimeSec         = GetUptimeSec();
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetResouceInfo : cpu={xResource.cpuPercentAvg}%, mem={fTotalUsedMem}/{fTotalMem} kB ({xResource.memoryPercentUsed}%), upTimeSec={xResource.upTimeSec}");
 
                 return xResource;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail GetResouceInfo =" + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetResouceInfo : TotalMem={fTotalMem}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -451,11 +475,15 @@ namespace TCT_App
                     return xDiskInfo;
                 }
                 else
+                {
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ GetDiskInfo : GetDiskSpace(/) failed -> diskInfo=null");
                     return null;
+                }
             }
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail GetDiskInfo =" + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetDiskInfo : stack={err.StackTrace}");
                 return null;
             }
         }
@@ -501,8 +529,10 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Fail GetUsageDiskPaths =" + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetUsageDiskPaths : stack={err.StackTrace}");
             }
 
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetUsageDiskPaths : paths={xUsageDiskPaths.Count}");
             return xUsageDiskPaths;
         }
 
@@ -527,11 +557,15 @@ namespace TCT_App
                     return xDiskPath;
                 }
                 else
+                {
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetUsageDiskPath : GetDiskSpace failed, Path={szPathName} -> skip");
                     return null;
+                }
             }
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS($"-Fail GetUsageDiskPath : Path={szPathName}, Error={err.Message}");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetUsageDiskPath : stack={err.StackTrace}");
                 return null;
             }
         }
@@ -567,6 +601,8 @@ namespace TCT_App
             xFileVersions.Add(GetFileVersion("BlackList", null, iBlackListVersion));
             xFileVersions.Add(GetFileVersion("DmtCard"));
             xFileVersions.Add(GetFileVersion("Promotion"));
+            if (LogInfo.IsEnabled(LogLevel.DEBUG))
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ GetListFileVersions : " + string.Join(", ", xFileVersions.Select(f => $"{f?.fileName}={f?.curVersion ?? "null"}")));
 
             return xFileVersions;
         }
@@ -621,6 +657,7 @@ namespace TCT_App
             xAppStatus.tct          = true;
             xAppStatus.rto          = bRtoStatus;
             xAppStatus.supAdjust    = bSupAdjustStatus;
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetAppStatus : RTO {TCT_Lib.szRTO_IPAddress}:{TCT_Lib.iRTO_SocketPort - 1}={bRtoStatus}, SupAdjust {TCT_Lib.szSupAdjust_IPAddress}:{TCT_Lib.iSupAdjust_SocketPort}={bSupAdjustStatus}");
 
             return xAppStatus;
         }
@@ -645,8 +682,11 @@ namespace TCT_App
                 bool bLcioStatus    = await TCT_Lib.laneController.IsPortReachable(TCT_Lib.szLCIO_SocketIPAddress, TCT_Lib.iLCIO_SocketPort);
 
                 //---------------------------------------------------------------------
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetDeviceStatus : port check TFI={bTfiStatus}, CRS={bCrsStatus}, EDC={bEdcStatus}(enable={TCT_Lib.bEnableEdc}), LSD={bLsdStatus}(enable={TCT_Lib.bEnableLSD}), LCSD={bLcsdStatus}, LCIO={bLcioStatus}");
                 if (TCT_Lib.bEnableLSD && TCT_Lib.iLSD_KeepAliveSec == 0)
                 {
+                    if (bLsdStatus)
+                        LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetDeviceStatus : LSD KeepAliveSec=0 -> use bCurLsdStatus={TCT_Lib.bCurLsdStatus}");
                     if (bLsdStatus)
                         bLsdStatus = TCT_Lib.bCurLsdStatus;
                 }
@@ -682,12 +722,14 @@ namespace TCT_App
                     xDeviceStatus.scr = TCT_Lib.bMTS_SCR;
                 }
                 //--------------------------------
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetDeviceStatus : result printer={xDeviceStatus.printer}, scr={xDeviceStatus.scr} (usb={bScrStatus}, bMTS_SCR={TCT_Lib.bMTS_SCR}), keyboard={xDeviceStatus.keyboard}, edc={xDeviceStatus.edc?.ToString() ?? "null"}, lsd={xDeviceStatus.lsd?.ToString() ?? "null"}");
 
                 return xDeviceStatus;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Error GetDeviceStatus : " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetDeviceStatus : stack={err.StackTrace}");
 
                 return xDeviceStatus;
             }
@@ -699,6 +741,7 @@ namespace TCT_App
             xCameraStatus.camera1   = TCT_Lib.bStatusCamera1;
             xCameraStatus.camera2   = TCT_Lib.bStatusCamera2;
             xCameraStatus.camera3   = TCT_Lib.bStatusCamera3;
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetCameraStatus : camera1={TCT_Lib.bStatusCamera1}, camera2={TCT_Lib.bStatusCamera2}, camera3={TCT_Lib.bStatusCamera3}");
 
 /*
             if (TCT_Lib.bEnableVideoNVR)
@@ -725,10 +768,12 @@ namespace TCT_App
             threadGetEtcStatus.Priority     = ThreadPriority.Normal;
             threadGetEtcStatus.IsBackground = true;
             threadGetEtcStatus.Start();
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ CreateGetEdcStatusThread : ThreadGetEtcStatus started, interval={TCT_Lib.iMTS_Monitor_IntervalSecGetEtcStatus} sec");
         }
 
         async static private void ThreadGetEtcStatus()
         {
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ ThreadGetEtcStatus : start, Url={TCT_Lib.szMTS_EtcStatusDbUrl}, Url2={TCT_Lib.szMTS_EtcStatusDbUrl2}, Url3={TCT_Lib.szMTS_EtcStatusDbUrl3}, Url4={TCT_Lib.szMTS_EtcStatusDbUrl4}");
             while (true)
             {
                 LogInfo.WriteLogMTS("+++ Run Thread GET ETC Status");
@@ -841,12 +886,14 @@ namespace TCT_App
                         szBangkokLcState        = "";
                     }
 
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ ThreadGetEtcStatus : TPS={szTpsState}, OBU={szObuListCount}/{szObuVersion}, BL={szBlackListListCount}/{szBlackListVersion}, XMR1 OBU={szXmr1StatusListRecord} BL={szXmr1BlackListRecord}, XMR2 OBU={szXmr2StatusListRecord} BL={szXmr2BlackListRecord}, LaneMode={szLaneMode}, errUrl={bFoudErrUrl}");
                     LogInfo.WriteLogMTS("+++ Finish Thread GET ETC Status");
                     await Task.Delay(TCT_Lib.iMTS_Monitor_IntervalSecGetEtcStatus * 1000);
                 }
                 catch (Exception err)
                 {
                     LogInfo.WriteLogMTS("--- Error ThreadGetEtcStatus : " + err.Message);
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- ThreadGetEtcStatus : stack={err.StackTrace}");
                     await Task.Delay(TCT_Lib.iMTS_Monitor_IntervalSecGetEtcStatus * 1000);
                 }
             }
@@ -891,6 +938,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Error GetLaneMode : " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetLaneMode : len={szData?.Length ?? 0}, stack={err.StackTrace}");
                 return "";
             }
         }
@@ -902,6 +950,7 @@ namespace TCT_App
             if (TCT_Lib.szMTS_EtcStatusDbUrl.Trim() == "")
             {
                 //LogInfo.WriteLogMTS("- Not found config MTS_EtcStatusDbUrl");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ GetETC_StatusDB : MTS_EtcStatusDbUrl not configured -> skip");
                 return false;
             }
 
@@ -915,6 +964,7 @@ namespace TCT_App
                 }
                 else
                 {
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetETC_StatusDB : skip count {iCountingUrl} > {iMaxSkipUrl} -> retry URL, bFoudErrUrl true -> false");
                     iCountingUrl    = 0;
                     bFoudErrUrl     = false;
                 }
@@ -938,11 +988,14 @@ namespace TCT_App
                 request.KeepAlive   = false;
                 request.Timeout     = 3 * 1000;
 
+                var swHttp          = Stopwatch.StartNew();
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
                     StreamReader sr         = new StreamReader(response.GetResponseStream(), Encoding.UTF8);
                     string szHtmlContent    = sr.ReadToEnd();
                     sr.Close();
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetETC_StatusDB : HTTP {(int)response.StatusCode}, len={szHtmlContent?.Length ?? 0} ({swHttp.ElapsedMilliseconds} ms)");
+                    LogInfo.WriteLogMTS(LogLevel.TRACE, $"+ GetETC_StatusDB : response=\n{szHtmlContent}");
 
                     //LogInfo.WriteLogMTS("+ Response : " + szHtmlContent);
                     //-----------------------------
@@ -971,6 +1024,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS($"- Error GetETC_StatusDB : URL={TCT_Lib.szMTS_EtcStatusDbUrl.Trim()}, Error={err.Message}");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetETC_StatusDB : bFoudErrUrl {bFoudErrUrl} -> true, skip next {iMaxSkipUrl} cycles, stack={err.StackTrace}");
                 request.Abort();
                 request = null;
 
@@ -987,6 +1041,7 @@ namespace TCT_App
             if (szEtcStatusUrl.Trim() == "")
             {
                 //LogInfo.WriteLogMTS("- Not found config URL GetETC_StatusXmr");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ GetETC_StatusXmr : URL not configured -> skip");
                 return false;
             }
 
@@ -1014,11 +1069,14 @@ namespace TCT_App
                 request.KeepAlive   = false;
                 request.Timeout     = 3 * 1000;
 
+                var swHttp          = Stopwatch.StartNew();
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
                     StreamReader sr         = new StreamReader(response.GetResponseStream(), Encoding.UTF8);
                     string szHtmlContent    = sr.ReadToEnd();
                     sr.Close();
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetETC_StatusXmr : HTTP {(int)response.StatusCode}, len={szHtmlContent?.Length ?? 0} ({swHttp.ElapsedMilliseconds} ms)");
+                    LogInfo.WriteLogMTS(LogLevel.TRACE, $"+ GetETC_StatusXmr : response=\n{szHtmlContent}");
 
                     //LogInfo.WriteLogMTS("+ Response : " + szHtmlContent);
                     //-----------------------------
@@ -1044,6 +1102,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Error GetETC_StatusXmr : " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetETC_StatusXmr : URL={szEtcStatusUrl}, bFoudErrUrl {bFoudErrUrl} -> true, stack={err.StackTrace}");
                 request.Abort();
                 request = null;
 
@@ -1061,6 +1120,7 @@ namespace TCT_App
             if (TCT_Lib.szMTS_EtcStatusDbUrl4.Trim() == "")
             {
                 //LogInfo.WriteLogMTS("- Not found config MTS_EtcStatusDbUrl4");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ GetETC_StatusDB_Url4 : MTS_EtcStatusDbUrl4 not configured -> skip");
                 return false;
             }
 
@@ -1089,11 +1149,14 @@ namespace TCT_App
                 request.KeepAlive   = false;
                 request.Timeout     = 3 * 1000;
 
+                var swHttp          = Stopwatch.StartNew();
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
                     StreamReader sr         = new StreamReader(response.GetResponseStream(), Encoding.UTF8);
                     string szHtmlContent    = sr.ReadToEnd();
                     sr.Close();
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ GetETC_StatusDB_Url4 : HTTP {(int)response.StatusCode}, len={szHtmlContent?.Length ?? 0} ({swHttp.ElapsedMilliseconds} ms)");
+                    LogInfo.WriteLogMTS(LogLevel.TRACE, $"+ GetETC_StatusDB_Url4 : response=\n{szHtmlContent}");
 
                     //LogInfo.WriteLogMTS("+ Response : " + szHtmlContent);
                     //-----------------------------
@@ -1123,6 +1186,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogMTS("- Error GetETC_StatusDB_Url4 : " + err.Message);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- GetETC_StatusDB_Url4 : URL={TCT_Lib.szMTS_EtcStatusDbUrl4}, bFoudErrUrl {bFoudErrUrl} -> true, stack={err.StackTrace}");
                 request.Abort();
                 request = null;
 

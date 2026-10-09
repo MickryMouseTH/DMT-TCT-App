@@ -74,19 +74,32 @@ namespace TCT_App.PrintUtils
 */
 
            
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : nTrx={nTrx}, towing={bTowing}, convoy={bConvoy}, test={bPrintTest}, TC_Class={(bTowing ? TCT_Lib.iTowingTC_Class : TCT_Lib.iCurTC_Class)}, PayType={(bTowing ? TCT_Lib.xTowingPayment?.payType : TCT_Lib.xCurPayment?.payType)}, port={TCT_Lib.szPrinter_PrinterPort}");
              if (!bTowing)
             {
                 if (TCT_Lib.iCurTC_Class > 2)
+                {
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : TC_Class={TCT_Lib.iCurTC_Class} > 2, no receipt");
                     return;
+                }
                 if (TCT_Lib.xCurPayment.payType == (int)PayType.DMT_CARD)
+                {
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ PrintReceiptLib.PrintReceipt : DMT card payment, no receipt");
                     return;
+                }
             }
             else
             {
                 if (TCT_Lib.iTowingTC_Class > 2)
+                {
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : towing TC_Class={TCT_Lib.iTowingTC_Class} > 2, no receipt");
                     return;
+                }
                 if (TCT_Lib.xTowingPayment.payType == (int)PayType.DMT_CARD)
+                {
+                    LogInfo.WriteLog(LogLevel.DEBUG, "+ PrintReceiptLib.PrintReceipt : towing DMT card payment, no receipt");
                     return;
+                }
             }
 
             //-----------------------------------------
@@ -95,8 +108,11 @@ namespace TCT_App.PrintUtils
 
             string szStr            = "";
             string szPrinterPort    = TCT_Lib.szPrinter_PrinterPort;
+            var sw                  = System.Diagnostics.Stopwatch.StartNew();
             try
             {
+                if (!System.IO.File.Exists(szPrinterPort))
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning PrintReceiptLib.PrintReceipt : printer device not found : {szPrinterPort}");
 
                 if (TCT_Lib.iPrinter_PrintFontSize > 2)
                     TCT_Lib.iPrinter_PrintFontSize = 2;
@@ -146,6 +162,7 @@ namespace TCT_App.PrintUtils
                 }
 
                 Console.WriteLine("+ Fare Receipt Running No : " + TCT_Lib.szCurFareReceiptNo);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : ReceiptNo={TCT_Lib.szCurFareReceiptNo}, reprint={bReprint}, reprintTowing={bReprintTowing}, printOriginal={bPrintOriginal}, lastPrintFail={bPrintFail}, HasGen={TCT_Lib.bHasGenReceiptNo}/{TCT_Lib.bHasGenTowingReceiptNo}");
                 LogInfo.WriteLog($"+ nTrx={nTrx}, Fare Receipt Running No : {TCT_Lib.szCurFareReceiptNo}");
                 LogInfo.WriteLaneEvent($"+ nTrx={nTrx}, Fare Receipt Running No : {TCT_Lib.szCurFareReceiptNo}");
                 string szPlazaLaneName  = TCT_Lib.szPlazaName + " - Lane " + TCT_Lib.iLaneID;
@@ -166,6 +183,7 @@ namespace TCT_App.PrintUtils
                     szFareAmount    = TCT_Lib.fTowingFareAmount.ToString("0.00");
                     szPayType       = TCT_Lib.xTowingPayment.payTypeName;
                 }
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : Class={szClassType}, Fare={szFareAmount}, PayType={szPayType}, Job={TCT_Lib.iJobNo}, FontSize={TCT_Lib.iPrinter_PrintFontSize}");
 
                 //------------------------------------------------------
                 szStr   = "";
@@ -173,6 +191,7 @@ namespace TCT_App.PrintUtils
                 var enc = Encoding.GetEncoding("windows-874");
                 byte[] byteRequest = enc.GetBytes(szStr);
                 byteRequest.Print(szPrinterPort);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : init sent {byteRequest.Length} bytes to {szPrinterPort}");
 
                 //--------------------------------------
                 szStr = "";
@@ -262,6 +281,8 @@ namespace TCT_App.PrintUtils
                     else
                         LogInfo.WriteLog($"+ Footer not print (Now is more then efffectiveToDate");
                 }
+                else
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : footer disabled (PrintFooter={TCT_Lib.iPrinter_PrintFooter})");
 
                 //-------------------------------------------------------
                 szStr += ClassEscPOS.ResetFont();
@@ -292,8 +313,11 @@ namespace TCT_App.PrintUtils
                 //byte[] byteRequest = Encoding.UTF8.GetBytes(szStr);
                 //byteRequest.Add(COMMAND);
                 //if (TCT_Lib.bPrintOK)
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLog(LogLevel.TRACE, "+ PrintReceiptLib.PrintReceipt ESC/POS : " + ClassEscPOS.ToLogText(szStr));
                 byteRequest.Print(szPrinterPort);
                 bPrintFail = false;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.PrintReceipt : sent {byteRequest.Length} bytes to {szPrinterPort}, ReceiptNo={TCT_Lib.szCurFareReceiptNo}, {sw.ElapsedMilliseconds} ms");
 
                 //---------------------------------------------------------------------------
                 Thread.Sleep(50);
@@ -316,16 +340,19 @@ namespace TCT_App.PrintUtils
             catch (ThreadAbortException)
             {
                 //Thread.ResetAbort();
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error PrintReceipt : thread aborted, nTrx={nTrx}, ReceiptNo={TCT_Lib.szCurFareReceiptNo}");
             }
             catch (Exception err)
             {
                 Console.WriteLine(err.Message);
                 LogInfo.WriteLog("- Error Print Receipt : " + err.Message);
                 LogInfo.WriteLaneEvent("- Error Print Receipt : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- PrintReceiptLib.PrintReceipt : failed after {sw.ElapsedMilliseconds} ms, port={szPrinterPort}, ReceiptNo={TCT_Lib.szCurFareReceiptNo}, StackTrace : {err.StackTrace}");
                 bPrintFail = true;
                 //----------------------------------------------------------
                 if (err.Message == "Interrupted system call")
                 {
+                    LogInfo.WriteLog(LogLevel.WARN, "- Warning PrintReceiptLib.PrintReceipt : interrupted system call, wait 1000 ms (no auto re-print)");
                     Thread.Sleep(1000);
 /*
                     LogInfo.WriteLog("+ Auto Re-print receipt ");
@@ -358,6 +385,7 @@ namespace TCT_App.PrintUtils
         static string GenFooter_BuzzsBees(int nTrx)
         {
             string szStr = "";
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.GenFooter_BuzzsBees : nTrx={nTrx}, PrintType={TCT_Lib.iFooter_PrintType}, maintenance={TCT_Lib.bMaintenanceMode}, until={TCT_Lib.dtFooter_EndDate:yyyy-MM-dd HH:mm:ss}");
 
             szStr += ClassEscPOS.FeedLine(1);
             szStr += new string('-', 45) + "\r\n";
@@ -403,6 +431,7 @@ namespace TCT_App.PrintUtils
                 //---------------------------------------------
                 string szEncryptData    = ClassLibEDC.AES_CBC_EncryptString(szData, szEncryptKey, szEncryptIV);
                 string szUrl            = $"{TCT_Lib.szFooter_QrData}{HttpUtility.UrlEncode(szEncryptData)}";
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintReceiptLib.GenFooter_BuzzsBees : dataLen={szData.Length}, encryptedLen={szEncryptData?.Length}, urlLen={szUrl.Length}");
 
 /*
                 //--- For DEV
@@ -441,6 +470,8 @@ namespace TCT_App.PrintUtils
             }
 
             Console.WriteLine("QR Data : " + szStr);
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, "+ PrintReceiptLib.GenFooter_BuzzsBees ESC/POS : " + ClassEscPOS.ToLogText(szStr));
             return szStr;
         }
 

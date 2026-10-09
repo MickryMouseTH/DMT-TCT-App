@@ -548,7 +548,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM LaneTransaction " +
                                 $"WHERE TransactionID={iLaneTransID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneTransaction : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransaction : TransID={iLaneTransID}, rows={dtLaneTrans?.Rows.Count ?? -1}");
             if (dtLaneTrans.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneTransaction : Not found LaneTransaction in database : LaneTransactionnID={iLaneTransID}");
@@ -635,6 +637,7 @@ namespace TCT_App
 
             xLaneTrans.@params          = xParams;
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransaction : built TransID={iLaneTransID}, laneMode={xParams.laneMode}, vehicleClass={manualClass.vehicleClass}, fare={manualClass.fare}, method={manualPayment.method}, amount={manualPayment.amount}, laneTransMessage={(xParams.laneTransMessage == null ? "null" : "ok")}");
             return xLaneTrans;
         }
 
@@ -715,7 +718,9 @@ namespace TCT_App
         {
             string szQuery = "SELECT * FROM LaneTransaction " +
                                 $"WHERE TransactionID={iTransID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneTransMessage : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransMessage : TransID={iTransID}, rows={dtLaneTrans?.Rows.Count ?? -1}");
             if (dtLaneTrans.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneTransMessage : Not found LaneTransaction in database : TransactionID={iTransID}");
@@ -813,7 +818,9 @@ namespace TCT_App
                     //--- Get EDC Info
                     szQuery = "SELECT * FROM EmvDetail " +
                                 $"WHERE EmvDetailID={iEmvDetailID}";
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneTransMessage : SQL={szQuery}");
                     DataTable dtEmv = TCT_Lib.LaneDB.List(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransMessage : EmvDetailID={iEmvDetailID}, rows={dtEmv?.Rows.Count ?? -1}");
                     if (dtEmv.Rows.Count == 0)
                     {
                         LogInfo.WriteLog($"- Fail Not found EmvDetail in database : EmvDetailID={iEmvDetailID}");
@@ -841,7 +848,9 @@ namespace TCT_App
                     //--- Get DmtCard Info
                     szQuery = "SELECT * FROM DmtCardTrans "+
                                 $"WHERE DmtCardTransID={iDmtCardTransID}";
+                    LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneTransMessage : SQL={szQuery}");
                     DataTable dtDmtCard = TCT_Lib.LaneDB.List(szQuery);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransMessage : DmtCardTransID={iDmtCardTransID}, rows={dtDmtCard?.Rows.Count ?? -1}");
                     if (dtDmtCard.Rows.Count == 0)
                     {
                         LogInfo.WriteLog($"- Fail Not found DmtCardTrans in database : DmtCardTransID={iDmtCardTransID}");
@@ -908,12 +917,14 @@ namespace TCT_App
                 captureImage.imageFileName3 = szImage3 ?? "";
                 xLaneTrans.captureImage     = captureImage;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransMessage : built TransID={iTransID}, JobNo={xLaneTrans.jobNo}, nTrx={xLaneTrans.nTrx}, StaffShiftID={xStaff.staffShiftId}, TC_Class={xLaneTrans.tcClass}, PayType={xPayment.payType}, PayAmount={xPayment.payAmount}, EmvDetailID={iEmvDetailID}, DmtCardTransID={iDmtCardTransID}, isTowing={xLaneTrans.isTowing}, images=[{captureImage.imageFileName1}|{captureImage.imageFileName2}|{captureImage.imageFileName3}]");
                 return xLaneTrans;
             }
             catch (Exception err)
             {
                 Console.WriteLine($"- Error GenerateLaneTransMessage : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateLaneTransMessage : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateLaneTransMessage : TransID={iTransID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -922,7 +933,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM LaneEventHQ " +
                                 $"WHERE EventHqID={iLaneEventID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneEventHQ : SQL={szQuery}");
             DataTable dtLaneEvent = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneEventHQ : EventHqID={iLaneEventID}, rows={dtLaneEvent?.Rows.Count ?? -1}");
             if (dtLaneEvent.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneEventHQ : Not found LaneEventID in database : EventHqID={iLaneEventID}");
@@ -969,12 +982,14 @@ namespace TCT_App
                 xEvent.eventRemark          = dtLaneEvent.Rows[0]["EventRemark"] == DBNull.Value ? "" : dtLaneEvent.Rows[0]["EventRemark"].ToString();
                 xLaneEvent.Event            = xEvent;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneEventHQ : built EventHqID={xLaneEvent.eventId}, StaffShiftID={xStaff.staffShiftId}, EventType={xEvent.eventType}, EventState={xEvent.eventState}");
                 return xLaneEvent;
             }
             catch (Exception err)
             {
                 Console.WriteLine($"- Error GenerateLaneEventHQ : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateLaneEventHQ : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateLaneEventHQ : EventHqID={iLaneEventID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -983,7 +998,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM LaneEventRTO " +
                                 $"WHERE EventRtoID={iEventRtoID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneEventRTO : SQL={szQuery}");
             DataTable dtLaneEvent = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneEventRTO : EventRtoID={iEventRtoID}, rows={dtLaneEvent?.Rows.Count ?? -1}");
             if (dtLaneEvent.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneEventRTO : Not found EventRtoID in database : EventRtoID={iEventRtoID}");
@@ -1040,12 +1057,14 @@ namespace TCT_App
                 xDeviceStatus.deviceState   = int.Parse(dtLaneEvent.Rows[0]["DeviceState"].ToString());
                 xLaneEvent.deviceStatus     = xDeviceStatus;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneEventRTO : built EventRtoID={xLaneEvent.eventId}, StaffShiftID={xStaff.staffShiftId}, EventType={xEvent.eventType}, EventState={xEvent.eventState}, DeviceType={xDeviceStatus.deviceType}, DeviceState={xDeviceStatus.deviceState}");
                 return xLaneEvent;
             }
             catch (Exception err)
             {
                 Console.WriteLine($"- Error GenerateLaneEventRTO : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateLaneEventRTO : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateLaneEventRTO : EventRtoID={iEventRtoID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1054,7 +1073,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM LaneAlarmRTO " +
                                 $"WHERE AlarmRtoID={iAlarmRtoID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneAlarmRTO : SQL={szQuery}");
             DataTable dtLaneAlarm = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneAlarmRTO : AlarmRtoID={iAlarmRtoID}, rows={dtLaneAlarm?.Rows.Count ?? -1}");
             if (dtLaneAlarm.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneAlarmRTO : Not found AlarmRtoID in database : AlarmRtoID={iAlarmRtoID}");
@@ -1106,12 +1127,14 @@ namespace TCT_App
                 xAlarm.alarmRemark          = dtLaneAlarm.Rows[0]["AlarmRemark"] == DBNull.Value ? "" : dtLaneAlarm.Rows[0]["AlarmRemark"].ToString();
                 xLaneAlarm.alarm            = xAlarm;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneAlarmRTO : built AlarmRtoID={xLaneAlarm.alarmId}, StaffShiftID={xStaff.staffShiftId}, AlarmDevice={xAlarm.alarmDevice}, AlarmType={xAlarm.alarmType}");
                 return xLaneAlarm;
             }
             catch (Exception err)
             {
                 Console.WriteLine($"- Error GenerateLaneAlarmRTO : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateLaneAlarmRTO : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateLaneAlarmRTO : AlarmRtoID={iAlarmRtoID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1120,7 +1143,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM StaffShift " +
                                 $"WHERE StaffShiftID={iStaffShiftID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneBeginOfJob : SQL={szQuery}");
             DataTable dtBeginShift = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneBeginOfJob : StaffShiftID={iStaffShiftID}, rows={dtBeginShift?.Rows.Count ?? -1}");
             if (dtBeginShift.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneBeginOfJob : Not found StaffShiftID in database : StaffShiftID={iStaffShiftID}");
@@ -1173,6 +1198,7 @@ namespace TCT_App
 
                 xBeginJobData.@params       = xBeginJob;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneBeginOfJob : built StaffShiftID={xStaff.staffShiftId}, StaffID={xStaff.staffId}, JobNo={xBeginJob.jobNo}, JobType={xBeginJob.jobType}, ManualLogin={xBeginJob.manualLogin}, laneMode={xLane.laneMode}");
                 return xBeginJobData;
 
             }
@@ -1180,6 +1206,7 @@ namespace TCT_App
             {
                 Console.WriteLine($"- Error GenerateLaneBeginOfJob : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateLaneBeginOfJob : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateLaneBeginOfJob : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1188,7 +1215,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM StaffShift " +
                                 $"WHERE StaffShiftID={iStaffShiftID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneEndOfJob : SQL={szQuery}");
             DataTable dtEndShift = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneEndOfJob : StaffShiftID={iStaffShiftID}, rows={dtEndShift?.Rows.Count ?? -1}");
             if (dtEndShift.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneEndOfJob : Not found StaffShiftID in database : StaffShiftID={iStaffShiftID}");
@@ -1255,6 +1284,9 @@ namespace TCT_App
                 xEndJobData.@params         = xEndJob;
 
                 //----------------------------------------
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneEndOfJob : built StaffShiftID={iStaffShiftID}, JobNo={xEndJob.jobNo}, JobType={xEndJob.jobType}, EojMethod={xEndJob.eojMethod}, EojDateTime={xEndJob.eojDateTime ?? "null"}");
+                if (xEndJob.eojDateTime == null)
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning GenerateLaneEndOfJob : StaffEndShiftDateTime is NULL -> return null (EOJ not sent) : StaffShiftID={iStaffShiftID}");
                 if (xEndJob.eojDateTime == null)
                     return null;
                 //----------------------------------------
@@ -1266,6 +1298,7 @@ namespace TCT_App
             {
                 Console.WriteLine($"- Error GenerateLaneEndOfJob : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateLaneEndOfJob : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateLaneEndOfJob : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1274,7 +1307,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM StaffShift " +
                                 $"WHERE StaffShiftID={iStaffShiftID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateOtlStatus : SQL={szQuery}");
             DataTable dtBeginShift = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateOtlStatus : StaffShiftID={iStaffShiftID}, OtlStatus={bOtlStatus}, rows={dtBeginShift?.Rows.Count ?? -1}");
             if (dtBeginShift.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateOtlStatus : Not found StaffShiftID in database : StaffShiftID={iStaffShiftID}");
@@ -1325,6 +1360,7 @@ namespace TCT_App
 
                 xOtlStatusData.@params          = xOtlStatus;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateOtlStatus : built StaffShiftID={xStaff.staffShiftId}, OtlStatus={bOtlStatus}");
                 return xOtlStatusData;
 
             }
@@ -1332,6 +1368,7 @@ namespace TCT_App
             {
                 Console.WriteLine($"- Error GenerateOtlStatus : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateOtlStatus : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateOtlStatus : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1340,7 +1377,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM TransactionStatistic " +
                                 $"WHERE StaffShiftID={iStaffShiftID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneTransactionStatistic : SQL={szQuery}");
             DataTable dtTrans = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransactionStatistic : StaffShiftID={iStaffShiftID}, rows={dtTrans?.Rows.Count ?? -1}");
             if (dtTrans.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateLaneTransactionStatistic : Not found StaffShiftID in database : StaffShiftID={iStaffShiftID}");
@@ -1351,7 +1390,9 @@ namespace TCT_App
                         "SUM(TotalCouponType2) AS SumSalesCoupon2, SUM(TotalAmountCouponType2) AS SumAmountCoupon2 " +
                         "FROM SalesCouponTransaction " +
                         $"WHERE StaffShiftID={iStaffShiftID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateLaneTransactionStatistic : SQL={szQuery}");
             DataTable dtSalesCoupon = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransactionStatistic : SalesCoupon rows={dtSalesCoupon?.Rows.Count ?? -1}");
 
             try
             {
@@ -1410,12 +1451,14 @@ namespace TCT_App
                 xSalesCoupon.totalAmountType2           = dtSalesCoupon.Rows[0]["SumAmountCoupon2"] == DBNull.Value ? 0 : decimal.Parse(dtSalesCoupon.Rows[0]["SumAmountCoupon2"].ToString());
                 xTransStatistic.totalSalesCoupon        = xSalesCoupon;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateLaneTransactionStatistic : built StaffShiftID={iStaffShiftID}, totalSumVehicles={xTransStatistic.totalSumVehicles}, violation={xTransStatistic.totalTransViolation}, exempt={xTransStatistic.totalTransExempt}, towing={xTransStatistic.totalTransTowing}, HPMC={xTransStatistic.totalTransHPMC}, MIS={xTransMIS.totalMIS}");
                 return xTransStatistic;
             }
             catch (Exception err)
             {
                 Console.WriteLine($"- Error GenerateLaneTransactionStatistic : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateLaneTransactionStatistic : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateLaneTransactionStatistic : StaffShiftID={iStaffShiftID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1425,7 +1468,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM LaneTransaction " +
                                 $"WHERE TransactionID={iLaneTransID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateTransactionMTS : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateTransactionMTS : TransID={iLaneTransID}, rows={dtLaneTrans?.Rows.Count ?? -1}");
             if (dtLaneTrans.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateTransactionMTS : Not found LaneTransaction in database : LaneTransactionnID={iLaneTransID}");
@@ -1473,12 +1518,14 @@ namespace TCT_App
 
                 xMtsTransJson.@params       = xMtsTrans;
 
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateTransactionMTS : built TransID={iLaneTransID}, JobNo={xTransInfo.jobNo}, nTrx={xTransInfo.nTrx}, avcClass={xAvcInfo.avcClass}, avcError={xAvcInfo.avcError}");
                 return xMtsTransJson;
             }
             catch (Exception err)
             {
                 Console.WriteLine($"- Error GenerateTransactionMTS : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateTransactionMTS : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateTransactionMTS : TransID={iLaneTransID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1488,7 +1535,9 @@ namespace TCT_App
         {
             string szQuery = @"SELECT * FROM LaneTransaction " +
                                 $"WHERE TransactionID={iLaneTransID}";
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ GenerateCaptureImageCamera : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateCaptureImageCamera : TransID={iLaneTransID}, rows={dtLaneTrans?.Rows.Count ?? -1}");
             if (dtLaneTrans.Rows.Count == 0)
             {
                 LogInfo.WriteLog($"- Fail GenerateCaptureImageCamera : Not found LaneTransaction in database : LaneTransactionnID={iLaneTransID}");
@@ -1541,6 +1590,7 @@ namespace TCT_App
                     catch (Exception err)
                     {
                         LogInfo.WriteLogVideoCapture("- Fail Get Image Data : " + err.Message);
+                        LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- GenerateCaptureImageCamera : TransID={iLaneTransID}, Index={i}, stack={err.StackTrace}");
                     }
                     finally
                     {
@@ -1551,6 +1601,7 @@ namespace TCT_App
 
                 iJobNo  = iLaneType == 0 ? xTransInfo.jobNo : 0;
                 nTrx    = iLaneType == 0 ? xTransInfo.nTrx : 0;
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ GenerateCaptureImageCamera : built TransID={iLaneTransID}, LaneType={iLaneType}, JobNo={xTransInfo.jobNo}, nTrx={xTransInfo.nTrx}, RunningNo={iCaptureRunningNo}, files=[{xImageDatas.Count}] out JobNo={iJobNo}, nTrx={nTrx}");
 
                 return xImgCamera;
             }
@@ -1558,6 +1609,7 @@ namespace TCT_App
             {
                 Console.WriteLine($"- Error GenerateCaptureImageCamera : {err.Message}");
                 LogInfo.WriteLog($"- Error GenerateCaptureImageCamera : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- GenerateCaptureImageCamera : TransID={iLaneTransID}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -1580,6 +1632,7 @@ namespace TCT_App
             else
             {
                 dtDateTime = Convert.ToDateTime(dtImage.Rows[0]["UpdateDateTime"].ToString());
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ GetImageCameraFileName : TransID={iLaneTransID}, Index={idx}, File={dtImage.Rows[0]["ImageCameraFileName"]}, UpdateDateTime={dtDateTime:yyyy-MM-dd HH:mm:ss}");
                 return dtImage.Rows[0]["ImageCameraFileName"].ToString();
             }
         }

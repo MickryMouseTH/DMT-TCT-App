@@ -24,3 +24,15 @@ Thumbs.db
 # NOTE: packages/ is intentionally committed so the project builds without a NuGet restore
 # (old-style packages.config with HintPath references). Remove this note and add `packages/`
 # below if you switch to NuGet restore on build.
+
+# Python LSD tools (LSD_Contoller / LSD_Simulator)
+__pycache__/
+*.pyc
+*.key
+logs/
+dist/
+build/
+*.spec
+.venv/
+# runtime-generated config (สร้างครั้งแรกที่รัน — ไม่ commit ค่า runtime/secret)
+*_config.json

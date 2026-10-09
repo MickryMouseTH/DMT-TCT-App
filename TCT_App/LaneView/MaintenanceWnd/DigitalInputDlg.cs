@@ -21,16 +21,19 @@ namespace TCT_App.MaintenanceWnd
             ClearDigitalInput();
 
             TCT_Lib.webSocketLane.digitalInputLaneEvent += LaneSocket_DigitalInputLaneEvent;
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalInputDlg : popup opened, request device input");
             TCT_Lib.webSocketLane.SendRequest_DeviceInput();
         }
 
         protected void OnButtonOkClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalInputDlg : button OK clicked");
             Process_Exit();
         }
 
         private void Process_Exit()
         { 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalInputDlg : popup closed");
             TCT_Lib.webSocketLane.digitalInputLaneEvent -= LaneSocket_DigitalInputLaneEvent;
 
             Destroy();
@@ -58,6 +61,7 @@ namespace TCT_App.MaintenanceWnd
 
         private void LaneSocket_DigitalInputLaneEvent(int[] values, bool bMTC)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DigitalInputDlg : DI update (MTC {bMTC}) [{string.Join(",", values ?? new int[0])}]");
             try
             {
                 img_D_Zero.Pixbuf   = Gdk.Pixbuf.LoadFromResource(values[TCT_Lib.iLCSD_DI_0] == 1 ? "TCT_App.Images.OK-48.png" : "TCT_App.Images.Fail-48.png");
@@ -79,12 +83,14 @@ namespace TCT_App.MaintenanceWnd
         {
             if ((int)args.Event.KeyValue == (int)'p')   // ESC, Cancel
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalInputDlg : key ESC");
                 Process_Exit();
             }
         }
 
         protected void OnBtnOpenALBClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalInputDlg : button Open ALB clicked -> DO ALB_Open pulse 300 ms");
             try
             {
                 //--- ALB ON
@@ -100,6 +106,7 @@ namespace TCT_App.MaintenanceWnd
 
         protected void OnBtnCloseALBClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DigitalInputDlg : button Close ALB clicked -> DO ALB_Close pulse 300 ms");
             try
             {
                 //--- ALB OFF

@@ -29,6 +29,7 @@ namespace TCT_App.WebServiceAPI
     {
         public static bool CallWebService_BeginOfJob(DateTime dtBeginJob, ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_BeginOfJob : enable={TCT_Lib.bEnableLaneWebService}, StaffShiftID={TCT_Lib.iStaffShiftID}, StaffID={TCT_Lib.szStaffID}, BOJ={dtBeginJob:yyyy-MM-dd HH:mm:ss}");
             if (!TCT_Lib.bEnableLaneWebService)
                 return false;
 
@@ -39,6 +40,7 @@ namespace TCT_App.WebServiceAPI
                 return false;
             }
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var xBoj        = new ObjBeginEndJob();
@@ -61,6 +63,7 @@ namespace TCT_App.WebServiceAPI
                     string szFmt        = "{0}/api/TCT/LaneAttendance/save";
                     string szWebUrl     = string.Format(szFmt, TCT_Lib.szLaneWebService_BaseURL);
                     LogInfo.WriteLog("+ CallWebService_BeginOfJob URL : " + szWebUrl);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_BeginOfJob : POST jobid={xBoj.jobid}, bytes={byteData.Length}, timeout=2000 ms");
 
                     var request                 = (HttpWebRequest)WebRequest.Create(szWebUrl);
                     request.Method              = "POST";
@@ -76,6 +79,7 @@ namespace TCT_App.WebServiceAPI
 
                     using (WebResponse webResponse = request.GetResponse())
                     {
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_BeginOfJob : status={(int)((HttpWebResponse)webResponse).StatusCode}, {sw.ElapsedMilliseconds} ms");
                         if (((HttpWebResponse)webResponse).StatusCode != HttpStatusCode.OK)
                         {
                             szErrMsg = ((HttpWebResponse)webResponse).StatusDescription;
@@ -93,6 +97,7 @@ namespace TCT_App.WebServiceAPI
                                 LogInfo.WriteLog("+ Response CallWebService_BeginOfJob : " + response);
 
                                 dynamic xResponse = JsonConvert.DeserializeObject(response);
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_BeginOfJob : hasError={xResponse?["errors"]?["hasError"]}, errMsg={xResponse?["errors"]?["errMsg"]}, {sw.ElapsedMilliseconds} ms");
                                 if ((bool)xResponse["errors"]["hasError"] == true)
                                 {
                                     szErrMsg        = (string)xResponse["errors"]["errMsg"];
@@ -115,12 +120,14 @@ namespace TCT_App.WebServiceAPI
                 szErrMsg = err.Message;
                 Console.WriteLine($"- Error CallWebService_BeginOfJob : {err.Message}");
                 LogInfo.WriteLog($"- Error CallWebService_BeginOfJob : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- CallWebService_BeginOfJob : failed after {sw.ElapsedMilliseconds} ms, WebStatus={(err as WebException)?.Status}, StackTrace : {err.StackTrace}");
                 return false;
             }
         }
 
         public static bool CallWebService_EndOfJob(DateTime dtEndJob, ref string szErrMsg)
         {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_EndOfJob : disabled in code, skip (EOJ={dtEndJob:yyyy-MM-dd HH:mm:ss})");
             return false;
 
             if (!TCT_Lib.bEnableLaneWebService)
@@ -218,6 +225,7 @@ namespace TCT_App.WebServiceAPI
             if (!TCT_Lib.bEnableLaneWebService)
             {
                 szErrMsg = "Service Check Start Job TOD Disable";
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_ChkStartJobTOD : web service disabled, StaffId={szStaffId}");
                 return false;
             }
 
@@ -233,6 +241,7 @@ namespace TCT_App.WebServiceAPI
             }
 
             bFoundBojTOD = false;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var xChkTOD     = new ObjChkBojTOD();
@@ -250,6 +259,7 @@ namespace TCT_App.WebServiceAPI
                     string szFmt        = "{0}/api/TCT/CheckTODBoj";
                     string szWebUrl     = string.Format(szFmt, TCT_Lib.szLaneWebService_BaseURL);
                     LogInfo.WriteLog("+ CallWebService_ChkStartJobTOD URL : " + szWebUrl);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_ChkStartJobTOD : POST TSBId={xChkTOD.TSBId}, UserId={xChkTOD.UserId}, bytes={byteData.Length}, timeout=3000 ms");
 
                     var request                 = (HttpWebRequest)WebRequest.Create(szWebUrl);
                     request.Method              = "POST";
@@ -265,6 +275,7 @@ namespace TCT_App.WebServiceAPI
 
                     using (WebResponse webResponse = request.GetResponse())
                     {
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_ChkStartJobTOD : status={(int)((HttpWebResponse)webResponse).StatusCode}, {sw.ElapsedMilliseconds} ms");
                         if (((HttpWebResponse)webResponse).StatusCode != HttpStatusCode.OK)
                         {
                             szErrMsg = ((HttpWebResponse)webResponse).StatusDescription;
@@ -282,6 +293,7 @@ namespace TCT_App.WebServiceAPI
                                 LogInfo.WriteLog("+ Response CallWebService_ChkStartJobTOD : " + response);
 
                                 dynamic xResponse = JsonConvert.DeserializeObject(response);
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_ChkStartJobTOD : hasError={xResponse?["errors"]?["hasError"]}, errMsg={xResponse?["errors"]?["errMsg"]}, {sw.ElapsedMilliseconds} ms");
                                 if ((bool)xResponse["errors"]["hasError"] == true)
                                 {
                                     szErrMsg        = (string)xResponse["errors"]["errMsg"];
@@ -310,11 +322,14 @@ namespace TCT_App.WebServiceAPI
                                         {
                                             dynamic objJob  = objJobs[0];
                                             iStaffShiftId   = (int)(objJob["ShiftId"] ?? 0);
+                                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_ChkStartJobTOD : TOD jobs={objJobs.Length}, ShiftId={iStaffShiftId}");
 
                                             //dynamic objJob1 = (JObject.Parse(objJob[0]));
                                             //iStaffShiftId   = (int) (objJob1.ShiftId ?? 0);
                                         }
                                     }
+                                    if (!bFoundBojTOD)
+                                        LogInfo.WriteLog(LogLevel.WARN, $"- Warning CallWebService_ChkStartJobTOD : no TOD begin-of-job for StaffId={szStaffId}");
                                     return true;
                                 }
                             }
@@ -328,6 +343,7 @@ namespace TCT_App.WebServiceAPI
                 szErrMsg = err.Message;
                 Console.WriteLine($"- Error CallWebService_ChkStartJobTOD : {err.Message}");
                 LogInfo.WriteLog($"- Error CallWebService_ChkStartJobTOD : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, $"- CallWebService_ChkStartJobTOD : failed after {sw.ElapsedMilliseconds} ms, WebStatus={(err as WebException)?.Status}, StackTrace : {err.StackTrace}");
                 return false;
             }
         }

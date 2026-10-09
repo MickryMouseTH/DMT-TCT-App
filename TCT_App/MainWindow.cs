@@ -121,6 +121,7 @@ public partial class MainWindow : Gtk.Window
 #if __FULL_SCREEN__
         this.Fullscreen();
 #endif
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : opened, page {TCT_Lib.eCurAppPage} -> Main, login {_loginMethod}/{_loginType}, laneConfig {TCT_Lib.iLaneConfigType}, laneType {TCT_Lib.eCurLaneType}, maint {TCT_Lib.bMaintenanceMode}");
         TCT_Lib.eCurAppPage     = AppPage.Main;
         loginMethod             = _loginMethod;
         loginType               = _loginType;
@@ -266,6 +267,7 @@ public partial class MainWindow : Gtk.Window
         sbDcStatus.UseMarkup = true;
 
         TCT_Lib.bMainUiReady    = true;
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : UI ready, laneMode {TCT_Lib.eCurLaneMode}, allowETC {TCT_Lib.bAllowETC}, DC {(TCT_Lib.mocRabbitMQ.connection != null ? "connected" : "disconnected")}");
 
         if (TCT_Lib.bAllowETC)
             TCT_Lib.etcRabbitMQ.SendChangeLoginSupervisorStaffToETC();
@@ -322,6 +324,7 @@ public partial class MainWindow : Gtk.Window
 
         if (TCT_Lib.iPrinter_PrintFooter > 0)
             TCT_Lib.LaneDB.LoadPromotionData();
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : keypad enabled {keypad.Sensitive}, fare class1 {szAmount_Class1}, class2 {szAmount_Class2}");
 
         TCT_Lib.szListReceiptNo.Clear();    // 2023-01-23   Fix first receipt no.= xxxx-xxxxxxxxxxxx
 
@@ -351,6 +354,7 @@ public partial class MainWindow : Gtk.Window
         catch (Exception err)
         {
             Console.WriteLine(err.Message);
+            LogInfo.WriteLog(LogLevel.ERROR, "- Error MainWindow : load simulation data : " + err.Message);
         }
 
 
@@ -367,6 +371,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnMainWndDelete(object sender, DeleteEventArgs a)
     {
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : delete event -> Application.Quit");
         //TCT_Lib.laneController.SendLaneCloseApp();
         //----------------------------------------------------
         Application.Quit();
@@ -915,26 +920,36 @@ public partial class MainWindow : Gtk.Window
         context.Dispose();
     }
 
+    //--- v2.0.4: one DEBUG line per touch button (state at the moment of the touch)
+    void LogButton(string szButton)
+    {
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : button {szButton} clicked (page {TCT_Lib.eCurAppPage}, class {TCT_Lib.iCurTC_Class}, towing {TCT_Lib.eTowingState}, laneMode {TCT_Lib.eCurLaneMode})");
+    }
+
     protected void OnBtnClassType1Clicked(object sender, EventArgs e)
     {
+        LogButton("ClassType1");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_1);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_1);
     }
 
     protected void OnBtnClassType2Clicked(object sender, EventArgs e)
     {
+        LogButton("ClassType2");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_2);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_2);
     }
 
     protected void OnBtnClassTypeEmergencyClicked(object sender, EventArgs e)
     {
+        LogButton("ClassTypeEmergency");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_5);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_5);
     }
 
     protected void OnBtnClassTypeTowingClicked(object sender, EventArgs e)
     {
+        LogButton("ClassTypeTowing");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_6);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_6);
         bTowing = true;          
@@ -942,122 +957,143 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnClassTypeExemptClicked(object sender, EventArgs e)
     {
+        LogButton("ClassTypeExempt");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_7);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_7);
     }
 
     protected void OnBtnClassTypeAllowPassClicked(object sender, EventArgs e)
     {
+        LogButton("ClassTypeAllowPass");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_8);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_8);
     }
 
     protected void OnBtnClassTypeHPMCClicked(object sender, EventArgs e)
     {
+        LogButton("ClassTypeHPMC");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_9);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_9);
     }
 
     protected void OnBtnViolationClicked(object sender, EventArgs e)
     {
+        LogButton("Violation");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.VIOLATION);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.VIOLATION);
     }
 
     protected void OnBtnForceResetClicked(object sender, EventArgs e)
     {
+        LogButton("ForceReset");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.FORCE_RESET);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.FORCE_RESET);
     }
 
     protected void OnBtnPayCashClicked(object sender, EventArgs e)
     {
+        LogButton("PayCash");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.PAY_CASH);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_CASH);
     }
 
     protected void OnBtnPayCouponClicked(object sender, EventArgs e)
     {
+        LogButton("PayCoupon");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.PAY_COUPON);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_COUPON);
     }
 
     protected void OnBtnPayment6Clicked(object sender, EventArgs e)
     {
+        LogButton("Payment6");
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_PM6);
     }
 
     protected void OnBtnPayment7Clicked(object sender, EventArgs e)
     {
+        LogButton("Payment7");
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_PM7);
     }
 
     protected void OnBtnPayment8Clicked(object sender, EventArgs e)
     {
+        LogButton("Payment8");
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_PM8);
     }
 
     protected void OnBtnPayment9Clicked(object sender, EventArgs e)
     {
+        LogButton("Payment9");
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_PM9);
     }
 
     protected void OnPayEmvClicked(object sender, EventArgs e)
     {
+        LogButton("PayEmv");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.PAY_EMV);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_EMV);
     }
 
     protected void OnBtnPayQRCodeClicked(object sender, EventArgs e)
     {
+        LogButton("PayQRCode");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.PAY_QRCODE);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_QRCODE);
     }
 
     protected void OnBtnPayTypeDmtCardClicked(object sender, EventArgs e)
     {
+        LogButton("PayTypeDmtCard");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.PAY_DMTCARD);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PAY_DMTCARD);
     }
 
     protected void OnBtnLeftOutClicked(object sender, EventArgs e)
     {
+        LogButton("LeftOut");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_8);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CLASS_8);
     }
 
     protected void OnBtnOpenOTLClicked(object sender, EventArgs e)
     {
+        LogButton("OpenOTL");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.OTL_OPEN);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.OTL_OPEN);
     }
 
     protected void OnBtnCloseOTLClicked(object sender, EventArgs e)
     {
+        LogButton("CloseOTL");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.OTL_CLOSE);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.OTL_CLOSE);
     }
 
     protected void OnBtnEndShiftClicked(object sender, EventArgs e)
     {
+        LogButton("EndShift");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.END_SHIFT);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.END_SHIFT);
     }
 
     protected void OnBtnEditClicked(object sender, EventArgs e)
     {
+        LogButton("Edit");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.EDIT);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.EDIT);
     }
 
     protected void OnBtnPrintReceiptClicked(object sender, EventArgs e)
     {
+        LogButton("PrintReceipt");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.RECEIPT);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.RECEIPT);
     }
 
     protected void OnBtnNextTowerClicked(object sender, EventArgs e)
     {
+        LogButton("NextTower");
      // ---Area PayType
         bPayType        = true;
         szPayType       = szPay_Coupon;
@@ -1089,6 +1125,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnPayVoucher2Clicked(object sender, EventArgs e)
     {
+        LogButton("PayVoucher2");
         // ---Area PayType
         bPayType        = true;
         szPayType       = "COUPON";
@@ -1103,6 +1140,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnPayEasyPassClicked(object sender, EventArgs e)
     {
+        LogButton("PayEasyPass");
 #if !__FULL_SCREEN__
         // ---Area PayType
         bPayType = true;
@@ -1146,11 +1184,13 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnMISClicked(object sender, EventArgs e)
     {
+        LogButton("MIS");
         ClearAllPanels();
     }
 
     protected void OnBtnSuspendClicked(object sender, EventArgs e)
     {
+        LogButton("Suspend");
         bSuspend                = !bSuspend;
         Assembly myAssembly     = Assembly.GetExecutingAssembly();
         imgOTL.Pixbuf           = Gdk.Pixbuf.LoadFromResource(bSuspend ? "TCT_App.Images.Suspend.png" : "TCT_App.Images.GateOpen.png");
@@ -1158,11 +1198,13 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnClearClicked(object sender, EventArgs e)
     {
+        LogButton("Clear");
         ClearAllPanels();
     }
 
     protected void OnBtnPayTagClicked(object sender, EventArgs e)
     {
+        LogButton("PayTag");
         // ---Area PayType
         bPayType        = true;
         szPayType       = szPay_MPass;
@@ -1203,6 +1245,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnTestNextCarClicked(object sender, EventArgs e)
     {
+        LogButton("TestNextCar");
         Gdk.Pixbuf pictureBuf   = imgVehicleType1;
         imgNextCar.Pixbuf       = pictureBuf.ScaleSimple(150, 108, Gdk.InterpType.Bilinear);
     }
@@ -1210,6 +1253,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnConfirmClicked(object sender, EventArgs e)
     {
+        LogButton("Confirm");
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CONFIRM);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.CONFIRM);
 
@@ -1218,6 +1262,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnButton3Clicked(object sender, EventArgs e)
     {
+        LogButton("Button3");
         txtLaneType.ModifyFont(FontDescription.FromString("Ubuntu 11"));
         txtLaneType.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
 
@@ -1244,6 +1289,7 @@ public partial class MainWindow : Gtk.Window
     protected void UpdateUI_RefreshLaneControl()
     {
         Application.Invoke(delegate {
+            string szOldProcess = szProcess;
 
             //--- Update MLB
             imgMLB.Pixbuf   = bInMLB ? imgMLB_Open : imgMLB_Close;
@@ -1272,6 +1318,8 @@ public partial class MainWindow : Gtk.Window
             }
 
             areaProcess.QueueDraw();
+            if (szOldProcess != szProcess)
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : refresh lane -> process '{szOldProcess}' -> '{szProcess}' (MLB {bInMLB}, OTL {bInOTL}, ALB {bInALB}, LTL {bInLTL}, queue {TCT_Lib.iTotalQueue})");
             //---------------------------------------------------------------------
             txtQueue.Text   = TCT_Lib.iTotalQueue.ToString("0");
 
@@ -1291,6 +1339,7 @@ public partial class MainWindow : Gtk.Window
     void LaneController_UpdateUiQueueLaneControl()
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : queue shown {TCT_Lib.iTotalQueue}");
 
             txtQueue.Text   = TCT_Lib.iTotalQueue.ToString("0");
         });
@@ -1299,6 +1348,7 @@ public partial class MainWindow : Gtk.Window
     protected void UpdateUI_VehicleType(Gdk.Pixbuf imgVehicleType, string szTxtVehicleType, string szTxtVehicleAmount, string szTxtProcess)
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show class '{szTxtVehicleType}' amount '{szTxtVehicleAmount}' process '{szTxtProcess}' (towing {TCT_Lib.eTowingState}, HPMC {bHPMC}, queue {TCT_Lib.iTotalQueue})");
             if (TCT_Lib.eTowingState != TowingState.None)
             {
                     if (TCT_Lib.eTowingState == TowingState.StartTowing)
@@ -1375,6 +1425,7 @@ public partial class MainWindow : Gtk.Window
     protected void UpdateUI_VehicleTowing()
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show towing state {TCT_Lib.eTowingState}, fare {TCT_Lib.fCurFareAmount}, towing class {TCT_Lib.iTowingTC_Class} fare {TCT_Lib.fTowingFareAmount}");
         
             Assembly myAssembly         = Assembly.GetExecutingAssembly();
             if (TCT_Lib.eTowingState == TowingState.StartTowing)
@@ -1466,6 +1517,7 @@ public partial class MainWindow : Gtk.Window
     void LaneController_UpdateUI_TowingFirstPass()
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : towing first car passed, next car class {TCT_Lib.iTowingTC_Class}");
         
             Assembly myAssembly     = Assembly.GetExecutingAssembly();
 
@@ -1487,6 +1539,7 @@ public partial class MainWindow : Gtk.Window
     protected void UpdateUI_Violation()
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : show Violation (process red, violation area visible)");
             Assembly myAssembly = Assembly.GetExecutingAssembly();
             bViolation          = true;
             bProcess            = true;
@@ -1502,6 +1555,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void LaneController_VehicleTypeLaneControl(VehicleType eVehicleType)
     {
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : vehicle type event {eVehicleType} (HPMC {bHPMC}, towing {TCT_Lib.eTowingState})");
         if (eVehicleType == VehicleType.NONE)
         {
             UpdateUI_VehicleType(null, "", "", "");
@@ -1543,6 +1597,7 @@ public partial class MainWindow : Gtk.Window
             if (bHPMC)
             {
                 //--- Stop HPMC Mode
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : HPMC stop -> laneMode NORMAL, virtual key FORCE_RESET");
                 if (iHPMC_TimerId > 0)
                     GLib.Source.Remove(iHPMC_TimerId);
                 iHPMC_TimerId           = 0;
@@ -1567,6 +1622,7 @@ public partial class MainWindow : Gtk.Window
     protected void UpdateUI_PayType(string szTxtPayType, string szTxtProcess)
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show pay '{szTxtPayType}' process '{szTxtProcess}' (payType {TCT_Lib.xCurPayment?.payType}, towing {TCT_Lib.eTowingState}, HPMC {bHPMC})");
 
             if (TCT_Lib.eTowingState != TowingState.None)
             {
@@ -1628,6 +1684,7 @@ public partial class MainWindow : Gtk.Window
     protected void UpdateUI_PayTowing(string szTxtPayType)
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show towing pay '{szTxtPayType}' state {TCT_Lib.eTowingState} (pay1 {TCT_Lib.xCurPayment?.payType}, pay2 {TCT_Lib.xTowingPayment?.payType})");
             // ---Area PayType
             if (TCT_Lib.eTowingState == TowingState.FirstPayType)
             {
@@ -1710,6 +1767,7 @@ public partial class MainWindow : Gtk.Window
 
     void LaneController_EditBackClassType()
     {
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : edit back class type (towing {TCT_Lib.eTowingState})");
         if (TCT_Lib.eTowingState == TowingState.StartTowing)
         {
             UpdateUI_VehicleTowing();
@@ -1736,6 +1794,7 @@ public partial class MainWindow : Gtk.Window
     void LaneController_EditBackPayType()
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : edit back pay type -> pay cleared (towing {TCT_Lib.eTowingState})");
             if (TCT_Lib.eTowingState == TowingState.None)
             {   
                 // ---Area PayType
@@ -1789,6 +1848,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void LaneController_PayTypeLaneControl(PayType ePayType)
     {
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : pay type event {ePayType} (vehicle {TCT_Lib.laneController?.eCurVehicleType})");
         if (ePayType == PayType.EXEMPT)
         {
             if (TCT_Lib.laneController.eCurVehicleType == VehicleType.HPMC)
@@ -1828,6 +1888,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : clear panel (queue {TCT_Lib.iTotalQueue}, MLB {bInMLB})");
             //--- Clear Panel UI
             imgCarType.Pixbuf       = null;
             imgNextCar.Pixbuf       = null;
@@ -1886,6 +1947,8 @@ public partial class MainWindow : Gtk.Window
     //-------------------------------------------------------------
     void LaneController_DigitalInputLaneControl(int[] values)
     {
+        if (LogInfo.IsEnabled(LogLevel.TRACE))
+            LogInfo.WriteLaneEventIO(LogLevel.TRACE, $"+ MainWindow : DI [{string.Join(",", values ?? new int[0])}]");
         //--- Device Digital Input has change value
         bInMLB          = values[TCT_Lib.iLCSD_DI_0]    == 1;
         bInEFS          = values[TCT_Lib.iLCSD_DI_1]    == 1;
@@ -1954,6 +2017,8 @@ public partial class MainWindow : Gtk.Window
 
     void LaneController_DigitalOutputLaneControl(int[] values)
     {
+        if (LogInfo.IsEnabled(LogLevel.TRACE))
+            LogInfo.WriteLaneEventIO(LogLevel.TRACE, $"+ MainWindow : DO [{string.Join(",", values ?? new int[0])}]");
         //--- Device Digital Ouput has change value
         bRegisterBell   = values[0] == 1;
         bSiren          = values[1] == 1;
@@ -1976,6 +2041,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : queue cleared -> {TCT_Lib.iTotalQueue}");
             txtQueue.Text = TCT_Lib.iTotalQueue.ToString("0");
         });
     }
@@ -1984,6 +2050,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : end shift -> {(TCT_Lib.bMaintenanceMode ? "back to Maintenance" : "show LoginWnd")}, close MainWindow (laneMode {TCT_Lib.eCurLaneMode})");
             GLib.Source.Remove(iTimerId1Sec);
             try
             {
@@ -2060,6 +2127,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnPrintConvoyClicked(object sender, EventArgs e)
     {
+        LogButton("PrintConvoy");
         //--- Print Convoy - H
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.PRINT_CONVOY);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.PRINT_CONVOY);
@@ -2067,6 +2135,7 @@ public partial class MainWindow : Gtk.Window
 
     protected void OnBtnSalesCouponClicked(object sender, EventArgs e)
     {
+        LogButton("SalesCoupon");
         //--- Print SalesCoupon - L
         //TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.SALE_COUPON);
         TCT_Lib.webSocketLane.SendVirtualKeyboard((int)KeyPressedType.SALE_COUPON);
@@ -2085,6 +2154,7 @@ public partial class MainWindow : Gtk.Window
 
         int iKey        = TCT_Lib.keyMapping[iKeyValue];
         args.RetVal     = true;
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : keyboard {args.Event.Key} -> virtual key {(KeyPressedType)iKey} (page {TCT_Lib.eCurAppPage})");
         Application.Invoke(delegate
         {
             try
@@ -2102,6 +2172,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : violation event -> show Violation");
             bClassType      = true;
             szClassType     = szVehicle_Violation;
             areaClassType.ModifyBg(StateType.Normal, clBlue);
@@ -2127,6 +2198,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ MainWindow : entry loop {bInEntryLoop}, OB {bInEntryOB}");
             txtLoop_F.Text        = bInEntryLoop ? "<span font_size = 'small' fgcolor = '#00FF00' >Loop</span>" : "<span font_size = 'small' fgcolor = '#444444' >Loop</span>";
             txtOB_F.Text          = bInEntryOB ? "<span font_size = 'small' fgcolor = '#00FF00' >OB</span>" : "<span font_size = 'small' fgcolor = '#444444' >OB</span>";
             txtLoop_F.UseMarkup   = true;
@@ -2140,6 +2212,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ MainWindow : exit loop {bInExitLoop}, OB {bInExitOB}");
             txtLoop.Text        = bInExitLoop ? "<span font_size = 'small' fgcolor = '#00FF00' >Loop</span>" : "<span font_size = 'small' fgcolor = '#444444' >Loop</span>";
             txtOB.Text          = bInExitOB ? "<span font_size = 'small' fgcolor = '#00FF00' >OB</span>" : "<span font_size = 'small' fgcolor = '#444444' >OB</span>";
             txtLoop.UseMarkup   = true;
@@ -2153,6 +2226,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : ALB mode {iAlbMode} -> {_iAlbMode} (0=Normal 1=Open 2=Close)");
             iAlbMode = _iAlbMode;
             //--- Mode : Normal=0, Open=1, Close=2
             string szAlbMode = "";
@@ -2201,6 +2275,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show AVC={avcClassType}");
             txtAVC.Text         = $"<span font_size = 'small' fgcolor = '#00FF00' >AVC={avcClassType}</span>";
             txtAVC.UseMarkup    = true;
             txtAVC.ModifyFg(StateType.Normal, clGreen);
@@ -2227,6 +2302,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show ALB queue {queueALB}");
             if (queueALB > 0)
                 txtQueueALB.Text = $"<span font_size = 'small' fgcolor = '#999999' >ALB Queue={queueALB}</span>";
             else
@@ -2240,6 +2316,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show nTrx {nTrx - 1}");
             txtnTrx.Text        = $"<span font_size = 'small' fgcolor = '#999999' >nTrx={nTrx-1}</span>";
             txtnTrx.UseMarkup   = true;
             txtnTrx.ModifyFg(StateType.Normal, new Gdk.Color(0x99, 0x99, 0x99));
@@ -2251,7 +2328,10 @@ public partial class MainWindow : Gtk.Window
         Application.Invoke(delegate
         {
             if (TCT_Lib.bActiveEMVDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : EMV/QR popup ignored, EMV dialog already open");
                 return;
+            }
 
             //--- For Testing ---
             //TCT_Lib.laneController.SuccessEmvPayment(0);
@@ -2267,7 +2347,9 @@ public partial class MainWindow : Gtk.Window
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog EMV");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
                 ResponseType xResult = (ResponseType)frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg closed -> {xResult}, page -> Main");
 
                 //frmEdcPaymentDlg.Destroy();
 
@@ -2340,7 +2422,9 @@ public partial class MainWindow : Gtk.Window
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog EMV_V1");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg_V1 opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
                 ResponseType xResult = (ResponseType)frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg_V1 closed -> {xResult}, page -> Main");
 
                 //frmEdcPaymentDlg.Destroy();
 
@@ -2413,7 +2497,10 @@ public partial class MainWindow : Gtk.Window
     {
 
         if (TCT_Lib.bActiveEMVDlg)
+        {
+            LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : EMV/QR popup ignored, EMV dialog already open");
             return;
+        }
 
         //--- For Testing ---
         //TCT_Lib.laneController.SuccessEmvPayment(0);
@@ -2429,7 +2516,9 @@ public partial class MainWindow : Gtk.Window
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
             Console.WriteLine("+ Before Show dialog EMV");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
             ResponseType xResult = (ResponseType)frmEdcPaymentDlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg closed -> {xResult}, page -> Main");
 
             //frmEdcPaymentDlg.Destroy();
 
@@ -2509,7 +2598,9 @@ public partial class MainWindow : Gtk.Window
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
             Console.WriteLine("+ Before Show dialog EMV_V1");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg_V1 opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
             ResponseType xResult = (ResponseType)frmEdcPaymentDlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPaymentDlg_V1 closed -> {xResult}, page -> Main");
 
             //frmEdcPaymentDlg.Destroy();
 
@@ -2582,7 +2673,10 @@ public partial class MainWindow : Gtk.Window
         Application.Invoke(delegate
         {
             if (TCT_Lib.bActiveEMVDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : EMV/QR popup ignored, EMV dialog already open");
                 return;
+            }
 
             Console.WriteLine("+ Start Call QR CODE");
             LogInfo.WriteLog("+ Start Call QR Code Payment Dialog");
@@ -2592,7 +2686,9 @@ public partial class MainWindow : Gtk.Window
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog QR Code");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
                 ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg closed -> {xResult}, page -> Main");
                 //frmEdcPaymentDlg.Destroy();
 
                 TCT_Lib.eCurAppPage     = AppPage.Main;
@@ -2658,7 +2754,9 @@ public partial class MainWindow : Gtk.Window
                 Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog QR Code");
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg_V1 opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
                 ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg_V1 closed -> {xResult}, page -> Main");
                 //frmEdcPaymentDlg.Destroy();
 
                 TCT_Lib.eCurAppPage     = AppPage.Main;
@@ -2733,7 +2831,10 @@ public partial class MainWindow : Gtk.Window
     void LaneController_EmvQrCodePaymentUI(decimal fPayAmount)
     {
         if (TCT_Lib.bActiveEMVDlg)
+        {
+            LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : EMV/QR popup ignored, EMV dialog already open");
             return;
+        }
 
         Console.WriteLine("+ Start Call QR CODE");
         LogInfo.WriteLog("+ Start Call QR Code Payment Dialog");
@@ -2743,7 +2844,9 @@ public partial class MainWindow : Gtk.Window
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
             Console.WriteLine("+ Before Show dialog QR Code");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
             ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg closed -> {xResult}, page -> Main");
             //frmEdcPaymentDlg.Destroy();
 
             TCT_Lib.eCurAppPage     = AppPage.Main;
@@ -2812,7 +2915,9 @@ public partial class MainWindow : Gtk.Window
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
             Console.WriteLine("+ Before Show dialog QR Code");
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg_V1 opened, amount {fPayAmount}, class {TCT_Lib.iCurTC_Class}, towing class {TCT_Lib.iTowingTC_Class}, page {TCT_Lib.eCurAppPage}");
             ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : EdcPayQrDlg_V1 closed -> {xResult}, page -> Main");
             //frmEdcPaymentDlg.Destroy();
 
             TCT_Lib.eCurAppPage     = AppPage.Main;
@@ -2890,6 +2995,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : clear QR warning message");
             txtTag_Balance.Text = "";
         });
     }
@@ -2898,6 +3004,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show DMT car {szDmtCarNo}, plate {szLicensePlate}, class {iVehicleClass}, dept {szDepartment}");
             txtTag_PAN.Text             = $"<span font_size='large' fgcolor='#ffffff'>{"หมายเลขรถ : " + szDmtCarNo}</span>";
             txtTag_PAN.UseMarkup        = true;
             txtTag_PAN.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
@@ -2916,6 +3023,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : clear tag info panel");
             txtTag_PAN.Text         = "";
             txtTag_Balance.Text     = "";
             txtTag_Status.Text      = "";
@@ -2926,6 +3034,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show message '{szMsg}'");
             bProcess        = true;
             szProcess       = szMsg;
             areaProcess.ModifyBg(StateType.Normal, clGreen);
@@ -2937,6 +3046,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show mode type '{szModeType}'");
             txtModeType.UseMarkup = true;
             if (szModeType.ToUpper() == "ETC")
                 txtModeType.ModifyFg(StateType.Normal, new Gdk.Color(255, 255, 255));
@@ -2996,12 +3106,17 @@ public partial class MainWindow : Gtk.Window
         //Application.Invoke(delegate
         {
             if (TCT_Lib.bActiveConvoyDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : convoy popup ignored, already open");
                 return;
+            }
 
             var frmPrintConvoyDlg   = new PrintConvoyPaymentDlg();
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmPrintConvoyDlg.ModifyBg(StateType.Normal, colBk);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : PrintConvoyPaymentDlg opened");
             ResponseType xResult    = (ResponseType)frmPrintConvoyDlg.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : PrintConvoyPaymentDlg closed -> {xResult}, class1 x{frmPrintConvoyDlg.iOutTotalClass1}, class2 x{frmPrintConvoyDlg.iOutTotalClass2}, pay {frmPrintConvoyDlg.iOutPayType}, page -> Main");
             //Console.WriteLine("+ After Dispose");
 
             if (xResult == ResponseType.Ok)
@@ -3044,7 +3159,11 @@ public partial class MainWindow : Gtk.Window
         Application.Invoke(delegate
         {
             if (TCT_Lib.bActiveSalesCouponDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : sales coupon popup ignored, already open");
                 return;
+            }
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : sales coupon requested, check TA {TCT_Lib.szLaneWebService_ServerIPAddress}:{TCT_Lib.iLaneWebService_ServerPort}");
 
             //----------------------------------------
             //--- Check current is online, if online then open dialog for sales coupon, else ignore sales coupon
@@ -3060,8 +3179,10 @@ public partial class MainWindow : Gtk.Window
                 "<span font_size='large' fgcolor='#000000'>" + str + "</span >");
                          //"ไม่สามารถทำการติดต่อ TA Server เพื่อขายคูปองได้.\r\n\r\nโปรดตรวจสอบระบบ Network TA Server.");
                 UiTheme.StylePopup(md);     // v2.0.2: no title bar + visible frame
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : TA Server offline -> popup opened, sales coupon not opened");
                 md.Run();
                 md.Destroy();
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : popup 'TA Server offline' closed");
 
                 return;
             }
@@ -3079,7 +3200,9 @@ public partial class MainWindow : Gtk.Window
             var frmSalesCoupon      = new Sales_CouponDlg();
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmSalesCoupon.ModifyBg(StateType.Normal, colBk);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : Sales_CouponDlg run");
             frmSalesCoupon.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : Sales_CouponDlg returned, page {TCT_Lib.eCurAppPage} -> Main");
             //frmSalesCoupon.Dispose();
             //Console.WriteLine("+ After Dispose");
             TCT_Lib.eCurAppPage     = AppPage.Main;
@@ -3100,6 +3223,8 @@ public partial class MainWindow : Gtk.Window
 
     protected void LaneController_CheckNetworkStatus(int iDeviceType, bool bIsConnected)
     {
+        if (LogInfo.IsEnabled(LogLevel.TRACE))
+            LogInfo.WriteLog(LogLevel.TRACE, $"+ MainWindow : network status {(ChkDeviceType)iDeviceType} connected {bIsConnected}");
         Application.Invoke(delegate
         {
             if (iDeviceType == (int)ChkDeviceType.Device_LC)
@@ -3158,6 +3283,7 @@ public partial class MainWindow : Gtk.Window
     void LaneController_NextVehicleTypeLaneControl(VehicleType eVehicleType)
     {
         Application.Invoke(delegate {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show next vehicle {eVehicleType} (towing {TCT_Lib.eTowingState}, queue {TCT_Lib.iTotalQueue})");
             if (eVehicleType == VehicleType.NONE)
             {
                 UpdateUI_NextVehicleType(null, "", "", "");
@@ -3221,6 +3347,7 @@ public partial class MainWindow : Gtk.Window
     {
         Application.Invoke(delegate
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : supervisor shown '{TCT_Lib.szSupervisorName}'");
             txtSupervisorName.Text = TCT_Lib.szSupervisorName;
         });
     }
@@ -3241,6 +3368,7 @@ public partial class MainWindow : Gtk.Window
             else if (loginType == LoginType.Maintenance)
                 szLoginType = "Maintenance";
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : staff shown {TCT_Lib.szStaffID} '{TCT_Lib.szStaffName}' [{szLoginType}], job {TCT_Lib.iJobNo}");
             txtStaffID.Text     = TCT_Lib.szStaffID + "   [ " + szLoginType + " ]";
             txtStaffName.Text   = TCT_Lib.szStaffName;
             txtStaffGroup.Text  = TCT_Lib.szStaffGroupName;
@@ -3347,6 +3475,7 @@ public partial class MainWindow : Gtk.Window
         }
 
         areaViolation.Visible   = false;
+        LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : show ETC pay '{szPayType}', status {szPaymentStatus}, reject {szRejectReason}, class {iVehicleClass}");
 
         if (szPaymentStatus == "OBU_NOT_PRESENT")
             return;
@@ -3419,12 +3548,14 @@ public partial class MainWindow : Gtk.Window
             catch (Exception err)
             {
                 Console.Write(err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error MainWindow : ShowTotalLoop : " + err.Message);
             }
         });
     }
 
     protected void OnBtnSimulationClicked_1(object sender, EventArgs e)
     {
+        LogButton("Simulation");
 #if !__FULL_SCREEN__
         Application.Invoke(delegate
         {
@@ -3477,13 +3608,18 @@ public partial class MainWindow : Gtk.Window
         Application.Invoke(delegate
         {
             if (TCT_Lib.bActiveDmtPaymentDlg)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.WARN, "+ MainWindow : DMT popup ignored, already open");
                 return;
+            }
 
             //----------------------------------------
             var frmDmtPayment      = new DMT_PaymentDlg();
             Gdk.Color colBk         = new Gdk.Color(0x3E, 0x3E, 0x3E);
             frmDmtPayment.ModifyBg(StateType.Normal, colBk);
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ MainWindow : DMT_PaymentDlg opened");
             ResponseType xResult = (ResponseType)frmDmtPayment.Run();
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ MainWindow : DMT_PaymentDlg closed -> {xResult}, page -> Main");
             //Console.WriteLine("+ After Dispose");
 
             if (xResult == ResponseType.Ok)

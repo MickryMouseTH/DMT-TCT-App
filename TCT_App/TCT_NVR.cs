@@ -21,13 +21,14 @@ namespace TCT_App
             iJobNo      = _iJobNo;
             nTrx        = _nTrx;
             iCurMode    = _iCurMode;
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ TCT_NVR : JobNo={iJobNo}, nTrx={nTrx}, CurMode={iCurMode}");
         }
 
         public bool CreateImageFromUrl(string szCaptureUrl, int idx)
         {
             //ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3 | SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Ssl3;
-            LogInfo.WriteLogVideoCapture("+ CaptureUrl : " + szCaptureUrl);
+            LogInfo.WriteLogVideoCapture("+ CaptureUrl : " + LogInfo.MaskUrl(szCaptureUrl));
 
             // Set a default policy level for the "http:" and "https" schemes.
             HttpRequestCachePolicy policy       = new HttpRequestCachePolicy(HttpRequestCacheLevel.Default);
@@ -52,11 +53,13 @@ namespace TCT_App
                     request.Timeout     = 10 * 1000;
                 else
                     request.Timeout     = TCT_Lib.iVideoNVR_TimeoutSec * 1000;
+                LogInfo.WriteLogVideoCapture(TCT_Lib.iVideoNVR_TimeoutSec <= 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(TCT_Lib.iVideoNVR_TimeoutSec <= 0 ? "- Warning" : "+")} CreateImageFromUrl : Camera#{idx}, TimeoutSec={TCT_Lib.iVideoNVR_TimeoutSec} -> Timeout={request.Timeout} ms, CachePolicy={TCT_Lib.iVideoNVR_CachePolicy}");
 
-
+                var swHttp = System.Diagnostics.Stopwatch.StartNew();
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 {
                     LogInfo.WriteLogVideoCapture($"+ Response Status Code {response.StatusCode}, Status Description : {response.StatusDescription}");
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateImageFromUrl : Camera#{idx} OK ({swHttp.ElapsedMilliseconds} ms) -> camera status=1, notify RTO");
                     Object objParams = new { status = 1 };
                     if (idx == 1)
                     {
@@ -94,6 +97,7 @@ namespace TCT_App
             {
                 LogInfo.WriteLogVideoCapture("- Error CreateImageFromUrl WebException : " + webErr.Message);
                 LogInfo.WriteLogVideoCapture("- Error CreateImageFromUrl WebException : " + webErr.StackTrace);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- CreateImageFromUrl : Camera#{idx}, WebExceptionStatus={webErr.Status}, URL={LogInfo.MaskUrl(szCaptureUrl)} -> camera status=0, notify RTO");
                 Object objParams = new { status = 0 };
                 if (idx == 1)
                 {
@@ -122,6 +126,8 @@ namespace TCT_App
             }
             catch (ThreadAbortException exception)
             {
+                LogInfo.WriteLogVideoCapture(LogLevel.ERROR, $"- Error CreateImageFromUrl ThreadAbortException : Camera#{idx} : {exception.Message}");
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- CreateImageFromUrl : stack={exception.StackTrace}");
                 //Thread.ResetAbort();
                 request.Abort();
                 request = null;
@@ -214,6 +220,8 @@ namespace TCT_App
                     request.Timeout = 10 * 1000;
                 else
                     request.Timeout = TCT_Lib.iVideoNVR_TimeoutSec * 1000;
+                LogInfo.WriteLogVideoCapture(TCT_Lib.iVideoNVR_TimeoutSec <= 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(TCT_Lib.iVideoNVR_TimeoutSec <= 0 ? "- Warning" : "+")} SaveImageFromUrl : Camera#{idx}, Running={iCaptureRunningNo}, TimeoutSec={TCT_Lib.iVideoNVR_TimeoutSec} -> Timeout={request.Timeout} ms, CachePolicy={TCT_Lib.iVideoNVR_CachePolicy}, User={szUserName}, JobNo={iJobNo}, nTrx={nTrx}");
+                var swHttp = System.Diagnostics.Stopwatch.StartNew();
                 using (var response = request.GetResponse())
                 using (var stream   = response.GetResponseStream())
                 {
@@ -237,6 +245,7 @@ namespace TCT_App
 
                     //----------------------------------
                     Image img       = Image.FromStream(stream);
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ SaveImageFromUrl : Camera#{idx} image {img?.Width}x{img?.Height} received ({swHttp.ElapsedMilliseconds} ms), resize={TCT_Lib.iVideoNVR_ResizeImage} ({TCT_Lib.iVideoNVR_ResizeWidth}x{TCT_Lib.iVideoNVR_ResizeHeight}), jpegQuality={TCT_Lib.iVideoNVR_JpegQuality}");
                     //Image imgPhoto  = ResizeImage(img, 768, 432);
                     //--- v2.0.3: 1280x720 (config ResizeWidth/ResizeHeight) high quality + JPEG quality (was 1024x576, default quality)
                     string szImgPath = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, szImgFileName);
@@ -250,6 +259,7 @@ namespace TCT_App
                         SaveJpeg(img, szImgPath, TCT_Lib.iVideoNVR_JpegQuality);
                     }
                     LogInfo.WriteLogVideoCapture($"+ Save file image success. index={idx}, CaptureRuunningNo={iCaptureRunningNo}, FileName={szImgFileName}");
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ SaveImageFromUrl : Camera#{idx} saved {szImgPath} ({swHttp.ElapsedMilliseconds} ms) -> camera status=1, notify RTO");
 
                     Object objParams = new { status = 1 };
                     if (idx == 1)
@@ -284,6 +294,7 @@ namespace TCT_App
             {
                 LogInfo.WriteLogVideoCapture($"- Error CreateImageFromUrl WebException of index={idx}, CaptureRuunningNo={iCaptureRunningNo} : " + webErr.Message);
                 LogInfo.WriteLogVideoCapture($"- Error CreateImageFromUrl WebException of index={idx}, CaptureRuunningNo={iCaptureRunningNo} : " + webErr.StackTrace);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- SaveImageFromUrl : Camera#{idx}, WebExceptionStatus={webErr.Status}, URL={szImgUrl} -> camera status=0, notify RTO");
                 Object objParams = new { status = 0 };
                 if (idx == 1)
                 {
@@ -310,6 +321,7 @@ namespace TCT_App
             catch (ThreadAbortException err)
             {
                 LogInfo.WriteLogVideoCapture($"- Error CreateImageFromUrl ThreadAbortException of index={idx}, CaptureRuunningNo={iCaptureRunningNo} : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- SaveImageFromUrl : stack={err.StackTrace}");
                 //Thread.ResetAbort();
                 request.Abort();
                 request = null;
@@ -319,6 +331,7 @@ namespace TCT_App
             {
                 Console.WriteLine("Error : " + err.Message);
                 LogInfo.WriteLogVideoCapture($"- Error CreateImageFromUrl Exception of index={idx}, CaptureRuunningNo={iCaptureRunningNo} : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- SaveImageFromUrl : Camera#{idx}, URL={szImgUrl}, File={szImgFileName}, stack={err.StackTrace}");
 
                 Object objParams = new { status = 0 };
                 if (idx == 1)
@@ -358,7 +371,9 @@ namespace TCT_App
                 case 6: return HttpRequestCacheLevel.NoCacheNoStore;
                 case 7: return HttpRequestCacheLevel.CacheOrNextCacheOnly;
                 case 8: return HttpRequestCacheLevel.Refresh;
-                default:return HttpRequestCacheLevel.NoCacheNoStore;
+                default:
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ GetCachePolicy : unknown VideoNVR CachePolicy={TCT_Lib.iVideoNVR_CachePolicy} -> NoCacheNoStore");
+                    return HttpRequestCacheLevel.NoCacheNoStore;
             }
 
             return cahcePolicy;
@@ -391,6 +406,7 @@ namespace TCT_App
                     jpeg = c;
             if (jpeg == null)
             {
+                LogInfo.WriteLogVideoCapture(LogLevel.WARN, $"- Warning SaveJpeg : no JPEG encoder found -> default quality, File={szPath}");
                 img.Save(szPath, ImageFormat.Jpeg);
                 return;
             }
@@ -419,6 +435,7 @@ namespace TCT_App
             {
                 Console.WriteLine("Error : " + err.Message);
                 LogInfo.WriteLogVideoCapture("- Error GetPixbufFromUrl : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- GetPixbufFromUrl : URL={szImgUrl}, stack={err.StackTrace}");
                 return null;
             }
         }
@@ -439,6 +456,7 @@ namespace TCT_App
             {
                 Console.WriteLine("Error : " + err.Message);
                 LogInfo.WriteLogVideoCapture("- Error ImageToGtk : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- ImageToGtk : stack={err.StackTrace}");
                 return null;
             }
         }
@@ -462,6 +480,7 @@ namespace TCT_App
             {
                 Console.WriteLine("Error : " + err.Message);
                 LogInfo.WriteLogVideoCapture("- Error SaveImageFromUrl : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- SaveImageFromUrl_V0 : URL={szImgUrl}, File={szImgFileName}, stack={err.StackTrace}");
                 return false;
             }
         }
@@ -485,6 +504,7 @@ namespace TCT_App
             {
                 Console.WriteLine("Error : " + err.Message);
                 LogInfo.WriteLogVideoCapture("- Error SavePixbufFromUrl : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- SavePixbufFromUrl : URL={szImgUrl}, File={szImgFileName}, stack={err.StackTrace}");
                 return false;
             }
         }
@@ -506,6 +526,7 @@ namespace TCT_App
                         _image.Save(_mStream, _image.RawFormat);
                         byte[] _imageBytes      = _mStream.ToArray();
                         string _base64String    = Convert.ToBase64String(_imageBytes);
+                        LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ConvertImageToBase64 : File={szFileName}, bytes={_imageBytes?.Length ?? 0}, base64Len={_base64String?.Length ?? 0}");
 
                         return _base64String;
                     }
@@ -519,6 +540,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogVideoCapture("- Error ConvertImageToBase64 : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- ConvertImageToBase64 : File={szFileName}, stack={err.StackTrace}");
                 return "";
             }
         }
@@ -547,6 +569,7 @@ namespace TCT_App
                     //long iImageCaptureID = TCT_Lib.LaneDB.GetMaxImageCaptureID();
                     long iImageCaptureID = TCT_Lib.iMaxImageCaptureCameraID;
                     TCT_Lib.iMaxImageCaptureCameraID++;
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ SaveImageCaptureIntoDB : ImageCaptureID={iImageCaptureID} (next={TCT_Lib.iMaxImageCaptureCameraID}), JobNo={iJobNo}, nTrx={nTrx}, CurMode={iCurMode}");
                     string szQuery = "INSERT INTO ImageCaptureCamera (ImageCaptureID, CaptureRunningNo, JobNo, nTrx, " +
                                     "CurMode, CameraIndex, ImageCameraFileName, UpdateDateTime) VALUES (" +
                                     $"{iImageCaptureID}, {iCaptureRunningNo}, {iJobNo}, {nTrx}, {iCurMode}, '{index}', " +
@@ -561,9 +584,11 @@ namespace TCT_App
             {
                 LogInfo.WriteLogVideoCapture($"- Error SaveImageCaptureIntoDB = Index={index}, FileName={szImageFileName}, RunningNo={iCaptureRunningNo} : " + err.Message);
                 LogInfo.WriteLogVideoCapture($"- Retry SaveImageCaptureCamera again");
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- SaveImageCaptureIntoDB : stack={err.StackTrace}");
                 //long iImageCaptureID = TCT_Lib.LaneDB.GetMaxImageCaptureID();
                 long iImageCaptureID = TCT_Lib.iMaxImageCaptureCameraID;
                 TCT_Lib.iMaxImageCaptureCameraID++;
+                LogInfo.WriteLogVideoCapture(LogLevel.WARN, $"- Warning SaveImageCaptureIntoDB : retry with ImageCaptureID={iImageCaptureID}, Index={index}, RunningNo={iCaptureRunningNo}");
                 string szQuery = "INSERT INTO ImageCaptureCamera (ImageCaptureID, CaptureRunningNo, JobNo, nTrx, " +
                                 "CurMode, CameraIndex, ImageCameraFileName, UpdateDateTime) VALUES (" +
                                 $"{iImageCaptureID}, {iCaptureRunningNo}, {iJobNo}, {nTrx}, {iCurMode}, '{index}', " +
@@ -588,6 +613,8 @@ namespace TCT_App
                 if (File.Exists(Path.Combine(szImgFolder, $"ImageCamera_Trans{iTransID}_N{iRunningNo.ToString("000000")}.json")))
                     File.Delete(Path.Combine(szImgFolder, $"ImageCamera_Trans{iTransID}_N{iRunningNo.ToString("000000")}.json"));
                 File.Move(szJsonFile, Path.Combine(szImgFolder, $"ImageCamera_Trans{iTransID}_N{iRunningNo.ToString("000000")}.json"));
+                if (LogInfo.IsEnabled(LogLevel.DEBUG))
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ MoveFolderCaptureImageTrans : json moved to {szImgFolder}, images={xListImageData?.Count ?? 0} [{string.Join("|", (xListImageData ?? new List<ImageData>()).ConvertAll(x => x?.fileName ?? "null"))}]");
 
 
                 if (xListImageData[0].fileName != "")
@@ -616,6 +643,7 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogVideoCapture("- Error MoveFolderCaptureImageTrans : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- MoveFolderCaptureImageTrans : TransID={iTransID}, RunningNo={iRunningNo}, stack={err.StackTrace}");
                 return false;
             }
         }
@@ -627,6 +655,8 @@ namespace TCT_App
             {
                 string szJsonFile = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, $"ImageCamera_Trans{iTransID}_N{iRunningNo.ToString("000000")}.json");
                 File.Delete(szJsonFile);
+                if (LogInfo.IsEnabled(LogLevel.DEBUG))
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ DeleteFileCaptureImageTrans : deleted {szJsonFile}, images={xListImageData?.Count ?? 0} [{string.Join("|", (xListImageData ?? new List<ImageData>()).ConvertAll(x => x?.fileName ?? "null"))}]");
                 if (xListImageData[0].fileName != "")
                     File.Delete(Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, xListImageData[0].fileName));
                 if (xListImageData[1].fileName != "")
@@ -639,12 +669,14 @@ namespace TCT_App
             catch (Exception err)
             {
                 LogInfo.WriteLogVideoCapture("- Error DeleteFileCaptureImageTrans : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- DeleteFileCaptureImageTrans : TransID={iTransID}, RunningNo={iRunningNo}, stack={err.StackTrace}");
                 return false;
             }
         }
 
         public static bool AutoClearFolderCaptureImage()
         {
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ AutoClearFolderCaptureImage : CaptureImageMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}, AutoKeepDayImageFile={TCT_Lib.iVideoNVR_AutoKeepDayImageFile}, Path={TCT_Lib.szVideoLane_CaptureImagePath}");
             if (TCT_Lib.iVideoNVR_CaptureImageMethod == 0)
                 return false;
 
@@ -656,6 +688,7 @@ namespace TCT_App
             {
                 DateTime dtKeepDate = DateTime.Today.AddDays(-TCT_Lib.iVideoNVR_AutoKeepDayImageFile);
                 string[] szFolders  = Directory.GetDirectories(TCT_Lib.szVideoLane_CaptureImagePath);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ AutoClearFolderCaptureImage : keep >= {dtKeepDate:yyyy-MM-dd}, folders={szFolders?.Length ?? 0}");
                 foreach(string szFolder in szFolders)
                 {
                     try
@@ -671,11 +704,13 @@ namespace TCT_App
                     catch (Exception err)
                     {
                         LogInfo.WriteLogVideoCapture("- Error Delete Folder Capture Image : " + err.Message);
+                        LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- AutoClearFolderCaptureImage : Folder={szFolder}, stack={err.StackTrace}");
                     }
                 }
 
                 //---------------------------------------------------------------------
                 string[] files = Directory.GetFiles(TCT_Lib.szVideoLane_CaptureImagePath, "*_N000000.json");
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ AutoClearFolderCaptureImage : delete *_N000000.json files={files?.Length ?? 0}");
                 foreach (string file in files)
                 {
                     try
@@ -686,6 +721,7 @@ namespace TCT_App
                     catch (Exception err)
                     {
                         LogInfo.WriteLogVideoCapture("- Error Set Attribute Capture Image : " + err.Message);
+                        LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- AutoClearFolderCaptureImage : File={file}, stack={err.StackTrace}");
                     }
                 }
                 //---------------------------------------------------------------------
@@ -707,13 +743,15 @@ namespace TCT_App
                                 string szFolder = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, szDate);
                                 if (!Directory.Exists(szFolder))
                                     Directory.CreateDirectory(szFolder);
+                                LogInfo.WriteLogVideoCapture(LogLevel.TRACE, $"+ AutoClearFolderCaptureImage : move {szFile} -> {szDate}/");
                                 File.Move(file, Path.Combine(szFolder, szFile));
                             }
                         }
                     }
                     catch (Exception err)
                     {
-
+                        LogInfo.WriteLogVideoCapture(LogLevel.ERROR, $"- Error AutoClearFolderCaptureImage move by date (split '-') : File={file} : {err.Message}");
+                        LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- AutoClearFolderCaptureImage : stack={err.StackTrace}");
                     }
                 }
                 //---------------------------------------------------------------------
@@ -734,22 +772,26 @@ namespace TCT_App
                                 string szFolder = Path.Combine(TCT_Lib.szVideoLane_CaptureImagePath, szDate);
                                 if (!Directory.Exists(szFolder))
                                     Directory.CreateDirectory(szFolder);
+                                LogInfo.WriteLogVideoCapture(LogLevel.TRACE, $"+ AutoClearFolderCaptureImage : move {szFile} -> {szDate}/");
                                 File.Move(file, Path.Combine(szFolder, szFile));
                             }
                         }
                     }
                     catch (Exception err)
                     {
-
+                        LogInfo.WriteLogVideoCapture(LogLevel.ERROR, $"- Error AutoClearFolderCaptureImage move by date (split '_') : File={file} : {err.Message}");
+                        LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- AutoClearFolderCaptureImage : stack={err.StackTrace}");
                     }
                 }
                 //--------------------------------------------------------------------
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, "+ AutoClearFolderCaptureImage : done");
 
                 return true;
             }
             catch (Exception err)
             {
                 LogInfo.WriteLogVideoCapture("- Error AutoClearFolderCaptureImage : " + err.Message);
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- AutoClearFolderCaptureImage : stack={err.StackTrace}");
                 return false;
             }
         }

@@ -32,6 +32,8 @@ namespace TCT_App.PrintUtils
                 }
             }
             // Return encrypted data    
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ ClassLibAES.Encrypt : plainLen={plainText?.Length}, keyLen={Key?.Length}, ivLen={IV?.Length}, cipherLen={encrypted?.Length}");
             return encrypted;
         }
 
@@ -73,6 +75,8 @@ namespace TCT_App.PrintUtils
             }
 
             // Return the encrypted bytes from the memory stream.
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ ClassLibAES.EncryptStringToBytes_Aes : plainLen={plainText.Length}, keyLen={Key.Length}, ivLen={IV.Length}, cipherLen={encrypted?.Length}");
             return encrypted;
         }
 
@@ -80,6 +84,8 @@ namespace TCT_App.PrintUtils
         public static string DecryptString(string key, string iv, string cipherText)  
         { 
             byte[] buffer = Convert.FromBase64String(cipherText);  
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLog(LogLevel.TRACE, $"+ ClassLibAES.DecryptString : cipherLen={buffer.Length}, keyLen={key?.Length}, ivLen={iv?.Length}");
   
             using (Aes aes = Aes.Create())  
             {  

@@ -37,7 +37,10 @@ namespace TCT_App.RabbitMQ
         public bool ConnectMtsRabbitMQ()
         {
             if (!TCT_Lib.bEnableMTS)
+            {
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ MtsRabbitMQ.ConnectMtsRabbitMQ : skip, MTS disabled");
                 return false;
+            }
 
 /*
             if (!TCT_Lib.laneController.TestNetworkConnection(TCT_Lib.szMTS_RabbitMQ_ServerIPAddress, TCT_Lib.iMTS_RabbitMQ_ServerPort))
@@ -52,12 +55,15 @@ namespace TCT_App.RabbitMQ
             LogInfo.WriteLogMTS($"MTS VirtualHost : {TCT_Lib.szMTS_RabbitMQ_VirtualHost}");
             LogInfo.WriteLogMTS($"MTS Port : {TCT_Lib.iMTS_RabbitMQ_Port}");
             LogInfo.WriteLogMTS($"MTS User : {TCT_Lib.szMTS_RabbitMQ_User}");
-            LogInfo.WriteLogMTS($"MTS Password : {TCT_Lib.szMTS_RabbitMQ_Password}");
+            LogInfo.WriteLogMTS($"MTS Password : {LogInfo.MaskSecret(TCT_Lib.szMTS_RabbitMQ_Password)}");
 
+            System.Diagnostics.Stopwatch swConnect = System.Diagnostics.Stopwatch.StartNew();
             try
             {
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ MtsRabbitMQ.ConnectMtsRabbitMQ : connect amqp://{TCT_Lib.szMTS_RabbitMQ_ServerHostName}:{TCT_Lib.iMTS_RabbitMQ_Port}/{TCT_Lib.szMTS_RabbitMQ_VirtualHost}, timeout=10s");
                 connection  = connectionFactory.CreateConnection();
                 channel     = connection.CreateModel();
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ MtsRabbitMQ.ConnectMtsRabbitMQ : connection + channel open, elapsed={swConnect.ElapsedMilliseconds}ms");
                 LogInfo.WriteLogMTS("+ Success Connect MTS RabbitMQ");
 
                 try
@@ -69,6 +75,7 @@ namespace TCT_App.RabbitMQ
                 catch (Exception err)
                 {
                     LogInfo.WriteLogMTS("- Error MessageReceiver MTS RabbitMQ : " + err.Message);
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, "- MtsRabbitMQ.ConnectMtsRabbitMQ : BasicQos stack=" + err.StackTrace);
                     Console.WriteLine(err.Message);
                 }
 
@@ -78,6 +85,7 @@ namespace TCT_App.RabbitMQ
             {
                 Console.WriteLine($"Fail Connect MTS RabbitMQ : {err.Message}");
                 LogInfo.WriteLogMTS($"Fail Connect MTS RabbitMQ : {err.Message}");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- MtsRabbitMQ.ConnectMtsRabbitMQ : broker unreachable after {swConnect.ElapsedMilliseconds}ms, inner={err.InnerException?.Message ?? "null"}");
                 connection  = null;
                 channel     = null;
                 TCT_Lib.bMTS_NetworkStatus = false;
@@ -88,6 +96,7 @@ namespace TCT_App.RabbitMQ
             {
                 Console.WriteLine($"Fail Connect MTS RabbitMQ : {err.Message}");
                 LogInfo.WriteLogMTS($"Fail Connect MTS RabbitMQ : {err.Message}");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- MtsRabbitMQ.ConnectMtsRabbitMQ : elapsed={swConnect.ElapsedMilliseconds}ms, stack={err.StackTrace}");
                 connection  = null;
                 channel     = null;
                 TCT_Lib.bMTS_NetworkStatus = false;
@@ -98,6 +107,7 @@ namespace TCT_App.RabbitMQ
 
         public void CloseMtsRabbitMQ()
         {
+            LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ MtsRabbitMQ.CloseMtsRabbitMQ : channel={(channel != null)}, connection={(connection != null)}");
             channel.Close();
             connection.Close();
         }
@@ -108,7 +118,10 @@ namespace TCT_App.RabbitMQ
             //    return false;
 
             if (!TCT_Lib.bEnableMTS)
+            {
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ MtsRabbitMQ.SendMtsMsgToRabbitMQ : skip, MTS disabled");
                 return false;
+            }
 
 /*
             if (!TCT_Lib.laneController.TestNetworkConnection(TCT_Lib.szMTS_RabbitMQ_ServerIPAddress, TCT_Lib.iMTS_RabbitMQ_ServerPort))
@@ -124,9 +137,14 @@ namespace TCT_App.RabbitMQ
             {
                 if (connection == null)
                 {
+                    LogInfo.WriteLogMTS(LogLevel.DEBUG, "+ MtsRabbitMQ.SendMtsMsgToRabbitMQ : no connection, connect first");
                     if (!ConnectMtsRabbitMQ())
+                    {
+                        LogInfo.WriteLogMTS(LogLevel.WARN, $"- MtsRabbitMQ.SendMtsMsgToRabbitMQ : connect failed, dropped routingKey={keyName}");
                         return false;
+                    }
                 }
+                System.Diagnostics.Stopwatch swPublish = System.Diagnostics.Stopwatch.StartNew();
                 var properties          = channel.CreateBasicProperties();
                 properties.Persistent   = false;
 
@@ -135,6 +153,9 @@ namespace TCT_App.RabbitMQ
                                         routingKey: keyName,
                                         basicProperties: null,
                                         body: messagebuffer);
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"+ MtsRabbitMQ.SendMtsMsgToRabbitMQ : published exchange={TCT_Lib.szMTS_RabbitMQ_MtsExchangeName}, routingKey={keyName}, bytes={messagebuffer.Length}, elapsed={swPublish.ElapsedMilliseconds}ms");
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLogMTS(LogLevel.TRACE, "+ MtsRabbitMQ.SendMtsMsgToRabbitMQ : body=" + msg);
 
                 LogInfo.WriteLogMTS($"+ Success Send MTS To RabbitMQ.");
                 return true;
@@ -143,12 +164,14 @@ namespace TCT_App.RabbitMQ
             {
                 Console.WriteLine($"- Error SendMtsMsgToRabbitMQ MTS : {err.Message}");
                 LogInfo.WriteLogMTS($"- Error SendMtsMsgToRabbitMQ MTS : {err.Message}");
+                LogInfo.WriteLogMTS(LogLevel.DEBUG, $"- MtsRabbitMQ.SendMtsMsgToRabbitMQ : routingKey={keyName}, stack={err.StackTrace}");
                 connection  = null;
                 channel     = null;
                 //-----------------------------------------------------------------------------------
                 if (err.Message.StartsWith("Already closed", StringComparison.Ordinal))
                 {
                     LogInfo.WriteLogMTS("+ Fail RabbitMQ MTS : This will try to re-connect RabbitMQ.");
+                    LogInfo.WriteLogMTS(LogLevel.WARN, "- MtsRabbitMQ.SendMtsMsgToRabbitMQ : connection already closed, close + reconnect");
                     CloseMtsRabbitMQ();
                     ConnectMtsRabbitMQ();
                 }

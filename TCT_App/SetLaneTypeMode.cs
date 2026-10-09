@@ -19,6 +19,7 @@ namespace TCT_App
             this.Build();
             UiTheme.StylePopup(this);     // v2.0.2: no title bar + visible frame
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SetLaneTypeMode : popup opened, page {TCT_Lib.eCurAppPage} -> SetLaneTypeMode");
             TCT_Lib.eCurAppPage = AppPage.SetLaneTypeMode;
             this.Title          = "Set Lane Type";
 
@@ -80,17 +81,22 @@ namespace TCT_App
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SetLaneTypeMode : keyboard {args.Event.Key} -> virtual key {(KeyPressedType)TCT_Lib.keyMapping[(int)args.Event.KeyValue]}");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue], 1);
+            }
         }
 
         protected void OnButtonCancelClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SetLaneTypeMode : button Cancel clicked");
             iOutSelLaneTypeMode = 0;
             Action_Cancel();
         }
 
         private void Action_Cancel()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SetLaneTypeMode : popup closed, mode {iOutSelLaneTypeMode} (0=none 1=MTC 2=ETC 3=DUAL), page {TCT_Lib.eCurAppPage} -> Login");
             this.Respond(ResponseType.Cancel);
             TCT_Lib.laneController.manageProcessSetLaneTypeMode -= LaneController_ManageProcessSetLaneTypeMode;   // v2.0.2: was manageProcessPayConvoy
             TCT_Lib.eCurAppPage                 = AppPage.Login;
@@ -103,6 +109,7 @@ namespace TCT_App
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ SetLaneTypeMode : key {(KeyPressedType)iKey}");
                 if (iKey == (int)KeyPressedType.NUM_1)
                 {
                     Action_SelMode_MTC();
@@ -124,16 +131,19 @@ namespace TCT_App
 
         protected void OnBtnModeMTCClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SetLaneTypeMode : button MTC clicked");
             Action_SelMode_MTC();
         }
 
         protected void OnBtnModeETCClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SetLaneTypeMode : button ETC clicked");
             Action_SelMode_ETC();
         }
 
         protected void OnBtnModeDualClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ SetLaneTypeMode : button DUAL clicked");
             Action_SelMode_DUAL();
         }
 

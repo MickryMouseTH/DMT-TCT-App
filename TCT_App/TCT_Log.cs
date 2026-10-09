@@ -20,6 +20,16 @@ namespace TCT_App
     }
 }
 
+    //--- v2.0.4: smaller = more important. A line is written when its level <= LogInfo.eLogLevel
+    public enum LogLevel
+    {
+        ERROR   = 1,
+        WARN    = 2,
+        INFO    = 3,
+        DEBUG   = 4,
+        TRACE   = 5,
+    }
+
     public class LogInfo
     {
 #if __FULL_SCREEN__
@@ -81,27 +91,149 @@ namespace TCT_App
             }
         }
 
-        public static void WriteLog(string msg)
+        //=== v2.0.4: log level ==========================================================================
+        //--- TCT.config -> "Config": { "LogLevel": "INFO" }   (ERROR / WARN / INFO / DEBUG / TRACE)
+        //---   ERROR : failed operations only
+        //---   WARN  : + unusual but handled (retry, timeout, ignored input)
+        //---   INFO  : + main events (default = same lines as before v2.0.4)
+        //---   DEBUG : + every step / decision / state change / value used
+        //---   TRACE : + raw data (socket frames, hex dump, full JSON, SQL text)
+        //--- Old calls WriteLog(msg) pick the level from the text: "- Error / Fail / Exception" = ERROR,
+        //--- "- Warning" = WARN, else INFO. Data files (LaneTrans, BOJ/EOJ, OTL, RabbitMQ parameters) are
+        //--- records, not logs -> always written, no level tag.
+        public static LogLevel eLogLevel    = LogLevel.INFO;
+
+        public static bool IsEnabled(LogLevel eLevel)
         {
-            var laneLogPath = Path.Combine(szLogPath, "LaneLog");
-            if (!Directory.Exists(laneLogPath))
-                Directory.CreateDirectory(laneLogPath);
-            //var monthYear   = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            //var logPath     = Path.Combine(laneLogPath, "Log_" + monthYear);
-            //if (!Directory.Exists(logPath))
-            //    Directory.CreateDirectory(logPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            //var logFileName = Path.Combine(logPath, "Log_" + todayDate + ".log");
-            var logFileName = Path.Combine(laneLogPath, "Log_" + todayDate + ".log");
+            return eLevel <= eLogLevel;
+        }
+
+        //--- v2.0.4: never write a secret to any log. Shows only whether it is set and how long it is.
+        public static string MaskSecret(string szSecret)
+        {
+            if (string.IsNullOrEmpty(szSecret))
+                return "<not set>";
+            return $"***** (len {szSecret.Length})";
+        }
+
+        //--- v2.0.4: hide "user:password@" inside a URL (camera / NVR URLs may embed credentials)
+        public static string MaskUrl(string szUrl)
+        {
+            if (string.IsNullOrEmpty(szUrl))
+                return szUrl;
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                }
+                return System.Text.RegularExpressions.Regex.Replace(szUrl, @"(?<=://)[^/@\s]+:[^/@\s]*@", "*****@");
+            }
+            catch (Exception)
+            {
+                return "<url hidden>";
+            }
+        }
+
+        public static LogLevel ParseLevel(string szLevel, LogLevel eDefault = LogLevel.INFO)
+        {
+            if (string.IsNullOrWhiteSpace(szLevel))
+                return eDefault;
+            szLevel = szLevel.Trim().ToUpperInvariant();
+            if (szLevel == "WARNING")
+                return LogLevel.WARN;
+            int iLevel;
+            if (int.TryParse(szLevel, out iLevel) && iLevel >= (int)LogLevel.ERROR && iLevel <= (int)LogLevel.TRACE)
+                return (LogLevel)iLevel;
+            LogLevel eLevel;
+            return Enum.TryParse(szLevel, out eLevel) && Enum.IsDefined(typeof(LogLevel), eLevel) ? eLevel : eDefault;
+        }
+
+        public static LogLevel DetectLevel(string msg)
+        {
+            if (msg == null)
+                return LogLevel.INFO;
+            string m = msg.TrimStart(' ', '\t', '-', '+', '*', '=', '>', '!').ToLowerInvariant();
+            if (m.StartsWith("error") || m.StartsWith("fail") || m.StartsWith("exception") || m.StartsWith("cannot") ||
+                m.StartsWith("can't") || m.StartsWith("unable") || m.StartsWith("ไม่สามารถ"))
+                return LogLevel.ERROR;
+            if (m.StartsWith("warn"))
+                return LogLevel.WARN;
+            if (msg.TrimStart().StartsWith("-"))
+            {
+                //--- "- Lane Socket Error : ..." / "- ProcessXxx Exception : ..."
+                string szHead = m.Length > 60 ? m.Substring(0, 60) : m;
+                if (szHead.Contains("error") || szHead.Contains("exception") || szHead.Contains("fail"))
+                    return LogLevel.ERROR;
+                if (szHead.Contains("warn"))
+                    return LogLevel.WARN;
+            }
+            return LogLevel.INFO;
+        }
+
+        static string LevelTag(LogLevel eLevel)
+        {
+            switch (eLevel)
+            {
+                case LogLevel.ERROR:    return "[ERROR] ";
+                case LogLevel.WARN:     return "[WARN ] ";
+                case LogLevel.DEBUG:    return "[DEBUG] ";
+                case LogLevel.TRACE:    return "[TRACE] ";
+                default:                return "[INFO ] ";
+            }
+        }
+
+        //--- one place for every timed log line: level filter + folder + lock + format
+        static void WriteLine(string szFolder, string szFileName, LogLevel eLevel, string msg, System.Text.Encoding enc = null)
+        {
+            if (msg == null || eLevel > eLogLevel)
+                return;
+            if (!Directory.Exists(szFolder))
+                Directory.CreateDirectory(szFolder);
+            string logFileName = Path.Combine(szFolder, szFileName);
+            lock (_logLock)
+            using (TextWriter tw = enc == null ? new StreamWriter(logFileName, true) : new StreamWriter(logFileName, true, enc))
+            {
+                tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : " + LevelTag(eLevel));
+                tw.WriteLine(msg);
+            }
+        }
+
+        //--- records (no time / no level): LaneTrans, BOJ, EOJ, OTL
+        static void WriteRecord(string szFileName, string msg)
+        {
+            var laneTransPath   = Path.Combine(szLogPath, "LaneTrans");
+            var transMonthPath  = Path.Combine(laneTransPath, "Trans_" + MonthYear());
+            var todayDate       = DateTime.Today.ToString("yyyy-MM-dd");
+            var transTodayPath  = Path.Combine(transMonthPath, "Trans_" + todayDate);
+            if (!Directory.Exists(transTodayPath))
+                Directory.CreateDirectory(transTodayPath);
+            //------------------------------------------------------------------
+            lock (_logLock)
+            using (TextWriter tw = new StreamWriter(Path.Combine(transTodayPath, szFileName), true))
+            {
+                tw.WriteLine(msg);
+            }
+        }
+
+        static string LaneEventFolder()
+        {
+            return Path.Combine(szLogPath, "LaneEvent", "Event_" + MonthYear());
+        }
+
+        static string MonthYear()
+        {
+            return DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;     // same folder name as before v2.0.4
+        }
+
+        static string Today()
+        {
+            return DateTime.Today.ToString("yyyy-MM-dd");
+        }
+
+        //=== LaneLog/Log_yyyy-MM-dd.log =================================================================
+        public static void WriteLog(string msg)                     { WriteLog(DetectLevel(msg), msg); }
+        public static void WriteLog(LogLevel eLevel, string msg)
+        {
+            try
+            {
+                WriteLine(Path.Combine(szLogPath, "LaneLog"), "Log_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {
@@ -109,28 +241,13 @@ namespace TCT_App
             }
         }
 
-        public static void WriteLaneEventIO(string msg)
+        //=== LaneEvent/Event_MM-yyyy/EventIO_yyyy-MM-dd.log =============================================
+        public static void WriteLaneEventIO(string msg)             { WriteLaneEventIO(DetectLevel(msg), msg); }
+        public static void WriteLaneEventIO(LogLevel eLevel, string msg)
         {
-            var laneEventPath = Path.Combine(szLogPath, "LaneEvent");
-            if (!Directory.Exists(laneEventPath))
-                Directory.CreateDirectory(laneEventPath);
-            var monthYear = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            var eventPath = Path.Combine(laneEventPath, "Event_" + monthYear);
-            if (!Directory.Exists(eventPath))
-                Directory.CreateDirectory(eventPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            var logFileName = Path.Combine(eventPath, "EventIO_" + todayDate + ".log");
-
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                    //tw.Flush();
-                }
+                WriteLine(LaneEventFolder(), "EventIO_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {
@@ -138,26 +255,13 @@ namespace TCT_App
             }
         }
 
-        public static void WriteLaneEvent(string msg)
+        //=== LaneEvent/Event_MM-yyyy/LaneEvent_yyyy-MM-dd.log ===========================================
+        public static void WriteLaneEvent(string msg)               { WriteLaneEvent(DetectLevel(msg), msg); }
+        public static void WriteLaneEvent(LogLevel eLevel, string msg)
         {
-            var laneEventPath = Path.Combine(szLogPath, "LaneEvent");
-            if (!Directory.Exists(laneEventPath))
-                Directory.CreateDirectory(laneEventPath);
-            var monthYear = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            var eventPath = Path.Combine(laneEventPath, "Event_" + monthYear);
-            if (!Directory.Exists(eventPath))
-                Directory.CreateDirectory(eventPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            var logFileName = Path.Combine(eventPath, "LaneEvent_" + todayDate + ".log");
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                }
+                WriteLine(LaneEventFolder(), "LaneEvent_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {
@@ -167,26 +271,9 @@ namespace TCT_App
 
         public static void WriteLaneTransaction(int transId, string msg)
         {
-            var laneTransPath   = Path.Combine(szLogPath, "LaneTrans");
-            if (!Directory.Exists(laneTransPath))
-                Directory.CreateDirectory(laneTransPath);
-            var monthYear       = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            var transMonthPath  = Path.Combine(laneTransPath, "Trans_" + monthYear);    
-            if (!Directory.Exists(transMonthPath))
-                Directory.CreateDirectory(transMonthPath);
-            var todayDate       = DateTime.Today.ToString("yyyy-MM-dd");
-            var transTodayPath  = Path.Combine(transMonthPath, "Trans_" + todayDate);
-            if (!Directory.Exists(transTodayPath))
-                Directory.CreateDirectory(transTodayPath);
-            //------------------------------------------------------------------
-            var logFileName = Path.Combine(transTodayPath, "Trans_" + todayDate + "_" + transId + ".log");
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.WriteLine(msg);
-                }
+                WriteRecord("Trans_" + Today() + "_" + transId + ".log", msg);
             }
             catch (Exception err)
             {
@@ -196,90 +283,35 @@ namespace TCT_App
 
         public static void WriteLaneBeginJob(int staffShiftId, string msg)
         {
-            var laneTransPath = Path.Combine(szLogPath, "LaneTrans");
-            if (!Directory.Exists(laneTransPath))
-                Directory.CreateDirectory(laneTransPath);
-            var monthYear = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            var transMonthPath = Path.Combine(laneTransPath, "Trans_" + monthYear);
-            if (!Directory.Exists(transMonthPath))
-                Directory.CreateDirectory(transMonthPath);
-            var todayDate = DateTime.Today.ToString("yyyy-MM-dd");
-            var transTodayPath = Path.Combine(transMonthPath, "Trans_" + todayDate);
-            if (!Directory.Exists(transTodayPath))
-                Directory.CreateDirectory(transTodayPath);
-            //------------------------------------------------------------------
-            var logFileName = Path.Combine(transTodayPath, "BOJ_" + todayDate + "_" + staffShiftId + ".log");
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.WriteLine(msg);
-                }
+                WriteRecord("BOJ_" + Today() + "_" + staffShiftId + ".log", msg);
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Error WriteLaneBeginJob : " + err.Message);
-                LogInfo.WriteLog("- Error WriteLaneBeginJob : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error WriteLaneBeginJob : " + err.Message);
             }
         }
 
         public static void WriteLaneEndJob(int staffShiftId, string msg)
         {
-            var laneTransPath = Path.Combine(szLogPath, "LaneTrans");
-            if (!Directory.Exists(laneTransPath))
-                Directory.CreateDirectory(laneTransPath);
-            var monthYear = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            var transMonthPath = Path.Combine(laneTransPath, "Trans_" + monthYear);
-            if (!Directory.Exists(transMonthPath))
-                Directory.CreateDirectory(transMonthPath);
-            var todayDate = DateTime.Today.ToString("yyyy-MM-dd");
-            var transTodayPath = Path.Combine(transMonthPath, "Trans_" + todayDate);
-            if (!Directory.Exists(transTodayPath))
-                Directory.CreateDirectory(transTodayPath);
-            //------------------------------------------------------------------
-            var logFileName = Path.Combine(transTodayPath, "EOJ_" + todayDate + "_" + staffShiftId + ".log");
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.WriteLine(msg);
-                }
+                WriteRecord("EOJ_" + Today() + "_" + staffShiftId + ".log", msg);
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Error WriteLaneEndJob : " + err.Message);
-                LogInfo.WriteLog("- Error WriteLaneEndJob : " + err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, "- Error WriteLaneEndJob : " + err.Message);
             }
         }
 
         public static void WriteLaneOtlStatus(int staffShiftId, string msg)
         {
-            var laneTransPath = Path.Combine(szLogPath, "LaneTrans");
-            if (!Directory.Exists(laneTransPath))
-                Directory.CreateDirectory(laneTransPath);
-            var monthYear = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            var transMonthPath = Path.Combine(laneTransPath, "Trans_" + monthYear);
-            if (!Directory.Exists(transMonthPath))
-                Directory.CreateDirectory(transMonthPath);
-            var todayDate = DateTime.Today.ToString("yyyy-MM-dd");
-            var transTodayPath = Path.Combine(transMonthPath, "Trans_" + todayDate);
-            if (!Directory.Exists(transTodayPath))
-                Directory.CreateDirectory(transTodayPath);
-            var nowDateTime = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-            //------------------------------------------------------------------
-            var logFileName = Path.Combine(transTodayPath, "OTL_" + nowDateTime + "_" + staffShiftId + ".log");
-
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.WriteLine(msg);
-                    //tw.Flush();
-                }
-
+                WriteRecord("OTL_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + "_" + staffShiftId + ".log", msg);
             }
             catch (Exception err)
             {
@@ -289,29 +321,21 @@ namespace TCT_App
 
         public static void WriteRecvMsgRabbitMQ(string paramName, string msg)
         {
-            var laneRabbitMQPath = Path.Combine(szLogPath, "RabbitMQ");
-            if (!Directory.Exists(laneRabbitMQPath))
-                Directory.CreateDirectory(laneRabbitMQPath);
-            var monthYear = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            var rabbitMQMonthPath = Path.Combine(laneRabbitMQPath, "RabbitMQ_" + monthYear);
-            if (!Directory.Exists(rabbitMQMonthPath))
-                Directory.CreateDirectory(rabbitMQMonthPath);
-            var todayDate = DateTime.Today.ToString("yyyy-MM-dd");
-            var rabbitMQTodayPath = Path.Combine(rabbitMQMonthPath, "RabbitMQ_" + todayDate);
-            if (!Directory.Exists(rabbitMQTodayPath))
-                Directory.CreateDirectory(rabbitMQTodayPath);
+            var laneRabbitMQPath    = Path.Combine(szLogPath, "RabbitMQ");
+            var rabbitMQTodayPath   = Path.Combine(laneRabbitMQPath, "RabbitMQ_" + MonthYear(), "RabbitMQ_" + Today());
             //------------------------------------------------------------------
             var logFileName = Path.Combine(rabbitMQTodayPath, paramName + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmssfff") + ".log");
 
             try
             {
+                if (!Directory.Exists(rabbitMQTodayPath))
+                    Directory.CreateDirectory(rabbitMQTodayPath);
                 lock (_logLock)
                 using (TextWriter tw = new StreamWriter(logFileName, true))
                 {
                     tw.WriteLine(msg);
-                    //tw.Flush();
-                    LogInfo.WriteLog("+ Write Success Parameter File : " + logFileName);
                 }
+                LogInfo.WriteLog("+ Write Success Parameter File : " + logFileName);
             }
             catch (Exception err)
             {
@@ -330,8 +354,8 @@ namespace TCT_App
                     using (TextWriter tw = new StreamWriter(staffFileName, true))
                     {
                         tw.WriteLine(msg);
-                        LogInfo.WriteLog("+ Write Success Staff.log");
                     }
+                    LogInfo.WriteLog("+ Write Success Staff.log");
                 }
                 catch (Exception err)
                 {
@@ -341,30 +365,13 @@ namespace TCT_App
             }
         }
 
-        public static void WriteEtcRabbitMQ(string msg)
+        //=== LaneLog/ETC_yyyy-MM-dd.log =================================================================
+        public static void WriteEtcRabbitMQ(string msg)             { WriteEtcRabbitMQ(DetectLevel(msg), msg); }
+        public static void WriteEtcRabbitMQ(LogLevel eLevel, string msg)
         {
-            var laneLogPath = Path.Combine(szLogPath, "LaneLog");
-            if (!Directory.Exists(laneLogPath))
-                Directory.CreateDirectory(laneLogPath);
-            //var monthYear   = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            //var logPath     = Path.Combine(laneLogPath, "Log_" + monthYear);
-            //if (!Directory.Exists(logPath))
-            //    Directory.CreateDirectory(logPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            //var logFileName = Path.Combine(logPath, "Log_" + todayDate + ".log");
-            var logFileName = Path.Combine(laneLogPath, "ETC_" + todayDate + ".log");
-
-
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                    //tw.Flush();
-                }
+                WriteLine(Path.Combine(szLogPath, "LaneLog"), "ETC_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {
@@ -372,29 +379,13 @@ namespace TCT_App
             }
         }
 
-        public static void WriteLogLSD(string msg)
+        //=== LaneLog/LSD_yyyy-MM-dd.log =================================================================
+        public static void WriteLogLSD(string msg)                  { WriteLogLSD(DetectLevel(msg), msg); }
+        public static void WriteLogLSD(LogLevel eLevel, string msg)
         {
-            var laneLogPath = Path.Combine(szLogPath, "LaneLog");
-            if (!Directory.Exists(laneLogPath))
-                Directory.CreateDirectory(laneLogPath);
-            //var monthYear   = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            //var logPath     = Path.Combine(laneLogPath, "Log_" + monthYear);
-            //if (!Directory.Exists(logPath))
-            //    Directory.CreateDirectory(logPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            //var logFileName = Path.Combine(logPath, "Log_" + todayDate + ".log");
-            var logFileName = Path.Combine(laneLogPath, "LSD_" + todayDate + ".log");
-
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                    //tw.Flush();
-                }
+                WriteLine(Path.Combine(szLogPath, "LaneLog"), "LSD_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {
@@ -402,64 +393,31 @@ namespace TCT_App
             }
         }
 
-        public static void WriteLogEDC(string msg)
+        //=== LaneLog/EDC_yyyy-MM-dd.log =================================================================
+        public static void WriteLogEDC(string msg)                  { WriteLogEDC(DetectLevel(msg), msg); }
+        public static void WriteLogEDC(LogLevel eLevel, string msg)
         {
-            var laneLogPath = Path.Combine(szLogPath, "LaneLog");
-            if (!Directory.Exists(laneLogPath))
-                Directory.CreateDirectory(laneLogPath);
-            //var monthYear   = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            //var logPath     = Path.Combine(laneLogPath, "Log_" + monthYear);
-            //if (!Directory.Exists(logPath))
-            //    Directory.CreateDirectory(logPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            //var logFileName = Path.Combine(logPath, "Log_" + todayDate + ".log");
-            var logFileName = Path.Combine(laneLogPath, "EDC_" + todayDate + ".log");
-
             if (msg == null)
                 return;
-
-            //TextWriter tw = new StreamWriter(logFileName, true);
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true, System.Text.Encoding.UTF8))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                    //tw.Flush();
-                }
+                WriteLine(Path.Combine(szLogPath, "LaneLog"), "EDC_" + Today() + ".log", eLevel, msg, System.Text.Encoding.UTF8);
             }
             catch (Exception err)
             {
-                //Console.WriteLine(err.Message);
                 LogInfo.WriteLog("+ EDC Msg : " + msg);
                 LogInfo.WriteLog("- Fail EDC Log : " + err.Message);
                 LogInfo.WriteLaneEvent("- Fail EDC Log : " + err.Message);
             }
         }
 
-        public static void WriteLogVideoCapture(string msg)
+        //=== VideoCapture/Capture_yyyy-MM-dd.log ========================================================
+        public static void WriteLogVideoCapture(string msg)         { WriteLogVideoCapture(DetectLevel(msg), msg); }
+        public static void WriteLogVideoCapture(LogLevel eLevel, string msg)
         {
-            var vdoLogPath = Path.Combine(szLogPath, "VideoCapture");
-            if (!Directory.Exists(vdoLogPath))
-                Directory.CreateDirectory(vdoLogPath);
-            //var monthYear   = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            //var logPath     = Path.Combine(laneLogPath, "Log_" + monthYear);
-            //if (!Directory.Exists(logPath))
-            //    Directory.CreateDirectory(logPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            //var logFileName = Path.Combine(logPath, "Log_" + todayDate + ".log");
-            var logFileName = Path.Combine(vdoLogPath, "Capture_" + todayDate + ".log");
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                }
+                WriteLine(Path.Combine(szLogPath, "VideoCapture"), "Capture_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {
@@ -467,27 +425,13 @@ namespace TCT_App
             }
         }
 
-        public static void WriteLogMTS(string msg)
+        //=== MtsLog/MTS_yyyy-MM-dd.log ==================================================================
+        public static void WriteLogMTS(string msg)                  { WriteLogMTS(DetectLevel(msg), msg); }
+        public static void WriteLogMTS(LogLevel eLevel, string msg)
         {
-            var mtsLogPath = Path.Combine(szLogPath, "MtsLog");
-            if (!Directory.Exists(mtsLogPath))
-                Directory.CreateDirectory(mtsLogPath);
-            //var monthYear   = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            //var logPath     = Path.Combine(laneLogPath, "Log_" + monthYear);
-            //if (!Directory.Exists(logPath))
-            //    Directory.CreateDirectory(logPath);
-            //------------------------------------------------------------------
-            var todayDate = DateTime.Today.ToString("yyyy-MM-dd");
-            //var logFileName = Path.Combine(logPath, "Log_" + todayDate + ".log");
-            var logFileName = Path.Combine(mtsLogPath, "MTS_" + todayDate + ".log");
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                }
+                WriteLine(Path.Combine(szLogPath, "MtsLog"), "MTS_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {
@@ -495,27 +439,13 @@ namespace TCT_App
             }
         }
 
-        public static void WriteLogNetworkCamera(int idx, string msg)
+        //=== CameraLog/Camera{idx}_yyyy-MM-dd.log =======================================================
+        public static void WriteLogNetworkCamera(int idx, string msg)   { WriteLogNetworkCamera(idx, DetectLevel(msg), msg); }
+        public static void WriteLogNetworkCamera(int idx, LogLevel eLevel, string msg)
         {
-            var cameraLogPath = Path.Combine(szLogPath, "CameraLog");
-            if (!Directory.Exists(cameraLogPath))
-                Directory.CreateDirectory(cameraLogPath);
-            //var monthYear   = DateTime.Today.Month.ToString("00") + "-" + DateTime.Today.Year;
-            //var logPath     = Path.Combine(laneLogPath, "Log_" + monthYear);
-            //if (!Directory.Exists(logPath))
-            //    Directory.CreateDirectory(logPath);
-            //------------------------------------------------------------------
-            var todayDate   = DateTime.Today.ToString("yyyy-MM-dd");
-            //var logFileName = Path.Combine(logPath, "Log_" + todayDate + ".log");
-            var logFileName = Path.Combine(cameraLogPath, $"Camera{idx}_" + todayDate + ".log");
             try
             {
-                lock (_logLock)
-                using (TextWriter tw = new StreamWriter(logFileName, true))
-                {
-                    tw.Write(DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss.fff") + " : ");
-                    tw.WriteLine(msg);
-                }
+                WriteLine(Path.Combine(szLogPath, "CameraLog"), $"Camera{idx}_" + Today() + ".log", eLevel, msg);
             }
             catch (Exception err)
             {

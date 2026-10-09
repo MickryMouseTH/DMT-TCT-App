@@ -71,8 +71,10 @@ namespace TCT_App
             if (delaySec < 1) delaySec = 1;
             iReconnectAttempt++;
             LogInfo.WriteLaneEventIO($"+ Schedule reconnect LaneSocket in {delaySec}s (attempt {iReconnectAttempt})");
+            LogInfo.WriteLaneEventIO(LogLevel.WARN, $"- LaneWebSocket.ScheduleReconnect : LCSD {TCT_Lib.szLCSD_SocketIPAddress}:{TCT_Lib.iLCSD_SocketPort} lost, retry #{iReconnectAttempt} in {delaySec}s");
             GLib.Timeout.Add((uint)(delaySec * 1000), new GLib.TimeoutHandler(() =>
             {
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ScheduleReconnect : timer fired, attempt={iReconnectAttempt}");
                 StartLaneSocket();
                 return false;   // one-shot
             }));
@@ -81,13 +83,17 @@ namespace TCT_App
         public bool StartLaneSocket()
         {
             if (bCreateSocket)
+            {
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "+ LaneWebSocket.StartLaneSocket : skipped, another start is in progress");
                 return false;
+            }
 
             LogInfo.WriteLaneEvent("+ LaneSocket : Initial StartLaneSocket");
             LogInfo.WriteLaneEventIO("+ LaneSocket : Initial StartLaneSocket");
             bCreateSocket = true;
             try
             {
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.StartLaneSocket : endpoint=ws://{TCT_Lib.szLCSD_SocketIPAddress}:{TCT_Lib.iLCSD_SocketPort}/websocket/mtc, oldSocket={(ws != null ? ws.State.ToString() : "null")}, attempt={iReconnectAttempt}");
                 if (ws != null)
                 {
                     ws.Opened           -= Ws_OnOpened;
@@ -131,6 +137,7 @@ namespace TCT_App
                 ws.Open();
                 iTimerIdKeepAlive   = GLib.Timeout.Add(10000, new GLib.TimeoutHandler(Update_KeepALive));
                 iTimerIdKeepAlive_2 = GLib.Timeout.Add(20000, new GLib.TimeoutHandler(Update_KeepALive_2));
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.StartLaneSocket : open requested, keepAliveTimer={iTimerIdKeepAlive}, keepAliveTimer2={iTimerIdKeepAlive_2}");
 
                 bCreateSocket = false;
                 return true;
@@ -140,6 +147,7 @@ namespace TCT_App
                 Console.WriteLine(err.Message);
                 LogInfo.WriteLaneEvent("- Error Start Socket : " + err.Message);
                 LogInfo.WriteLaneEventIO("- Error Start Socket : " + err.Message);
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "- LaneWebSocket.StartLaneSocket : stack=" + err.StackTrace);
                 bConnected  = false;
 
                 bCreateSocket = false;
@@ -150,6 +158,7 @@ namespace TCT_App
         private bool Update_KeepALive()
         {
             bTimerAliveRun = true;
+            LogInfo.WriteLaneEventIO(LogLevel.TRACE, $"+ LaneWebSocket.Update_KeepALive : tick, foundPong={bFoundPong}, connected={bConnected}");
             if (TCT_Lib.bMaintenanceMode && !TCT_Lib.bAllowSendRTO)
             {
                 LogInfo.WriteLaneEventIO("- Not send update Keep alive");
@@ -180,6 +189,7 @@ namespace TCT_App
         private bool Update_KeepALive_2()
         {
             //bTimerAliveRun = false;
+            LogInfo.WriteLaneEventIO(LogLevel.TRACE, $"+ LaneWebSocket.Update_KeepALive_2 : tick, timerAliveRun={bTimerAliveRun}");
             if (!bTimerAliveRun)
             {
                 LogInfo.WriteLaneEventIO("- Error not found Update_KeepAlive flag, then restart keep alive timer");
@@ -201,6 +211,7 @@ namespace TCT_App
             Console.WriteLine("+ WebSocket Opened");
             LogInfo.WriteLaneEvent("+ WebSocket Opened");
             LogInfo.WriteLaneEventIO("+ WebSocket Opened");
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.Ws_OnOpened : connected to {TCT_Lib.szLCSD_SocketIPAddress}:{TCT_Lib.iLCSD_SocketPort} after {iReconnectAttempt} retry(s), send PING + lane state");
             //ws.Send("{\"jsonrpc\": \"2.0\",\"id\": 0, \"method\":\"PING\"}");
             string szMethod     = "PING";
             Object objParams    = null;
@@ -217,6 +228,7 @@ namespace TCT_App
             LogInfo.WriteLaneEventIO("- Error WebSocket : " + e.Exception.GetType() + ": " + e.Exception.Message + Environment.NewLine + e.Exception.StackTrace);
             if (e.Exception.InnerException != null)
                 Console.WriteLine(e.Exception.InnerException.GetType());
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"- LaneWebSocket.Ws_OnError : state={(ws != null ? ws.State.ToString() : "null")}, inner={e.Exception.InnerException?.Message ?? "null"}, dispose socket");
 
             //-----------------------------------------
             if (ws != null)
@@ -238,6 +250,8 @@ namespace TCT_App
             Console.WriteLine("+ WebSocket Closed");
             LogInfo.WriteLaneEvent("+ WebSocket Closed");
             LogInfo.WriteLaneEventIO("+ WebSocket Closed");
+            WebSocket4Net.ClosedEventArgs closedArgs = e as WebSocket4Net.ClosedEventArgs;
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.Ws_OnClosed : endpoint={TCT_Lib.szLCSD_SocketIPAddress}:{TCT_Lib.iLCSD_SocketPort}, code={(closedArgs != null ? closedArgs.Code.ToString() : "n/a")}, reason={closedArgs?.Reason ?? "n/a"}");
 
             //-----------------------------------------
             if (ws != null)
@@ -257,6 +271,8 @@ namespace TCT_App
         void Ws_OnMessageReceived(object sender, MessageReceivedEventArgs e)
         {
             Console.WriteLine("+ WebSocket Message : " + e.Message);
+            if (LogInfo.IsEnabled(LogLevel.TRACE))
+                LogInfo.WriteLaneEventIO(LogLevel.TRACE, "+ LaneWebSocket.Ws_OnMessageReceived : " + (e?.Message ?? "null"));
             ClassifyLaneMessage(e.Message);
         }
 
@@ -290,10 +306,12 @@ namespace TCT_App
                         else if (szResult.ToUpper() == "OK")
                         {
                             Console.WriteLine("+ OK");
+                            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "+ LaneWebSocket.ClassifyLaneMessage : result=OK");
                         }
                         else
                         {
                             Console.WriteLine("- Unknown Result -");
+                            LogInfo.WriteLaneEventIO(LogLevel.WARN, "- LaneWebSocket.ClassifyLaneMessage : unknown result=" + szResult);
                         }
                     }
                     else
@@ -304,6 +322,7 @@ namespace TCT_App
                         JArray jResult      = jValue["values"];
                         int[] values        = jResult.ToObject<int[]>();
                         //Console.WriteLine("+ Method IO Digital Input : Values = " + jValues);
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : result IODI values=[{(values == null ? "null" : string.Join(",", values))}] -> digitalInputLaneEvent + RTO");
                         digitalInputLaneEvent(values);
                         laneSocketServerRTO.SendLaneMessageToClient("IODI", values);
                     }
@@ -328,6 +347,7 @@ namespace TCT_App
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         int iKeyId          = (int)paramsObj["id"];
                         Console.WriteLine("+ Method KeyPressed : KeyId = " + iKeyId);
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : method=KEY, keyId={iKeyId} -> keyPressedEvent + RTO");
                         keyPressedEvent(KeyBoardType.LC, iKeyId);
 
                         object objParams        = new {
@@ -347,6 +367,7 @@ namespace TCT_App
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         string strVal       = (string)paramsObj["id"];
                         Console.WriteLine("+ Method SmartCard Reader (SCR) : Value = " + strVal);
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : method=SCR, len={(strVal == null ? 0 : strVal.Length)} -> loginSmartCardLaneEvent");
                         loginSmartCardLaneEvent(strVal);
                     }
                     else if (method.ToUpper() == "IODI")
@@ -356,6 +377,7 @@ namespace TCT_App
                         JArray jValues      = paramsObj["values"];
                         int[] values        = jValues.ToObject<int[]>();
                         //Console.WriteLine("+ Method IO Digital Input : Values = " + jValues);
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : method=IODI, values=[{(values == null ? "null" : string.Join(",", values))}] -> digitalInputLaneEvent + RTO");
                         digitalInputLaneEvent(values);
                         laneSocketServerRTO.SendLaneMessageToClient(method, jParams);
                     }
@@ -366,6 +388,7 @@ namespace TCT_App
                         JArray jValues      = paramsObj["values"];
                         int[] values        = jValues.ToObject<int[]>();
                         //Console.WriteLine("+ Method IO Digital Output : Values = " + jValues);
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : method=IODO, values=[{(values == null ? "null" : string.Join(",", values))}] -> deviceOutputLaneEvent");
                         deviceOutputLaneEvent(values);
                     }
                     else if (method.ToUpper() == "TFI")
@@ -373,6 +396,7 @@ namespace TCT_App
                         //JObject jParams     = msg["params"];
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         Console.WriteLine("+ Method TFI");
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "+ LaneWebSocket.ClassifyLaneMessage : method=TFI -> forward to RTO");
                         laneSocketServerRTO.SendLaneMessageToClient(method, jParams);
                     }
                     else if (method.ToUpper() == "CRS")
@@ -380,6 +404,7 @@ namespace TCT_App
                         //JObject jParams     = msg["params"];
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         Console.WriteLine("+ Method CRS (Classification Repeater Sign)");
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "+ LaneWebSocket.ClassifyLaneMessage : method=CRS -> forward to RTO");
                         laneSocketServerRTO.SendLaneMessageToClient(method, jParams);
                     }
                     else if (method.ToUpper() == "AVC")
@@ -396,6 +421,7 @@ namespace TCT_App
                         int iDualWheel      = paramsObj["dualwheel"];
                         int iHeight         = paramsObj["height"];
                         int iError          = paramsObj["error"];
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : method=AVC, class={iClassType}, dir={iDirection}, axle={iAxle}, wheel={iWheel}, dual={iDualWheel}, height={iHeight}, error={iError} -> avcLaneEvent + RTO");
 
                         avcLaneEvent(iClassType, iDirection, iAxle, iWheel, iDualWheel, iHeight, iError);
                         laneSocketServerRTO.SendLaneMessageToClient(method, jParams);
@@ -403,12 +429,14 @@ namespace TCT_App
                     else if (method.ToUpper() == "STA")
                     {
                         Console.WriteLine("+ Method STA (Start AVC)");
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "+ LaneWebSocket.ClassifyLaneMessage : method=STA, no action");
                     }                     
                     else if (method.ToUpper() == "FOT")
                     {
                         //JObject jParams     = msg["params"];
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         Console.WriteLine("+ Method FOT");
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "+ LaneWebSocket.ClassifyLaneMessage : method=FOT -> forward to RTO");
                         laneSocketServerRTO.SendLaneMessageToClient(method, jParams);
                     }
                     else if (method.ToUpper() == "SYS")
@@ -417,12 +445,14 @@ namespace TCT_App
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
                         JArray jValues      = paramsObj["values"];
                         int[] values        = jValues.ToObject<int[]>();
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : method=SYS (LCSD restart), values=[{(values == null ? "null" : string.Join(",", values))}] -> alarm LCSD_RESET");
                         //--- Check SCR
                         TCT_Lib.bMTS_SCR    = values[9] == 1;
 
                         //------------------------------------------------------------
                         int iAlarmID = (int)TCT_Lib.LaneDB.WriteLaneAlarmRTO(AlarmDevice.LCSD_RESET, AlarmType.Occurred, $"LCSD Restart", "");
                         TCT_Lib.SendLaneAlarmObjToRTO(iAlarmID);
+                        LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.ClassifyLaneMessage : SYS alarmId={iAlarmID}, bMTS_SCR={TCT_Lib.bMTS_SCR}");
                         //--------------------------------------------------------------
 
                         /*
@@ -451,6 +481,7 @@ namespace TCT_App
                     else
                     {
                         Console.WriteLine("- Unknown Method -");
+                        LogInfo.WriteLaneEventIO(LogLevel.WARN, "- LaneWebSocket.ClassifyLaneMessage : unknown method=" + method);
                     }
                 }
             }
@@ -460,6 +491,7 @@ namespace TCT_App
                 Console.WriteLine("- Error ClassifyLaneMessage : " + err.StackTrace);
                 LogInfo.WriteLaneEventIO("- Error Msg : " + szMsg);
                 LogInfo.WriteLaneEventIO("- Error ClassifyLaneMessage : " + err.Message);
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "- LaneWebSocket.ClassifyLaneMessage : stack=" + err.StackTrace);
             }
         }
 
@@ -480,6 +512,7 @@ namespace TCT_App
         //--- Digital Output
         public void SendDigitalOutput_Controller(int iDO_Id, int iVal)
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.SendDigitalOutput_Controller : id={iDO_Id}, value={iVal}, maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, openALB_RTO={TCT_Lib.bStatusOpenALB_RTO}");
             if (!TCT_Lib.bMaintenanceMode)
             {
                 //--- Check If current mode is ETC, this process will skip
@@ -535,6 +568,7 @@ namespace TCT_App
 
         public void OutIo_RBell()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "+ LaneWebSocket.OutIo_RBell : send RBELL");
             LogInfo.WriteLaneEvent("RING BELL (GONG)");
             string szMethod     = "RBELL";
             Object objParams    = null;
@@ -546,6 +580,7 @@ namespace TCT_App
         {
             try
             {
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.OutIo_WriteTFI : state={iState}, pattern={iPattern}, class={szClassType}, fare={szFare}, maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}");
                 if (!TCT_Lib.bMaintenanceMode)
                 {
                     //--- Check If current mode is ETC, this process will skip
@@ -610,6 +645,7 @@ namespace TCT_App
             {
                 LogInfo.WriteLaneEvent("- Fail OutIo_WriteTFI : " + err.Message);
                 LogInfo.WriteLaneEventIO("- Fail OutIo_WriteTFI : " + err.Message);
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "- LaneWebSocket.OutIo_WriteTFI : stack=" + err.StackTrace);
             }
         }
 
@@ -642,6 +678,7 @@ namespace TCT_App
 
         public void OutIo_ClearTFI()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.OutIo_ClearTFI : maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}");
             if (!TCT_Lib.bMaintenanceMode)
             {
                 //---Check If current mode is ETC, this process will skip
@@ -671,6 +708,7 @@ namespace TCT_App
 
         public void OutIo_ResetTFI()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.OutIo_ResetTFI : maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}");
             if (!TCT_Lib.bMaintenanceMode)
             {
                 //---Check If current mode is ETC, this process will skip
@@ -694,6 +732,7 @@ namespace TCT_App
         //--- Output CRS
         public void OutIo_WriteCRS(string szCol1, string szCol2)
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.OutIo_WriteCRS : col1={szCol1}, col2={szCol2}, laneMode={TCT_Lib.eCurLaneMode}, maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}");
             if (!TCT_Lib.bMaintenanceMode)
             {
                 //---Check If current mode is ETC, this process will skip
@@ -733,6 +772,7 @@ namespace TCT_App
 
         public void OutIo_WriteCRS_EndJob()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.OutIo_WriteCRS_EndJob : maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}");
             if (!TCT_Lib.bMaintenanceMode)
             {
                 //---Check If current mode is ETC, this process will skip
@@ -762,6 +802,7 @@ namespace TCT_App
 
         public void OutIo_ClearCRS()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.OutIo_ClearCRS : maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}");
             if (!TCT_Lib.bMaintenanceMode)
             {
                 //---Check If current mode is ETC, this process will skip
@@ -791,6 +832,7 @@ namespace TCT_App
 
         public void OutIo_ResetCRS()
         {
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.OutIo_ResetCRS : maint={TCT_Lib.bMaintenanceMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}");
             if (!TCT_Lib.bMaintenanceMode)
             {
                 //---Check If current mode is ETC, this process will skip
@@ -829,6 +871,7 @@ namespace TCT_App
             else
                 LogInfo.WriteLaneEvent("+ Keyboard (Key) : " + TCT_Lib.KeyMapName(iKeyId));
 
+            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.SendVirtualKeyboard : keyId={iKeyId}, type={type} -> laneController + RTO");
             TCT_Lib.laneController.LaneSocket_KeyPressedEvent(KeyBoardType.VK, iKeyId);
             string szMethod     = "KEY";
 
@@ -886,7 +929,10 @@ namespace TCT_App
         private bool SendSocketCmd(string szMethod, Object objParams)
         {
             if (szMethod == null)
+            {
+                LogInfo.WriteLaneEventIO(LogLevel.WARN, "- LaneWebSocket.SendSocketCmd : method is null, not sent");
                 return false;
+            }
 
             if (ws == null)
             {
@@ -908,6 +954,7 @@ namespace TCT_App
                 {
                     if (ws.State == WebSocketState.Closed || ws.State == WebSocketState.None || ws.State == WebSocketState.Connecting)
                     {
+                        LogInfo.WriteLaneEventIO(szMethod == "PING" ? LogLevel.TRACE : LogLevel.WARN, $"- LaneWebSocket.SendSocketCmd : socket not open (state={ws.State}), dropped method={szMethod}{(ws.State != WebSocketState.Connecting ? ", re-open" : "")}");
                         if (ws.State != WebSocketState.Connecting) 
                             ws.Open();
                     }
@@ -940,6 +987,10 @@ namespace TCT_App
                         if (szMethod == "WRJOB")
                             LogInfo.WriteLaneEventIO("Send JOB : " + szJsonCmd);
                         //Console.WriteLine("+ Send Socket Cmd : " + szJsonCmd);
+                        if (szMethod != "PING")
+                            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ LaneWebSocket.SendSocketCmd : method={szMethod}, len={szJsonCmd.Length}");
+                        if (LogInfo.IsEnabled(LogLevel.TRACE))
+                            LogInfo.WriteLaneEventIO(LogLevel.TRACE, "+ LaneWebSocket.SendSocketCmd : " + szJsonCmd);
                         ws.Send(szJsonCmd);
 
                         //Console.WriteLine("+ Send Socket Cmd : " + szJsonCmd);
@@ -956,6 +1007,7 @@ namespace TCT_App
                 Console.WriteLine(err.Message);
                 LogInfo.WriteLaneEvent("- Error Send Socket Cmd : " + err.Message);
                 LogInfo.WriteLaneEventIO("- Error Send Socket Cmd : " + err.Message);
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"- LaneWebSocket.SendSocketCmd : method={szMethod}, stack={err.StackTrace}");
                 return false;
             }
         }
@@ -973,6 +1025,7 @@ namespace TCT_App
                     }
                 );
                 //Console.WriteLine("+ Send Socket Cmd : " + szJsonCmd);
+                LogInfo.WriteLaneEventIO(LogLevel.TRACE, "+ LaneWebSocket.SendPingCmd : " + szJsonCmd);
                 ws.Send(szJsonCmd);
 
                 return true;
@@ -982,6 +1035,7 @@ namespace TCT_App
                 Console.WriteLine(err.Message);
                 LogInfo.WriteLaneEvent("- Fail Send Ping Cmd : " + err.Message);
                 LogInfo.WriteLaneEventIO("- Fail Send Ping Cmd : " + err.Message);
+                LogInfo.WriteLaneEventIO(LogLevel.DEBUG, "- LaneWebSocket.SendPingCmd : stack=" + err.StackTrace);
                 bConnected = false;
 
                 return false;

@@ -724,7 +724,7 @@ TCT (V.2.0.3)   2026-10-07
     - Fix bug - Popup ขายคูปอง: เลขคูปอง "[1] SIM35-0001" ยาวเกินปุ่ม -> ขึ้นบรรทัดสองถูกตัด และ "[ 1 ]" ถูกยืด -> บรรทัดเดียว ย่อขนาดให้พอดี จัดกลาง
     - หัวจอ Login / หน้าหลัก / โหมดช่าง ใช้มาตรฐานเดียวกัน (ข้อความ ฟอนต์ สี ความกว้างคอลัมน์ นาฬิกา วันที่ พ.ศ.)
     - Popup ทุกตัวมีกรอบเส้นสีอ่อน 3 px มองเห็นขอบชัดบนพื้นจอเข้ม
-    - ปุ่มใน Popup EMV / QR / บัตร DMT / ขายคูปอง ใช้สีเดียวกับคีย์ Cherry (ยกเลิก=แดง, ตรวจสอบ QR=เขียวน้ำทะเล, ยืนยัน=ชมพู, พิมพ์=ม่วง) ตัวอักษรหนา 14
+    - ปุ่มใน Popup EMV / QR / บัตร DMT / ขายคูปอง ใช้สีเดียวกับคีย์ Cherry (ยกเลิก=แดง, ตรวจสอบ QR=เขียวน้ำทะเล, ยืนยัน=เขียว, พิมพ์=ม่วง) ตัวอักษรหนา 14
     - กรอบทุกหน้าเป็นแบบ "การ์ด" ไม่มีเส้น (เดิมกรอบ GTK เป็นเส้นคู่ วางติดกันเห็น 4 เส้น เช่น ข้างนาฬิกา / ใต้หัวจอ)
     - มุมโค้งมน: ปุ่มทุกปุ่ม การ์ด และ Popup (วาดด้วย GDK ไม่ต้องลง theme engine เพิ่มในเครื่องช่อง)
     - Popup ทุกตัว: ปุ่มตกลง/ยืนยัน = เขียว, ยกเลิก = แดง, พิมพ์ = ม่วง, ข้อความ OK/Cancel -> ตกลง/ยกเลิก
@@ -739,6 +739,36 @@ TCT (V.2.0.3)   2026-10-07
     - บันทึก JPEG คุณภาพ 85 (เดิมค่า default ~75) -> ไฟล์ ~60 KB/ภาพ (เดิม ~35 KB)
     - ตั้งค่าได้: VideoNVR.ResizeWidth / ResizeHeight / JpegQuality, ResizeImage=0 = ไม่ย่อ (ขนาดเต็มจากกล้อง)
     - Bump version 2.0.2 -> 2.0.3
+
+
+TCT (V.2.0.4)   2026-10-09
+    [ขายคูปอง (Sales_CouponDlg) - แก้บั๊กจากการตรวจโค้ด + ทดสอบใน TCT_Sim ครบทุกเส้นทาง]
+    - Fix bug - กด [EMV]/[QR] ซ้ำหลังบัตรอนุมัติแล้ว -> ตัดบัตรซ้ำ (Perform_ProcessEMV/QrCode ไม่เช็ค bPayCompleted)
+    - Fix bug - กด [แก้ไข] หลังบัตรอนุมัติแล้ว -> popup ปิดโดยไม่บันทึกการขาย (บัตรถูกตัดแล้ว) -> ปฏิเสธ + แจ้งให้กดยืนยัน/พิมพ์
+    - Fix bug - EMV/QR ของคูปองไปทับ TCT_Lib.xCurEMV/xCurEDC/xCurQR ของรถคันปัจจุบันที่จ่ายแล้วยังไม่ผ่าน
+                  -> EmvDetail ของรถกลายเป็นบัตรของคูปอง -> save/restore รอบ popup EDC (RunEdcDialog)
+    - Fix bug - popup EMV/QR ไม่ถูก Dispose เมื่อผลไม่ใช่ Ok (ปฏิเสธ/ยกเลิก) -> window + socket ค้างสะสม
+    - Fix bug - Escape บนคีย์บอร์ดปิด popup ผ่าน GTK (delete-event) โดยไม่ถอด handler -> เปิดครั้งถัดไปคีย์ถูกส่งให้ dialog ที่ Dispose แล้ว
+                  -> OnKeyPressEvent ตั้ง RetVal=true + override OnDeleteEvent
+    - Fix bug - WriteSalesCouponTransaction: insert หัวรายการล้มเหลวแต่ยังมาร์กคูปองว่าขายแล้ว/ยิง TA/พิมพ์ใบเสร็จ
+                  -> เช็คผล insert ก่อน, popup ไม่ปิดถ้าบันทึกไม่สำเร็จ (กดยืนยันซ้ำได้)
+    - Fix bug - CallWebService_GetCoupons ลบ SalesCouponList ก่อนเรียก TA -> TA timeout/error แล้วคูปองหายทั้งหมด -> ลบหลัง TA ตอบ OK
+    - Fix bug - ยิง TA SoldCoupon บน GTK thread ทีละใบ (probe + HTTP 2 วิ) -> จอค้างเมื่อ TA ช้า -> ย้ายไป background thread + retry 3 ครั้ง
+    - Fix bug - UpdateSoldCoupon ไม่พบ serial -> IndexOutOfRange; decimal/DateTime ต่อ SQL ไม่ใช้ InvariantCulture; ราคาอ่านด้วย TryParse
+    - Fix bug - MessageDialog ซ้อน (TA offline / เกิน 1,500) ยังรับคีย์ CONFIRM/RECEIPT -> ignore คีย์ขณะ message เปิด
+    - Fix bug - คีย์ PAY_QRCODE ถูกส่งเข้า popup แต่ไม่ได้ handle; QR ไม่เช็ค TA Server; ข้อความ QR บอก "EMV"; "เกิน 1,500" -> "ตั้งแต่ 1,500"
+    - Fix bug - popup Destroy/Dispose ตัวเอง + MainWindow Dispose ซ้ำ -> popup แค่ Respond(), MainWindow เป็นคน Dispose
+    - ModifyBg ใน expose ทุกรอบ -> SetBgIfChanged (แบบเดียวกับ I8)
+    - Fix bug (พบจากทดสอบ GUI ด้วยเมาส์) - คลิกคูปองอีกชนิด (header เปลี่ยน) ช่องชนิดเดิมไม่ถูกวาดใหม่ -> ข้อความซ้อนกันหลัง popup EMV ปิด
+                  -> RedrawAllCoupons() ทุกครั้งที่ header เปลี่ยน
+    [Log - ไม่พิมพ์รหัสผ่าน/credential]
+    - TCT_Lib config dump: กล้อง 3 ตัว, DC/ETC/MTS RabbitMQ, TFI SCP password -> แสดง "***** (len N)" (LogInfo.MaskSecret)
+    - MtsRabbitMQ / MocRabbitMQ ตอน connect ไม่พิมพ์ password; LaneDB error path ใช้ SqlForLog (ซ่อน StaffPassword/ResponseCardNo)
+    - URL กล้อง/NVR ที่ฝัง user:pass@ -> ซ่อน (LogInfo.MaskUrl); LSD_Bridge ไม่พิมพ์ค่า Authorization header ที่ระดับ TRACE
+    [TCT_Sim]
+    - เพิ่มเคสคีย์บอร์ด j_sale_coupon_* 11 เคส (พิมพ์/หลายใบ/ไม่เลือก/EMV/EMV ซ้ำ/ยกเลิกหลังอนุมัติ/ปฏิเสธ/รถรอผ่าน/Escape/TA error/TA ช้า)
+    - เพิ่มโหมด TA จำลอง (ok/error/slow), แผนทดสอบ 1 กะ SHIFT_TEST_PLAN.md + shift_test.py (./sim.sh shift)
+    - Bump version 2.0.3 -> 2.0.4, AssemblyVersion 2.0.3 -> 2.0.4
 
 
 =============================================================================================*/

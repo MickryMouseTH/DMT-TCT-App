@@ -26,6 +26,7 @@ namespace TCT_App.LaneView.MiscDlg
             //--- v2.0.2: popup buttons = same colour as the Cherry key, readable size
             UiTheme.StyleKey(buttonCancel, UiTheme.Red, UiTheme.PopupBtnFont);
 
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DMT_PaymentDlg : popup opened, page {TCT_Lib.eCurAppPage} -> DmtPayment");
             TCT_Lib.eCurAppPage = AppPage.DmtPayment;
 
             imgChkDmtCard = Gdk.Pixbuf.LoadFromResource("TCT_App.Images.Dmt_Card.png");
@@ -107,10 +108,13 @@ namespace TCT_App.LaneView.MiscDlg
             {
                 //--- Check Serial No. and Permission
 
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DMT_PaymentDlg : check card {szCardSerialNo}");
                 if (TCT_Lib.LaneDB.CheckAllowDmtCanPass(szCardSerialNo, ref szDmtCarNo, ref szLicensePlate, ref szDepartment, ref szAffilliation, ref iVehicleClass))
                 {
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DMT_PaymentDlg : card {szCardSerialNo} allowed, car {szDmtCarNo}, plate {szLicensePlate}, class {iVehicleClass}, dept {szDepartment}");
                     TCT_Lib.LaneDB.InsertDmtCardTransaction(szCardSerialNo, szDmtCarNo, szLicensePlate, szDepartment, szAffilliation, iVehicleClass);
                     //----------------------------------------------
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DMT_PaymentDlg : popup closed (Ok), page DmtPayment -> Main");
                     this.Respond(ResponseType.Ok);
                     LogInfo.WriteLaneEvent("+ This card is allow pass");
                     TCT_Lib.laneController.dmtPaymentSmartCardReader    -= LaneController_DmtPaymentSmartCardReader;
@@ -135,6 +139,7 @@ namespace TCT_App.LaneView.MiscDlg
         {
             Application.Invoke(delegate
             {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DMT_PaymentDlg : key {(KeyPressedType)iKey}");
                 if ((iKey == (int)KeyPressedType.EDIT) || (iKey == (int)KeyPressedType.ESC))   // v2.0.2: + CANCEL key
                 {
                     Process_CancelDmtCard();
@@ -150,6 +155,7 @@ namespace TCT_App.LaneView.MiscDlg
 
         protected void OnDeleteEvent(object o, DeleteEventArgs args)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DMT_PaymentDlg : popup closed (delete event), page DmtPayment -> Main");
             TCT_Lib.laneController.dmtPaymentSmartCardReader    -= LaneController_DmtPaymentSmartCardReader;
             TCT_Lib.laneController.manageProcessDmtPayment      -= LaneController_ManageProcessDmtPayment;
             TCT_Lib.eCurAppPage             = AppPage.Main;
@@ -162,16 +168,21 @@ namespace TCT_App.LaneView.MiscDlg
         protected void OnKeyPressEvent(object o, KeyPressEventArgs args)
         {
             if (TCT_Lib.keyMapping.ContainsKey((int)args.Event.KeyValue))
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ DMT_PaymentDlg : keyboard {args.Event.Key} -> virtual key {(KeyPressedType)TCT_Lib.keyMapping[(int)args.Event.KeyValue]}");
                 TCT_Lib.webSocketLane.SendVirtualKeyboard(TCT_Lib.keyMapping[(int)args.Event.KeyValue]);
+            }
         }
 
         protected void OnButtonCancelClicked(object sender, EventArgs e)
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DMT_PaymentDlg : button Cancel clicked");
             Process_CancelDmtCard();
         }
 
         protected void Process_CancelDmtCard()
         {
+            LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ DMT_PaymentDlg : popup closed (Cancel), page DmtPayment -> Main");
             this.Respond(ResponseType.Cancel);
             TCT_Lib.laneController.dmtPaymentSmartCardReader    -= LaneController_DmtPaymentSmartCardReader;
             TCT_Lib.laneController.manageProcessDmtPayment      -= LaneController_ManageProcessDmtPayment;

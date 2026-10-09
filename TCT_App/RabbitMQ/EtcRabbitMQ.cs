@@ -41,7 +41,10 @@ namespace TCT_App.RabbitMQ
         public bool ConnectEtcRabbitMQ()
         {
             if (!TCT_Lib.bEnableEtcRabbitMQ)
+            {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "+ EtcRabbitMQ.ConnectEtcRabbitMQ : skip, ETC RabbitMQ disabled");
                 return false;
+            }
 
             /*
                         if (!TCT_Lib.laneController.TestNetworkConnection(TCT_Lib.szETC_RabbitMQ_ServerIPAddress, TCT_Lib.iETC_RabbitMQ_ServerPort))
@@ -58,10 +61,13 @@ namespace TCT_App.RabbitMQ
             LogInfo.WriteEtcRabbitMQ($"Port : {TCT_Lib.iETC_RabbitMQ_Port}");
             LogInfo.WriteEtcRabbitMQ($"User : {TCT_Lib.szETC_RabbitMQ_User}");
             //LogInfo.WriteEtcRabbitMQ($"Password : {TCT_Lib.szETC_RabbitMQ_Password}");
+            System.Diagnostics.Stopwatch swConnect = System.Diagnostics.Stopwatch.StartNew();
             try
             {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.ConnectEtcRabbitMQ : connect amqp://{TCT_Lib.szETC_RabbitMQ_ServerHostName}:{TCT_Lib.iETC_RabbitMQ_Port}/{TCT_Lib.szETC_RabbitMQ_VirtualHost}, timeout=1s");
                 connection  = connectionFactory.CreateConnection();
                 channel     = connection.CreateModel();
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.ConnectEtcRabbitMQ : connection + channel open, elapsed={swConnect.ElapsedMilliseconds}ms");
                 //LogInfo.WriteEtcRabbitMQ("+ Success Connect ETC RabbitMQ");
 
                 try
@@ -77,12 +83,14 @@ namespace TCT_App.RabbitMQ
                     var msgCompilePassageReceiver = new EtcMessageReceiver(channel);
                     channel.BasicConsume(TCT_Lib.szETC_RabbitMQ_CompilePassageQueueName, false, msgCompilePassageReceiver);
                     msgCompilePassageReceiver.rabbitMQRecvMessage += MsgCompilePassageReceiver_RabbitMQRecvMessage;
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.ConnectEtcRabbitMQ : consume queues LaneState={TCT_Lib.szETC_RabbitMQ_LaneStateQueueName}, CompilePassage={TCT_Lib.szETC_RabbitMQ_CompilePassageQueueName}, prefetch=1, manualAck");
 
                     LogInfo.WriteEtcRabbitMQ("+ Success Connect ETC RabbitMQ");
                 }
                 catch (BrokerUnreachableException err)
                 {
                     LogInfo.WriteEtcRabbitMQ("- Error MessageReceiver ETC RabbitMQ : " + err.Message);
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "- EtcRabbitMQ.ConnectEtcRabbitMQ : consume stack=" + err.StackTrace);
                     Console.WriteLine(err.Message);
 
                     return false;
@@ -90,6 +98,7 @@ namespace TCT_App.RabbitMQ
                 catch (Exception err)
                 {
                     LogInfo.WriteEtcRabbitMQ("- Error MessageReceiver ETC RabbitMQ : " + err.Message);
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "- EtcRabbitMQ.ConnectEtcRabbitMQ : consume stack=" + err.StackTrace);
                     Console.WriteLine(err.Message);
 
                     return false;
@@ -100,6 +109,7 @@ namespace TCT_App.RabbitMQ
             catch (BrokerUnreachableException err)
             {
                 LogInfo.WriteEtcRabbitMQ("- Error Connect ETC RabbitMQ : " + err.Message);
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"- EtcRabbitMQ.ConnectEtcRabbitMQ : broker unreachable after {swConnect.ElapsedMilliseconds}ms, inner={err.InnerException?.Message ?? "null"}");
                 Console.WriteLine(err.Message);
                 connection  = null;
                 channel     = null;
@@ -107,6 +117,7 @@ namespace TCT_App.RabbitMQ
                 if (err.Message.StartsWith("Already closed", StringComparison.Ordinal))
                 {
                     LogInfo.WriteLog("+ Fail RabbitMQ ETC : This will try to re-connect RabbitMQ.");
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.WARN, "- EtcRabbitMQ.ConnectEtcRabbitMQ : connection already closed, close + reconnect");
                     CloseEtcRabbitMQ();
                     ConnectEtcRabbitMQ();
                 }
@@ -117,12 +128,14 @@ namespace TCT_App.RabbitMQ
             {
                 Console.WriteLine($"Fail Connect ETC RabbitMQ : {err.Message}");
                 LogInfo.WriteEtcRabbitMQ($"Fail Connect ETC RabbitMQ : {err.Message}");
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"- EtcRabbitMQ.ConnectEtcRabbitMQ : elapsed={swConnect.ElapsedMilliseconds}ms, stack={err.StackTrace}");
                 connection  = null;
                 channel     = null;
                 // -----------------------------------------------------------------------------------
                 if (err.Message.StartsWith("Already closed", StringComparison.Ordinal))
                 {
                     LogInfo.WriteLog("+ Fail RabbitMQ ETC : This will try to re-connect RabbitMQ.");
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.WARN, "- EtcRabbitMQ.ConnectEtcRabbitMQ : connection already closed, close + reconnect");
                     CloseEtcRabbitMQ();
                     ConnectEtcRabbitMQ();
                 }
@@ -135,6 +148,7 @@ namespace TCT_App.RabbitMQ
         {
             // v2.0.0: null-guard + dispose so a failed/half-open connection can't NRE here,
             // and OS socket handles are actually released (was a handle leak).
+            LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.CloseEtcRabbitMQ : channel={(channel != null)}, connection={(connection != null)}");
             try
             {
                 if (channel != null)
@@ -163,6 +177,7 @@ namespace TCT_App.RabbitMQ
             if (!TCT_Lib.bEnableEtcRabbitMQ)
             {
                 LogInfo.WriteEtcRabbitMQ("+ Found LaneState of ETC : No enable ETC RabbitMQ");
+                LogInfo.WriteEtcRabbitMQ(LogLevel.WARN, "- EtcRabbitMQ.MsgLaneStateReceiver : message dropped, ETC RabbitMQ disabled");
                 return;
             }
 
@@ -202,6 +217,7 @@ namespace TCT_App.RabbitMQ
                     LogInfo.WriteEtcRabbitMQ("+ Not found VehicleQueue");
                 }
 
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.MsgLaneStateReceiver : len={szMessage?.Length ?? 0}, laneMode={(objLaneState as JObject)?.SelectToken("laneMode")}, albMode={(objLaneState as JObject)?.SelectToken("albMode")} -> laneStateFromEtcRabbitMQ");
                 laneStateFromEtcRabbitMQ(objLaneState);
 
             }
@@ -219,6 +235,7 @@ namespace TCT_App.RabbitMQ
             if (!TCT_Lib.bEnableEtcRabbitMQ)
             {
                 LogInfo.WriteEtcRabbitMQ("+ Found CompilePassage of ETC : No enable ETC RabbitMQ");
+                LogInfo.WriteEtcRabbitMQ(LogLevel.WARN, "- EtcRabbitMQ.MsgCompilePassageReceiver : message dropped, ETC RabbitMQ disabled");
                 return;
             }
 
@@ -227,6 +244,7 @@ namespace TCT_App.RabbitMQ
                 dynamic objCompiledPassage       = JsonConvert.DeserializeObject(szMessage);
                 //LogInfo.WriteEtcRabbitMQ("+ ETC CompilePassage : " + szMessage);
                 objCompiledPassage.@params.image = null;
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.MsgCompilePassageReceiver : len={szMessage?.Length ?? 0}, method={(objCompiledPassage as JObject)?.SelectToken("method")}, seq={(objCompiledPassage as JObject)?.SelectToken("params.sequenceNumber")} -> compiledPassageFromEtcRabbitMQ");
                 compiledPassageFromEtcRabbitMQ(objCompiledPassage);
             }
             catch (Exception err)
@@ -238,6 +256,7 @@ namespace TCT_App.RabbitMQ
                 if (err.Message.StartsWith("Already closed", StringComparison.Ordinal))
                 {
                     LogInfo.WriteLog("+ Fail RabbitMQ ETC : This will try to re-connect RabbitMQ.");
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.WARN, "- EtcRabbitMQ.MsgCompilePassageReceiver : connection already closed, close + reconnect");
                     CloseEtcRabbitMQ();
                     ConnectEtcRabbitMQ();
                 }
@@ -269,6 +288,7 @@ namespace TCT_App.RabbitMQ
                                            $"\"timestamp\": \"" + szSupervisorStartShift + "\" " +
                                        "}}}";
 
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.SendChangeLoginSupervisorStaffToETC : staff={TCT_Lib.szStaffID}, supervisor={TCT_Lib.szSupervisorID}");
                 return SendMaualActionToEtcRabbitMQ("Login", szObjMsg);
             }
             catch (Exception err)
@@ -385,12 +405,14 @@ namespace TCT_App.RabbitMQ
                                 "}}";
                 }
 
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.SendPassagePaymentToETC : vehicleId={iVehicleId}, class={iClassType}, payType={iPayType}, method={szPaymentMethod}, type={szPaymentType}, fare={szFareAmount}, alb={szAlbMode}, reclass={bReClass}, towing={bTowing}, transId={TCT_Lib.szCurTransId}");
                 return SendMaualActionToEtcRabbitMQ("PassagePayment", szObjMsg);
             }
             catch (Exception err)
             {
                 Console.WriteLine("- Fail SendPassagePaymentToETC : " + err.Message);
                 LogInfo.WriteEtcRabbitMQ("- Fail SendPassagePaymentToETC : " + err.Message);
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "- EtcRabbitMQ.SendPassagePaymentToETC : stack=" + err.StackTrace);
                 return false;
             }
         }
@@ -494,7 +516,10 @@ namespace TCT_App.RabbitMQ
         public bool SendALB_ModeToETC(ALB_Mode eAlbMode, string szReason="Normal Payment")
         {
             if (!TCT_Lib.bAllowETC)
+            {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.SendALB_ModeToETC : skip {eAlbMode}, bAllowETC=false");
                 return false;
+            }
 
             //--- ALB Mode : 0=NORMAL, 1=OPEN, 2=CLOSED
             string szAlbMode = "";
@@ -539,7 +564,10 @@ namespace TCT_App.RabbitMQ
         private bool SendMaualActionToEtcRabbitMQ(string keyName, string msg)
         {
             if (!TCT_Lib.bEnableEtcRabbitMQ)
+            {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.SendMaualActionToEtcRabbitMQ : skip key={keyName}, ETC RabbitMQ disabled");
                 return false;
+            }
 
             /*
                         if (!TCT_Lib.laneController.TestNetworkConnection(TCT_Lib.szETC_RabbitMQ_ServerIPAddress, TCT_Lib.iETC_RabbitMQ_ServerPort))
@@ -555,9 +583,14 @@ namespace TCT_App.RabbitMQ
             {
                 if (connection == null)
                 {
+                    LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.SendMaualActionToEtcRabbitMQ : no connection, connect before key={keyName}");
                     if (!ConnectEtcRabbitMQ())
+                    {
+                        LogInfo.WriteEtcRabbitMQ(LogLevel.WARN, $"- EtcRabbitMQ.SendMaualActionToEtcRabbitMQ : connect failed, dropped key={keyName}");
                         return false;
+                    }
                 }
+                System.Diagnostics.Stopwatch swPublish = System.Diagnostics.Stopwatch.StartNew();
                 var properties          = channel.CreateBasicProperties();
                 properties.Persistent   = false;
 
@@ -569,6 +602,7 @@ namespace TCT_App.RabbitMQ
                                         routingKey: keyName,
                                         basicProperties: null,
                                         body: messagebuffer);
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.SendMaualActionToEtcRabbitMQ : published exchange={TCT_Lib.szETC_RabbitMQ_ManualActionExchangeName}, queue={TCT_Lib.szETC_RabbitMQ_ManualActionQueueName}, routingKey={keyName}, bytes={messagebuffer.Length}, elapsed={swPublish.ElapsedMilliseconds}ms");
 
                 return true;
             }
@@ -576,6 +610,7 @@ namespace TCT_App.RabbitMQ
             {
                 Console.WriteLine($"- Error SendMaualActionToEtcRabbitMQ : {err.Message}");
                 LogInfo.WriteEtcRabbitMQ($"- Error SendMaualActionToEtcRabbitMQ : {err.Message}");
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"- EtcRabbitMQ.SendMaualActionToEtcRabbitMQ : key={keyName}, stack={err.StackTrace}");
                 return false;
             }
         }
@@ -589,7 +624,10 @@ namespace TCT_App.RabbitMQ
                     if ((eLaneMode != LaneMode.MAINTENANCE) && (!TCT_Lib.bEnableEtcRabbitMQ))
                     {
                         if (!TCT_Lib.bAllowETC)
+                        {
+                            LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.Send_SetLaneMode_ToETC : skip {eLaneMode}, ETC disabled + bAllowETC=false");
                             return false;
+                        }
                     }
                 }
             }
@@ -633,7 +671,10 @@ namespace TCT_App.RabbitMQ
         public bool Send_ClearQueue_ToETC()
         {
             if (!TCT_Lib.bAllowETC)
+            {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "+ EtcRabbitMQ.Send_ClearQueue_ToETC : skip, bAllowETC=false");
                 return false;
+            }
 
             LogInfo.WriteEtcRabbitMQ("ETC : ClearQueue to ETC");
             LogInfo.WriteLaneEvent("ETC : ClearQueue to ETC");
@@ -665,7 +706,10 @@ namespace TCT_App.RabbitMQ
         public bool Send_EnableSecondaryReader_ToETC()
         {
             if (!TCT_Lib.bAllowETC)
+            {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "+ EtcRabbitMQ.Send_EnableSecondaryReader_ToETC : skip, bAllowETC=false");
                 return false;
+            }
 
             LogInfo.WriteEtcRabbitMQ("ETC : EnableSecondaryReader");
             try
@@ -695,7 +739,10 @@ namespace TCT_App.RabbitMQ
         public bool Send_ControlOutputDevice_ToETC(string szDeviceName, bool bEnable)
         {
             if (!TCT_Lib.bAllowETC)
+            {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcRabbitMQ.Send_ControlOutputDevice_ToETC : skip {szDeviceName}={bEnable}, bAllowETC=false");
                 return false;
+            }
 
             LogInfo.WriteEtcRabbitMQ($"ETC : ControlOutputDevice = {szDeviceName}, Enable = {bEnable}");
             try
@@ -727,6 +774,7 @@ namespace TCT_App.RabbitMQ
         //========================================================================================
         public void CloseMocRabbitMQ()
         {
+            LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "+ EtcRabbitMQ.CloseMocRabbitMQ : close channel + connection");
             channel.Close();
             connection.Close();
         }
@@ -759,6 +807,7 @@ namespace TCT_App.RabbitMQ
             LogInfo.WriteEtcRabbitMQ(string.Concat("Delivery tag: ", deliveryTag));
             //LogInfo.WriteEtcRabbitMQ(string.Concat("Message: ", Encoding.UTF8.GetString(body.ToArray())));
             LogInfo.WriteEtcRabbitMQ("------------------------------------------------------");
+            LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcMessageReceiver.HandleBasicDeliver : routingKey={routingKey}, redelivered={redelivered}, bytes={body.Length}");
 
             // v2.0.0: process the message inside try-catch so an exception can never kill the
             // consumer thread, and only ACK afterwards (was: ACK before processing -> message
@@ -771,9 +820,11 @@ namespace TCT_App.RabbitMQ
             catch (Exception err)
             {
                 LogInfo.WriteEtcRabbitMQ("- Error processing ETC message (dropped) : " + err.Message);
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, "- EtcMessageReceiver.HandleBasicDeliver : stack=" + err.StackTrace);
             }
             finally
             {
+                LogInfo.WriteEtcRabbitMQ(LogLevel.DEBUG, $"+ EtcMessageReceiver.HandleBasicDeliver : ack deliveryTag={deliveryTag}");
                 try { _channel.BasicAck(deliveryTag, false); }
                 catch (Exception e2) { LogInfo.WriteEtcRabbitMQ("- Error BasicAck ETC : " + e2.Message); }
             }

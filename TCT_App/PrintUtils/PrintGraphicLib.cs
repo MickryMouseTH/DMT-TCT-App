@@ -265,6 +265,7 @@ namespace TCT_App.PrintUtils
         public static void PrintReceipt(bool bTowing = false, bool bConvoy = false, string szConvoyClassType = "", string szConvoyFareAmount = "", string szConvoyPaType = "", bool bPrintTest = false)
         {
 
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintGraphicLib.PrintReceipt : towing={bTowing}, convoy={bConvoy}, test={bPrintTest}, nTrx={TCT_Lib.nTrx}");
             try
             {
                 using (var pd = new PrintDocument())
@@ -286,12 +287,14 @@ namespace TCT_App.PrintUtils
                     //pd.PrintPage                    += new PrintPageEventHandler(pd_PrintBillReceiptPage);
                     pd.PrintPage                    += (owner, ev) => pd_PrintBillReceiptPage(ev, bTowing, bConvoy, szConvoyClassType, szConvoyFareAmount, szConvoyPaType, bPrintTest);
                     pd.Print();
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintGraphicLib.PrintReceipt : print document sent to {pd.PrinterSettings.PrinterName}");
                     pd.Dispose();
                 }
             }
             catch (Exception err)
             {
                 LogInfo.WriteLog("- Error btnPrintReceipt (Printer spooler stop : " + err.Message);
+                LogInfo.WriteLog(LogLevel.DEBUG, "- PrintGraphicLib.PrintReceipt StackTrace : " + err.StackTrace);
             }
         }
 
@@ -318,6 +321,7 @@ namespace TCT_App.PrintUtils
 
 
                 //-----------------------------------------
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintGraphicLib.pd_PrintBillReceiptPage : towing={bTowing}, convoy={bConvoy}, test={bPrintTest}");
                 bool bReprint = false;
                 try
                 {
@@ -408,6 +412,7 @@ namespace TCT_App.PrintUtils
 
                     szStr = "กรุณาทำสำเนาเพื่อนำไปใช้ในธุรกรรมต่อไป";
                     iPosY = PrintItemText1Column(g, iPosY, iAlignCol1, fontBold, szStr);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintGraphicLib.pd_PrintBillReceiptPage : ReceiptNo={TCT_Lib.szCurFareReceiptNo}, reprint={bReprint}, Class={szClassType}, Fare={szFareAmount}, PayType={szPayType}, height={iPosY}px");
 
 
                     //--------------------------------
@@ -416,6 +421,8 @@ namespace TCT_App.PrintUtils
                 catch (Exception err)
                 {
                     Console.WriteLine("- Error Print Receipt to Device : " + err.Message);
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error pd_PrintBillReceiptPage : {err.Message}");
+                    LogInfo.WriteLog(LogLevel.DEBUG, "- pd_PrintBillReceiptPage StackTrace : " + err.StackTrace);
 
                 }
             }
@@ -588,11 +595,16 @@ namespace TCT_App.PrintUtils
                 byte[] byteRequest = enc.GetBytes(szStr);
                 //byte[] byteRequest = Encoding.UTF8.GetBytes(szStr);
                 //byteRequest.Add(COMMAND);
+                if (LogInfo.IsEnabled(LogLevel.TRACE))
+                    LogInfo.WriteLog(LogLevel.TRACE, "+ PrintGraphicLib.PrintReceipt2 ESC/POS : " + ClassEscPOS.ToLogText(szStr));
                 byteRequest.Print(szPrinterPort);
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ PrintGraphicLib.PrintReceipt2 : sent {byteRequest.Length} bytes to {szPrinterPort}, ReceiptNo={TCT_Lib.szCurFareReceiptNo}, reprint={bReprint}, Class={szClassType}, Fare={szFareAmount}, PayType={szPayType}");
             }
             catch (Exception err)
             {
                 Console.WriteLine(err.Message);
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error PrintGraphicLib.PrintReceipt2 : {err.Message}");
+                LogInfo.WriteLog(LogLevel.DEBUG, "- PrintGraphicLib.PrintReceipt2 StackTrace : " + err.StackTrace);
             }
         }
 
