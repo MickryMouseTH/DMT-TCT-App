@@ -7510,6 +7510,14 @@ namespace TCT_App
                         LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : capture image resend result={bResult}");
                     }
 
+                    //--- v2.0.5: clear old database data once a day (startup clear runs in LoginWnd), after resend
+                    //    so rows just sent to DC are counted as sent. No VACUUM here (would lock the DB while lane works).
+                    if (TCT_Lib.dtLastClearDatabase != DateTime.Today)
+                    {
+                        bool bClear = TCT_Lib.ClearDatabaseFile(false, true);
+                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : daily clear database result={bClear}");
+                    }
+
 
                     //---------------------------------------------------------------
                     LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : cycle done in {swResend.ElapsedMilliseconds} ms, next in {TCT_Lib.iTimerAutoResendTrans} s");

@@ -8,6 +8,7 @@
 #   ./sim.sh acceptance [นาที]  ทดสอบรับระบบครบทุกชุด (H1–H3 + ทุก logic + soak) -> results/acceptance_*
 #   ./sim.sh build      build TCT_App.sln ใหม่ (Debug + Release) ด้วย Mono ใน Docker
 #   ./sim.sh shift [x]  ทดสอบตามแผน SHIFT_TEST_PLAN.md (จำลองพนักงาน 1 กะ ~25 นาที, x = ตัวคูณเวลาพัก)
+#   ./sim.sh dbpurge    ทดสอบลบข้อมูลเก่าใน DB (ลบเฉพาะที่ส่ง DC แล้ว) — เตรียม runtime ใหม่ + เปิด TCT แล้วตรวจ DB
 #   ./sim.sh stop       ปิดระบบ
 #   ./sim.sh restart    ปิด-เปิดใหม่ (เตรียม runtime ใหม่จาก bin/Debug)
 #   ./sim.sh status     ดูสถานะ container + การเชื่อมต่อ
@@ -85,6 +86,25 @@ EOF
     open "http://localhost:8090" 2>/dev/null || true
 }
 
+do_dbpurge() {
+    ensure_docker
+    docker compose down >/dev/null 2>&1 || true
+    python3 prepare.py >/dev/null
+    python3 db_purge_test.py seed runtime/config
+    docker compose up -d >/dev/null 2>&1
+    echo -n "+ รอ TCT ลบข้อมูลตอนเปิดโปรแกรม "
+    for _ in $(seq 1 60); do
+        grep -rq "ClearDatabaseFile : deletes done" runtime/log 2>/dev/null && break
+        echo -n "."; sleep 3
+    done
+    echo
+    grep -rh "+ Clear [A-Za-z]* : deleted" runtime/log || true
+    docker compose stop tct >/dev/null 2>&1
+    rc=0; python3 db_purge_test.py verify runtime/config || rc=$?
+    echo "+ runtime มีข้อมูลทดสอบค้างอยู่ — ใช้ ./sim.sh restart ก่อนรันเทสต์อื่น"
+    return $rc
+}
+
 case "${1:-}" in
     start)   do_start ;;
     stop)    docker compose down ;;
@@ -94,6 +114,7 @@ case "${1:-}" in
     kbtest)  shift; ensure_docker; python3 sim_kb_test.py "$@" ;;
     soak)    shift; ensure_docker; python3 soak_test.py "${1:-10}" ;;
     shift)   shift; ensure_docker; python3 shift_test.py "${1:-2.0}" ;;
+    dbpurge) do_dbpurge ;;
     acceptance) shift; ensure_docker; ./run_acceptance.sh "${1:-10}" ;;
     status)  docker compose ps; curl -s localhost:8090/api/state | python3 -c "import json,sys;d=json.load(sys.stdin);print('connections:',d['status']);print('counters   :',d['counters'])" || true ;;
     logs)    shift; docker compose logs -f --tail=100 "${@:-tct}" ;;

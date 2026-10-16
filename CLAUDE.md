@@ -51,6 +51,7 @@ python3 prepare.py               # copy bin/Debug -> runtime/ + config ชี้
 ./sim.sh kbtest [case ...]       # เคสคีย์บอร์ด (sim_kb_test.py) ผลที่ results/kb_<เวลา>/ (เคสคูปอง = j_sale_coupon_*)
 ./sim.sh shift [pace]            # ทดสอบตามแผน SHIFT_TEST_PLAN.md (พนักงาน 1 กะ ~25 นาที ครบทุกฟังก์ชัน)
 ./sim.sh soak [นาที]             # สุ่ม scenario ต่อเนื่อง ไม่ restart
+./sim.sh dbpurge                 # ทดสอบลบข้อมูลเก่าใน DB (ลบเฉพาะที่ส่ง DC แล้ว) — ทิ้งข้อมูลทดสอบไว้ใน runtime ต้อง restart ก่อนเทสต์อื่น
 ```
 - เทสต์หลายตัวตรวจข้อความใน log ระดับ DEBUG → `prepare.py` ตั้ง `Config.LogLevel=DEBUG` ให้ runtime แล้ว (ช่องจริงใช้ INFO)
 - สั่ง EDC/TA จำลองจากเทสต์: `post(action="edc", mode=approve|decline|timeout|offline, qr=paid|unpaid)`, `post(action="ta", mode=ok|error|slow)`

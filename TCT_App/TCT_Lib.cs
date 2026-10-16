@@ -474,7 +474,7 @@ namespace TCT_App
     //-------------------------------------------------------------
     public class TCT_Lib
     {
-        public static string szAppVersion               = "2.0.4";
+        public static string szAppVersion               = "2.0.5";
         public static string szAppBuild                 = "2026/10/07 18:00:00";         // 2.0.3 GUI review fixes; 2.0.2 keyboard + GUI restyle; 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
         public static string szSysUserName              = WindowsIdentity.GetCurrent().Name;
         public static string szSysUserName2             = Environment.UserName;
@@ -532,7 +532,7 @@ namespace TCT_App
         public static int iTimerSecCheckDeviceStatus        = 60;       // Timer in sec for check device status
         public static string szLogPath                      = "";       // Log Path
         public static int iKeepLogMonth                     = 3;        // Default Keep Log 3 Months
-        public static int iKeepDbDay                        = 90;       // Default Keep Database 90 days
+        public static int iKeepDbDay                        = 30;       // v2.0.5: Default Keep Database 30 days (DC data: only after sent to DC)
         public static int iDevMode                          = 0;        // Default 0=Production Mode, >1 = Dev Mode
         public static int iKeyStrokeTimeMilliSec            = 300;      // Defaullt 300 ms.
         public static int iAvcStatusType                    = 0;        // 0=Get AVC Status from LCSD Socket (Default), 1=Get AVC Status from H/W
@@ -1268,7 +1268,7 @@ namespace TCT_App
                 if (LogInfo.ParseLevel(szCfgLogLevel, (LogLevel)0) == (LogLevel)0)
                     xListCfgWarn.Add($"Config LogLevel='{szCfgLogLevel}' invalid -> INFO");
                 iKeepLogMonth                               = xTctConfig["Config"]["KeepLogMonth"] ?? 3;
-                iKeepDbDay                                  = xTctConfig["Config"]["KeepDatabaseDay"] ?? 90;
+                iKeepDbDay                                  = xTctConfig["Config"]["KeepDatabaseDay"] ?? 30;
                 iDevMode                                    = xTctConfig["Config"]["DevMode"] ?? 0;
                 iKeyStrokeTimeMilliSec                      = xTctConfig["Config"]["KeyStrokeTimeMilliSec"] ?? 300;
                 iAvcStatusType                              = xTctConfig["Config"]["AvcStatusType"] ?? 0;
@@ -3980,9 +3980,18 @@ namespace TCT_App
 
         //--------------------------------------------------------------------------------------------------
         //--- Clear database file
-        public static bool ClearDatabaseFile()
+        //--- v2.0.5: data that goes to DC is deleted ONLY after it was sent to DC (status=1) AND is older than
+        //    KeepDatabaseDay (default 30). Unsent / failed rows are never deleted. The newest row of every table
+        //    is always kept because the next ID = MAX(ID)+1 (deleting it would restart IDs and duplicate at DC).
+        //    Deletes run in batches so a big first purge does not hold the DB lock for a long time.
+        public static DateTime dtLastClearDatabase      = DateTime.MinValue;
+        static int iClearDatabaseRunning                = 0;
+        const int CLEAR_DB_BATCH_ROWS                   = 2000;
+
+        public static bool ClearDatabaseFile(bool bAllowVacuum = true, bool bBackground = false)
         {
-            LogInfo.WriteLog("+ Start Clear Database File");
+            LogInfo.WriteLog($"+ Start Clear Database File (background={bBackground})");
+            dtLastClearDatabase = DateTime.Today;           // once a day, also when skipped below (no retry every cycle)
             LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : KeepDatabaseDay={TCT_Lib.iKeepDbDay}, LaneDB={(TCT_Lib.LaneDB == null ? "null" : "ok")}");
             if (TCT_Lib.LaneDB == null)
                 return false;
@@ -3993,127 +4002,105 @@ namespace TCT_App
                 return false;
             }
 
+            if (Interlocked.CompareExchange(ref iClearDatabaseRunning, 1, 0) != 0)
+            {
+                LogInfo.WriteLog(LogLevel.WARN, "- Warning ClearDatabaseFile : previous clear still running -> skip");
+                return false;
+            }
+
             try
             {
-                LogInfo.WriteLog("+ Clear EmvDetail");
                 var swClear         = System.Diagnostics.Stopwatch.StartNew();
-                DateTime dtKeepDate = DateTime.Today.AddDays(-TCT_Lib.iKeepDbDay);
-                var InvC = CultureInfo.InvariantCulture;
-                //--- Clear EmvDetail
-                string szFmt    = "DELETE FROM EmvDetail WHERE UpdateDate<'{0}'";
-                string szQuery  = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear EmvDetail : "+szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
+                var InvC            = CultureInfo.InvariantCulture;
+                string szKeep       = DateTime.Today.AddDays(-TCT_Lib.iKeepDbDay).ToString("yyyy-MM-dd", InvC);
+                LogInfo.WriteLog($"+ ClearDatabaseFile : delete data older than {szKeep} (KeepDatabaseDay={TCT_Lib.iKeepDbDay}), DC data only when sent to DC");
 
-                LogInfo.WriteLog("+ Clear LaneAlarmRTO");
-                //--- LaneAlarmRTO
-                szFmt   = "DELETE FROM LaneAlarmRTO WHERE AlarmDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear LaneAlarmRTO : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
+                //=== Data sent to DC : delete only SendStatus=1 ==================================
+                //--- LaneTransaction (DC)
+                PurgeTableRows("LaneTransaction",
+                    $"SendStatusDC=1 AND TransactionDateTime<'{szKeep}' " +
+                    "AND TransactionID<(SELECT MAX(TransactionID) FROM LaneTransaction)", bBackground);
 
-                LogInfo.WriteLog("+ Clear LaneEvent");
-                //--- LaneEvent
-                szFmt   = "DELETE FROM LaneEvent WHERE EventDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear LaneEvent : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
+                //--- EmvDetail / DMTCardTrans / ImageCaptureCamera : child rows, delete only when no transaction left that uses them
+                PurgeTableRows("EmvDetail",
+                    $"UpdateDate<'{szKeep}' " +
+                    "AND EmvDetailID<(SELECT MAX(EmvDetailID) FROM EmvDetail) " +
+                    "AND EmvDetailID NOT IN (SELECT EMV_DetailID FROM LaneTransaction WHERE EMV_DetailID>0) " +
+                    "AND EmvDetailID NOT IN (SELECT EmvDetailID FROM SalesCouponTransaction WHERE EmvDetailID>0)", bBackground);
 
-                //--- LaneEventHQ
-                szFmt   = "DELETE FROM LaneEventHQ WHERE EventDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear LaneEventHQ : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
+                if (TCT_Lib.LaneDB.ChkDbHasTable("DMTCardTrans"))
+                    PurgeTableRows("DMTCardTrans",
+                        $"UpdateDateTime<'{szKeep}' " +
+                        "AND DmtCardTransID<(SELECT MAX(DmtCardTransID) FROM DMTCardTrans) " +
+                        "AND DmtCardTransID NOT IN (SELECT DmtCardTransID FROM LaneTransaction WHERE DmtCardTransID>0)", bBackground);
 
-                //--- LaneEventRTO
-                szFmt   = "DELETE FROM LaneEventRTO WHERE EventDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear LaneEventRTO : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                LogInfo.WriteLog("+ Clear LaneTransaction");
-                //--- LaneTransaction
-                szFmt   = "DELETE FROM LaneTransaction WHERE TransactionDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear LaneTransaction : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //--- SalesCouponDetail
-                szFmt   = "DELETE FROM SalesCouponDetail WHERE UpdateDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear SalesCouponDetail : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //--- SalesCouponList
-                szFmt   = "DELETE FROM SalesCouponList WHERE SalesDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear SalesCouponList : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //--- SalesCouponTransaction
-                szFmt   = "DELETE FROM SalesCouponTransaction WHERE TransactionDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear SalesCouponTransaction : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //--- StaffShift
-                szFmt   = "DELETE FROM StaffShift WHERE StaffStartShiftDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear StaffShift : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //--- SupervisorShift
-                szFmt   = "DELETE FROM SupervisorShift WHERE StartShiftDateTime<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear SupervisorShift : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //--- TransactionSummary
-                szFmt   = "DELETE FROM TransactionSummary WHERE TransactionDate<'{0}'";
-                szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                LogInfo.WriteLog("+ Clear TransactionSummary : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                //--- TransactionStatistic
-                szQuery         = "SELECT MIN(StaffShiftID) FROM StaffShift";
-                DataTable dt    = TCT_Lib.LaneDB.List(szQuery);
-                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : MIN(StaffShiftID) rows={dt?.Rows.Count ?? -1} ({swClear.ElapsedMilliseconds} ms so far)");
-                long iStaffShiftID = dt.Rows[0][0] == DBNull.Value ? 1 : long.Parse(dt.Rows[0][0].ToString()) + 1;
-
-                szFmt   = "DELETE FROM TransactionStatistic WHERE StaffShiftID<{0}";
-                szQuery = string.Format(szFmt, iStaffShiftID);
-                LogInfo.WriteLog("+ Clear TransactionStatistic : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                szFmt   = "DELETE FROM LaneEventHQ WHERE EventType IN (4,5,6,7,8,9)";
-                szQuery = string.Format(szFmt, iStaffShiftID);
-                LogInfo.WriteLog(LogLevel.DEBUG, "+ ClearDatabaseFile : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                szFmt   = "DELETE FROM LaneEventRTO WHERE DeviceType IN (2,3,4,5,8,9,13,14,15)";
-                szQuery = string.Format(szFmt, iStaffShiftID);
-                LogInfo.WriteLog(LogLevel.DEBUG, "+ ClearDatabaseFile : " + szQuery);
-                TCT_Lib.LaneDB.Execute(szQuery);
-
-                LogInfo.WriteLog("+ Clear ImageCaptureCamera");
                 if (TCT_Lib.LaneDB.ChkDbHasTable("ImageCaptureCamera"))
-                {
-                    szFmt   = "DELETE FROM ImageCaptureCamera WHERE UpdateDateTime<'{0}'";
-                    szQuery = string.Format(szFmt, dtKeepDate.ToString("yyyy-MM-dd", InvC));
-                    LogInfo.WriteLog("+ Clear ImageCaptureCamera : " + szQuery);
-                    TCT_Lib.LaneDB.Execute(szQuery);
-                }
+                    PurgeTableRows("ImageCaptureCamera",
+                        $"UpdateDateTime<'{szKeep}' " +
+                        "AND ImageCaptureID<(SELECT MAX(ImageCaptureID) FROM ImageCaptureCamera) " +
+                        "AND LaneTransactionID NOT IN (SELECT TransactionID FROM LaneTransaction)", bBackground);
+
+                //--- LaneEventHQ (DC)
+                PurgeTableRows("LaneEventHQ",
+                    $"SendHqStatus=1 AND EventDateTime<'{szKeep}' " +
+                    "AND EventHqID<(SELECT MAX(EventHqID) FROM LaneEventHQ)", bBackground);
+
+                //--- LaneAlarmRTO : only devices in MTS AlarmDeviceList go to DC -> those must be sent first
+                string szAlarmDcCond = "SendStatusDC=1";
+                string szMtsList     = (TCT_Lib.szMTS_AlarmDeviceList ?? "").Trim();
+                if (szMtsList == "")
+                    szAlarmDcCond = "1=1";                                                          // no alarm goes to DC
+                else if (System.Text.RegularExpressions.Regex.IsMatch(szMtsList, @"^\d+(\s*,\s*\d+)*$"))
+                    szAlarmDcCond = $"(SendStatusDC=1 OR AlarmDevice NOT IN ({szMtsList}))";
+                PurgeTableRows("LaneAlarmRTO",
+                    $"{szAlarmDcCond} AND AlarmDateTime<'{szKeep}' " +
+                    "AND AlarmRtoID<(SELECT MAX(AlarmRtoID) FROM LaneAlarmRTO)", bBackground);
+
+                //--- StaffShift (DC : BOJ + EOJ) -> both sent, shift ended, not the current / last shift
+                PurgeTableRows("StaffShift",
+                    "BojSendStatusDC=1 AND EojSendStatusDC=1 " +
+                    $"AND StaffEndShiftDateTime IS NOT NULL AND StaffEndShiftDateTime<>'' AND StaffEndShiftDateTime<'{szKeep}' " +
+                    $"AND StaffShiftID<>{TCT_Lib.iStaffShiftID} " +
+                    "AND StaffShiftID<(SELECT MAX(StaffShiftID) FROM StaffShift)", bBackground);
+
+                //--- TransactionStatistic : statistic of a shift that was deleted above
+                PurgeTableRows("TransactionStatistic",
+                    "StaffShiftID<(SELECT MAX(StaffShiftID) FROM StaffShift) " +
+                    "AND StaffShiftID NOT IN (SELECT StaffShiftID FROM StaffShift)", bBackground);
+
+                //--- SalesCouponTransaction / SalesCouponDetail : never sent to DC (SendStatusDC is never set) -> keep
+                LogInfo.WriteLog(LogLevel.DEBUG, "+ ClearDatabaseFile : SalesCouponTransaction / SalesCouponDetail kept (not sent to DC)");
+
+                //=== Local data (not sent to DC) : delete by date only ==========================
+                PurgeTableRows("LaneEvent",
+                    $"EventDateTime<'{szKeep}' AND EventID<(SELECT MAX(EventID) FROM LaneEvent)", bBackground);
+
+                PurgeTableRows("LaneEventRTO",
+                    $"EventDateTime<'{szKeep}' AND EventRtoID<(SELECT MAX(EventRtoID) FROM LaneEventRTO)", bBackground);
+                PurgeTableRows("LaneEventRTO",
+                    "DeviceType IN (2,3,4,5,8,9,13,14,15) AND EventRtoID<(SELECT MAX(EventRtoID) FROM LaneEventRTO)", bBackground);
+
+                PurgeTableRows("SalesCouponList",
+                    $"SalesDateTime<'{szKeep}'", bBackground);
+
+                PurgeTableRows("SupervisorShift",
+                    $"StartShiftDateTime<'{szKeep}' " +
+                    $"AND SupervisorShiftID<>{TCT_Lib.iSupervisorShiftID} " +
+                    "AND SupervisorShiftID<(SELECT MAX(SupervisorShiftID) FROM SupervisorShift)", bBackground);
+
+                PurgeTableRows("TransactionSummary",
+                    $"TransactionDate<'{szKeep}'", bBackground);
 
                 //------------------------------------------------------------
                 int iHour = DateTime.Now.Hour;
-                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : deletes done ({swClear.ElapsedMilliseconds} ms), hour={iHour} -> VACUUM={((iHour >= 1) && (iHour <= 4))}");
-                if ((iHour >= 1) && (iHour <= 4))
+                bool bVacuum = bAllowVacuum && (iHour >= 1) && (iHour <= 4);
+                LogInfo.WriteLog($"+ ClearDatabaseFile : deletes done ({swClear.ElapsedMilliseconds} ms), hour={iHour} -> VACUUM={bVacuum}");
+                if (bVacuum)
                 {
                     Thread.Sleep(1 * 1000);
                     LogInfo.WriteLog("+ Call VACUUM (Purge Database)");
-                    szQuery = "VACUUM;";
                     swClear.Restart();
-                    TCT_Lib.LaneDB.Execute(szQuery);
+                    TCT_Lib.LaneDB.Execute("VACUUM;");
                     LogInfo.WriteLog(LogLevel.DEBUG, $"+ ClearDatabaseFile : VACUUM done ({swClear.ElapsedMilliseconds} ms)");
                 }
 
@@ -4127,6 +4114,34 @@ namespace TCT_App
                 LogInfo.WriteLog(LogLevel.DEBUG, $"- ClearDatabaseFile : stack={err.StackTrace}");
                 return false;
             }
+            finally
+            {
+                Interlocked.Exchange(ref iClearDatabaseRunning, 0);
+            }
+        }
+
+        //--- v2.0.5: DELETE in batches (rowid LIMIT) -> each batch holds the DB lock only briefly
+        static int PurgeTableRows(string szTable, string szWhere, bool bBackground)
+        {
+            string szQuery = $"DELETE FROM {szTable} WHERE rowid IN (SELECT rowid FROM {szTable} WHERE {szWhere} LIMIT {CLEAR_DB_BATCH_ROWS})";
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ Clear {szTable} : {szQuery}");
+            int iTotal = 0;
+            while (true)
+            {
+                int iAffected = TCT_Lib.LaneDB.Execute(szQuery);
+                if (iAffected < 0)
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning Clear {szTable} : DELETE failed after {iTotal} rows -> stop this table");
+                    break;
+                }
+                iTotal += iAffected;
+                if (iAffected < CLEAR_DB_BATCH_ROWS)
+                    break;
+                if (bBackground)
+                    Thread.Sleep(200);      // let lane transactions use the DB between batches
+            }
+            LogInfo.WriteLog($"+ Clear {szTable} : deleted {iTotal} rows");
+            return iTotal;
         }
 
         //---------------------------------------------------------------------------------------------------

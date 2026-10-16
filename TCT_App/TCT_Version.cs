@@ -771,4 +771,27 @@ TCT (V.2.0.4)   2026-10-09
     - Bump version 2.0.3 -> 2.0.4, AssemblyVersion 2.0.3 -> 2.0.4
 
 
+TCT (V.2.0.5)   2026-10-15
+    [ลบข้อมูลเก่าในฐานข้อมูล (TCT_Lib.ClearDatabaseFile) - ลบเฉพาะข้อมูลที่ส่ง DC แล้ว]
+    - ข้อมูลที่ต้องส่ง DC ลบได้เมื่อ "ส่ง DC สำเร็จแล้ว" และเก่ากว่า Config.KeepDatabaseDay วัน (ค่าเริ่มต้น 90 -> 30)
+        LaneTransaction      : SendStatusDC=1
+        LaneEventHQ          : SendHqStatus=1   (ส่ง DC ผ่าน MOC RabbitMQ)
+        LaneAlarmRTO         : SendStatusDC=1 ถ้าเป็นอุปกรณ์ใน MTS_RabbitMQ.AlarmDeviceList (อุปกรณ์อื่นไม่ได้ส่ง DC -> ลบตามวันที่)
+        StaffShift           : BojSendStatusDC=1 และ EojSendStatusDC=1 และปิดกะแล้ว (นับวันจาก StaffEndShiftDateTime) ไม่ใช่กะปัจจุบัน
+    - ยังไม่ส่ง / ส่งไม่สำเร็จ (status=0) -> ไม่ลบ ไม่ว่าจะเก่าแค่ไหน
+    - ข้อมูลลูกลบตามรายการแม่: EmvDetail / DMTCardTrans ลบเมื่อไม่มี LaneTransaction (และ SalesCouponTransaction) อ้างถึงแล้ว,
+      ImageCaptureCamera ลบเมื่อ LaneTransaction ถูกลบแล้ว, TransactionStatistic ลบเมื่อ StaffShift ถูกลบแล้ว
+    - SalesCouponTransaction / SalesCouponDetail ไม่ลบแล้ว (ไม่ได้ส่ง DC - SendStatusDC ไม่เคยถูกตั้งเป็น 1)
+    - ข้อมูลในเครื่องที่ไม่ได้ส่ง DC (LaneEvent, LaneEventRTO, SupervisorShift, TransactionSummary, SalesCouponList) ลบตามวันที่เหมือนเดิม
+    - Fix bug - เดิมลบทุกแถวที่เก่ากว่า 90 วันโดยไม่ดูสถานะส่ง -> รายการที่ DC ยังไม่ได้รับถูกลบทิ้ง
+    - Fix bug - เดิม "DELETE FROM LaneEventHQ WHERE EventType IN (4..9)" ลบทุกครั้งที่เปิดโปรแกรม ไม่ดูวันที่/สถานะส่ง DC -> เอาออก
+    - Fix bug - ID ถัดไป = MAX(ID)+1 แต่เดิมลบได้จนหมดตาราง -> ID เริ่ม 1 ใหม่ ซ้ำกับที่ DC มีแล้ว
+                  -> เก็บแถวล่าสุดของทุกตารางไว้เสมอ (AND ID < MAX(ID)) + ไม่ลบกะ/หัวหน้ากะปัจจุบัน
+    - Fix bug - TransactionStatistic ลบ StaffShiftID < MIN+1 -> สถิติของกะเก่าสุดที่ยังอยู่ถูกลบไปด้วย
+    - ลบเป็นชุดละ 2,000 แถว (DELETE ... WHERE rowid IN (SELECT ... LIMIT)) -> ไม่ถือ DB lock นาน
+    - เดิมลบเฉพาะตอนเปิดโปรแกรม -> เพิ่มลบวันละครั้งใน ThreadAutoResendTrans (หลัง resend, ไม่ VACUUM, พัก 200 ms ระหว่างชุด)
+    - กันรันซ้อน (Interlocked), log จำนวนแถวที่ลบต่อตาราง (INFO), SQL (DEBUG)
+    - Bump version 2.0.4 -> 2.0.5, AssemblyVersion 2.0.4 -> 2.0.5
+
+
 =============================================================================================*/
