@@ -675,6 +675,8 @@ namespace TCT_App
                 return "HPMC_MODE";
             else if (laneMode == LaneMode.MAINTENANCE)
                 return "MAINTENANCE_MODE";
+            else if (laneMode == LaneMode.FREE)
+                return "FREE_MODE";         // v2.0.6
             else
                 return "UNKNOWN";
         }
@@ -689,6 +691,8 @@ namespace TCT_App
                 return "HPMC_MODE";
             else if (laneModeId == 3)
                 return "MAINTENANCE_MODE";
+            else if (laneModeId == (int)LaneMode.FREE)
+                return "FREE_MODE";         // v2.0.6
             else
                 return "UNKNOWN";
         }
@@ -1169,7 +1173,7 @@ namespace TCT_App
                 xLane.laneId                = int.Parse(dtBeginShift.Rows[0]["LaneID"].ToString());
                 xLane.laneName              = TCT_Lib.szLaneName;
                 xLane.laneType              = int.Parse(dtBeginShift.Rows[0]["LaneType"].ToString());
-                xLane.laneMode              = (int)TCT_Lib.eCurLaneMode;
+                xLane.laneMode              = (int)TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode);
                 xLane.laneDirection         = (int)TCT_Lib.eLaneDirection;
                 //xLane.LaneDirectionName     = dtLaneEvent.Rows[0]["LaneDirectionName"] == DBNull.Value ? "" : dtLaneEvent.Rows[0]["LaneDirectionName"].ToString();
                 xBeginJob.lane              = xLane;
@@ -1244,7 +1248,7 @@ namespace TCT_App
                 xLane.laneId                = dtEndShift.Rows[0]["LaneID"] == DBNull.Value ? 0 : int.Parse(dtEndShift.Rows[0]["LaneID"].ToString());
                 //xLane.LaneName              = dtLaneEvent.Rows[0]["LaneName"] == DBNull.Value ? "" : dtLaneEvent.Rows[0]["LaneName"].ToString();
                 xLane.laneType              = dtEndShift.Rows[0]["LaneType"] == DBNull.Value ? 0 : int.Parse(dtEndShift.Rows[0]["LaneType"].ToString());
-                xLane.laneMode              = (int)TCT_Lib.eCurLaneMode;
+                xLane.laneMode              = (int)TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode);
                 xLane.laneDirection         = (int)TCT_Lib.eLaneDirection;
                 //xLane.LaneDirectionName     = dtLaneEvent.Rows[0]["LaneDirectionName"] == DBNull.Value ? "" : dtLaneEvent.Rows[0]["LaneDirectionName"].ToString();
                 xEndJob.lane                = xLane;
@@ -1333,7 +1337,7 @@ namespace TCT_App
                 xLane.laneId                = int.Parse(dtBeginShift.Rows[0]["LaneID"].ToString());
                 xLane.laneName              = TCT_Lib.szLaneName;
                 xLane.laneType              = int.Parse(dtBeginShift.Rows[0]["LaneType"].ToString());
-                xLane.laneMode              = (int)TCT_Lib.eCurLaneMode;
+                xLane.laneMode              = (int)TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode);
                 xLane.laneDirection         = (int)TCT_Lib.eLaneDirection;
                 //xLane.LaneDirectionName     = dtLaneEvent.Rows[0]["LaneDirectionName"] == DBNull.Value ? "" : dtLaneEvent.Rows[0]["LaneDirectionName"].ToString();
                 xOtlStatus.lane              = xLane;

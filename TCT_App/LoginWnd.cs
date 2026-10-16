@@ -267,6 +267,7 @@ namespace TCT_App
             TCT_Lib.laneController.loginWithSmartCardReader += LaneController_LoginWithSmartCardReader;
             TCT_Lib.laneController.changeCurrentLaneType    += LaneController_ChangeCurrentLaneType;
             TCT_Lib.laneController.remoteLoginFromRTO       += LaneController_RemoteLoginFromRTO;
+            TCT_Lib.laneController.remoteLoginFreeFromRTO   += LaneController_RemoteLoginFreeFromRTO;
             TCT_Lib.laneController.manualLoginKey           += LaneController_ManualLoginKey;
             TCT_Lib.laneController.checkNetworkStatus       += LaneController_CheckNetworkStatus;
             TCT_Lib.laneController.updateUiSupervisor       += LaneController_UpdateUiSupervisor;
@@ -676,7 +677,7 @@ namespace TCT_App
 
                     LogInfo.WriteLaneEvent($"Auto Login with ETC Mode : StaffID={TCT_Lib.szStaffID}, StaffCode={TCT_Lib.szStaffCode}, StaffName={TCT_Lib.szStaffName}");
                 }
-                else if (eLoginType == LoginType.RTO_Remote)
+                else if ((eLoginType == LoginType.RTO_Remote) || (eLoginType == LoginType.RTO_RemoteFree))
                 {
                     LogInfo.WriteLaneEvent("+ Start Login RTO Remote");
                     if (!TCT_Lib.LaneDB.CheckStaffRemoteStaff(szCardSerialNo, ref szErrMsg))
@@ -743,7 +744,7 @@ namespace TCT_App
                 }
 
                 //-----------------------------------------------------------------------------------------------------------
-                if ((eLoginType != LoginType.ETC_Auto) && (eLoginType != LoginType.RTO_Remote))
+                if ((eLoginType != LoginType.ETC_Auto) && (eLoginType != LoginType.RTO_Remote) && (eLoginType != LoginType.RTO_RemoteFree))
                 {
                     if (!bMaintenanceStaff)
                     {
@@ -890,6 +891,7 @@ namespace TCT_App
                     //------------------------------------------------------------------------------
                     TCT_Lib.bAllowSendRTO       = true;
                     TCT_Lib.bMaintenanceMode    = false;
+                    TCT_Lib.bFreeMode           = (eLoginType == LoginType.RTO_RemoteFree);    // v2.0.6: โหมดไม่เก็บค่าผ่านทาง
                     LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : open MainWindow (staff {TCT_Lib.szStaffCode}, login {eLoginType}, laneType {TCT_Lib.eCurLaneType}, allowETC {TCT_Lib.bAllowETC})");
                     mainWnd     = new MainWindow(LoginMethod.MANUAL, eLoginType);
                     mainWnd.ModifyBg(StateType.Normal, colBk);
@@ -1236,6 +1238,15 @@ namespace TCT_App
                     //--- Auto Login with Supervisor
                     Action_LoginProcess(LoginType.ETC_Auto);
                 }
+            });
+        }
+
+        void LaneController_RemoteLoginFreeFromRTO(string staffCode)
+        {
+            Application.Invoke(delegate
+            {
+                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : remote login FREE mode from RTO, staff {staffCode}");
+                Action_LoginProcess(LoginType.RTO_RemoteFree, staffCode);
             });
         }
 

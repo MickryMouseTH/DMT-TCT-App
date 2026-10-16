@@ -42,6 +42,7 @@ namespace TCT_App
         NORMAL      = 1,
         HPMC        = 2,
         MAINTENANCE = 3,
+        FREE        = 4,        // v2.0.6: ไม่เก็บค่าผ่านทาง (เปิดวิ่งฟรี) - ใช้ใน DB/RTO/DC, ภายในทำงานบน state ของ HPMC + TCT_Lib.bFreeMode
     }
 
     public enum LaneDirection
@@ -110,7 +111,8 @@ namespace TCT_App
         PM6             = 14,
         PM7             = 15,
         PM8             = 16,
-        PM9             = 17 
+        PM9             = 17,
+        FREE            = 18,   // v2.0.6: โหมดไม่เก็บค่าผ่านทาง (เปิดวิ่งฟรี)
     }
 
     public enum KeyPressedType
@@ -418,6 +420,7 @@ namespace TCT_App
         RTO_Remote      = 2,
         ETC_Auto        = 3,
         Maintenance     = 4,
+        RTO_RemoteFree  = 5,    // v2.0.6: RTO สั่ง Remote Login เข้าโหมดไม่เก็บค่าผ่านทาง (REMOTE_LOGIN_FREE)
     }
 
     public enum CameraPosition
@@ -474,7 +477,7 @@ namespace TCT_App
     //-------------------------------------------------------------
     public class TCT_Lib
     {
-        public static string szAppVersion               = "2.0.5";
+        public static string szAppVersion               = "2.0.6";
         public static string szAppBuild                 = "2026/10/07 18:00:00";         // 2.0.3 GUI review fixes; 2.0.2 keyboard + GUI restyle; 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
         public static string szSysUserName              = WindowsIdentity.GetCurrent().Name;
         public static string szSysUserName2             = Environment.UserName;
@@ -493,6 +496,10 @@ namespace TCT_App
         public static int iLaneConfigType               = 0;            // LaneType from Config 0=MTC, 1=ETC, 2=Dual
         public static LaneType eCurLaneType             = LaneType.MTC; // Current State ofLaneType 
         public static LaneMode eCurLaneMode             = LaneMode.CLOSED;
+        //--- v2.0.6: โหมดไม่เก็บค่าผ่านทาง (เปิดวิ่งฟรี) เข้าได้จาก RTO (REMOTE_LOGIN_FREE) เท่านั้น
+        //--- ภายในใช้ state machine ของ HPMC (eCurLaneMode = HPMC) แต่ค่าที่บันทึก/ส่งออกเป็น LaneMode.FREE / PayType.FREE (ReportLaneMode)
+        public static bool bFreeMode                    = false;
+        public const string szFreeModeText              = "เปิดวิ่งฟรี";
         public static LaneDirection eLaneDirection      = LaneDirection.NORMAL;
         public static bool bAllowETC                    = false;
 
@@ -579,7 +586,9 @@ namespace TCT_App
         public static string szVideoNVR_OutputPathPrefix                = "";
         public static string szVideoNVR_OutputPathSuffix                = "";
         public static int iVideoNVR_Img3TimeLapseMilliSec               = 2000;     // Default TimeLapse of 3nd image = 2000 ms. (2 Sec)
-        public static int iVideoNVR_CaptureImageMethod                  = 0;        // 0 (Default)=Use Time Lapse, 1=Use Event (Payment and Loop), 2=Use Loop+OB Event
+        public static int iVideoNVR_CaptureImageMethodConfig            = 0;        // 0 (Default)=Use Time Lapse, 1=Use Event (Payment and Loop), 2=Use Loop+OB Event, 3=Indexed
+        //--- v2.0.6: โหมดไม่เก็บค่าผ่านทางไม่มีการกดเงิน -> ถ่ายรูปทุกคันด้วย Loop + OB (Method 2) ถ้า config เป็น 0/1
+        public static int iVideoNVR_CaptureImageMethod => (bFreeMode && iVideoNVR_CaptureImageMethodConfig < 2) ? 2 : iVideoNVR_CaptureImageMethodConfig;
         public static string szVideoNVR_WebApiBaseUrl                   = "";
         public static int iVideoNVR_TowingTimeLapseMillisec             = 3000;     // Default TimeLapse of Towing = 3000 ms. (3 Sec)
         public static int iVideoNVR_TimeoutSec                          = 10;       // Defaukt WebRequest Timeout = 10 sec.
@@ -1062,7 +1071,7 @@ namespace TCT_App
                 szVideoNVR_OutputPathPrefix         = xTctConfig["VideoNVR"]["OutputPathPrefix"] ?? "";
                 szVideoNVR_OutputPathSuffix         = xTctConfig["VideoNVR"]["OutputPathSuffix"] ?? "";
                 iVideoNVR_Img3TimeLapseMilliSec     = xTctConfig["VideoNVR"]["Image3TimeLapseMilliSec"] ?? 2000;
-                iVideoNVR_CaptureImageMethod        = xTctConfig["VideoNVR"]["CaptureImageMethod"] ?? 0;
+                iVideoNVR_CaptureImageMethodConfig  = xTctConfig["VideoNVR"]["CaptureImageMethod"] ?? 0;
                 szVideoNVR_WebApiBaseUrl            = xTctConfig["VideoNVR"]["WebApiBaseUrl"] ?? "";
                 iVideoNVR_TowingTimeLapseMillisec   = xTctConfig["VideoNVR"]["TowingTimeLapseMilliSec"] ?? 3000;
                 iVideoNVR_TimeoutSec                = xTctConfig["VideoNVR"]["TimeoutSec"] ?? 10;
@@ -1701,8 +1710,19 @@ namespace TCT_App
                 return "HPMC";
             else if (laneMode == LaneMode.MAINTENANCE)
                 return "MAINTENANCE";
+            else if (laneMode == LaneMode.FREE)
+                return "FREE";
             else
                 return "UNKNOWN";
+        }
+
+        //--- v2.0.6: LaneMode ที่บันทึก DB / ส่ง RTO / DC (โหมดไม่เก็บค่าผ่านทางวิ่งบน state HPMC แต่รายงานเป็น FREE)
+        public static LaneMode ReportLaneMode(LaneMode laneMode)
+        {
+            //--- NORMAL ด้วย: ช่วงหลัง login ก่อน StartFreeMode (BOJ) ก็รายงานเป็น FREE
+            if (((laneMode == LaneMode.HPMC) || (laneMode == LaneMode.NORMAL)) && bFreeMode && !bMaintenanceMode)
+                return LaneMode.FREE;
+            return laneMode;
         }
 
         public static string GetLaneDirection(LaneDirection laneDirection)
@@ -1733,6 +1753,7 @@ namespace TCT_App
                 case (int)PayType.ePurse:       return "ePurse";
                 case (int)PayType.Mangmoom:     return "Mangmoom";
                 case (int)PayType.HPMC:         return "HPMC";
+                case (int)PayType.FREE:         return "FREE";
                 case (int)PayType.PM6:          return TCT_Lib.szPaymentName_06;
                 case (int)PayType.PM7:          return TCT_Lib.szPaymentName_07;
                 case (int)PayType.PM8:          return TCT_Lib.szPaymentName_08;
@@ -1759,6 +1780,7 @@ namespace TCT_App
                 case (int)PayType.ePurse:       return "ePur";
                 case (int)PayType.Mangmoom:     return "MM";
                 case (int)PayType.HPMC:         return "HPMC";
+                case (int)PayType.FREE:         return "FREE";
                 case (int)PayType.PM6:          return TCT_Lib.szPaymentCode_06;
                 case (int)PayType.PM7:          return TCT_Lib.szPaymentCode_07;
                 case (int)PayType.PM8:          return TCT_Lib.szPaymentCode_08;
@@ -2268,6 +2290,7 @@ namespace TCT_App
                                 //$"AND DATE(TransactionDateTime)='{DateTime.Today.ToString("yyyy-MM-dd")}' " +
                                 $"AND DATE(TransactionDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 "AND Tag_SignalCode='' " +
+                                $"AND PayType<>{(int)PayType.FREE} " +      // v2.0.6: โหมดไม่เก็บค่าผ่านทางไม่ส่ง SupAdjust
                                 "ORDER BY TransactionID";
             LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendLaneTransactionToSupAdjust : SQL={szQuery}");
             DataTable dtLaneTrans = TCT_Lib.LaneDB.List(szQuery);
@@ -2332,6 +2355,16 @@ namespace TCT_App
 
             try
             {
+                //--- v2.0.6: รายการโหมดไม่เก็บค่าผ่านทาง (PayType FREE) ไม่ส่ง SupAdjust -> mark ว่าจบแล้ว ไม่ให้ resend วนซ้ำ
+                DataTable dtPay = LaneDB.List($"SELECT PayType FROM LaneTransaction WHERE TransactionID={iTransID}");
+                if ((dtPay != null) && (dtPay.Rows.Count > 0) && (dtPay.Rows[0]["PayType"] != DBNull.Value) &&
+                    (Convert.ToInt32(dtPay.Rows[0]["PayType"]) == (int)PayType.FREE))
+                {
+                    LogInfo.WriteLog($"+ SupAdjust Lane Transaction : TransID={iTransID} skipped (FREE mode - not sent to SupAdjust)");
+                    UpdateLaneTransToSupAdjust(iTransID, true);
+                    return true;
+                }
+
                 var xLaneTrans      = TCT_Obj.GenerateLaneTransMessage(iTransID);
                 string szLaneTrans  = JsonConvert.SerializeObject(xLaneTrans, Formatting.Indented);
                 //Console.WriteLine("+ SCW Lane Transaction = " + szLaneTrans);

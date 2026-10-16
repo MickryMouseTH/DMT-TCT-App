@@ -97,6 +97,7 @@ public partial class MainWindow : Gtk.Window
     const string szTxt_OpenOTL          = "กดไฟเขียว เพื่อเปิด OTL";
     const string szTxt_CloseOTL         = "กด 'ปิดกะ' หรือ กด ไฟเขียว เปิด OTL";
     const string szTxt_EndHPMC          = "กดปุ่ม 'รถขบวน' หลังรถคันสุดท้าย";
+    const string szTxt_FreeMode         = "ไม่เก็บค่าผ่านทาง - ปิดโหมดจาก RTO (Remote LogOff)";    // v2.0.6
     const string szTxt_EditType         = "ถ้าต้องการแก้ไข กดปุ่ม 'แก้ไข'";
     const string szTxt_TowingFirstClass = "กรุณากดประเภทรถลากจูงคันแรก";
     const string szTxt_TowingFirstPay   = "กรุณากดประเภทการจ่ายเงินรถคันแรก";
@@ -155,7 +156,7 @@ public partial class MainWindow : Gtk.Window
         TCT_Lib.iJobNo                          = (TCT_Lib.eCurLaneType == LaneType.ETC) ? 0 : TCT_Lib.LaneDB.GetStartJobNo();
         LogInfo.WriteLaneEvent($"+ Start Main Process => StartShiftID={TCT_Lib.iStaffShiftID}, JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}");
         TCT_Lib.dtStaffStartShift               = DateTime.Now;
-        TCT_Lib.LaneDB.WriteLaneStartStaffShift(loginType);
+        TCT_Lib.LaneDB.WriteLaneStartStaffShift(loginType == LoginType.RTO_RemoteFree ? LoginType.RTO_Remote : loginType);   // v2.0.6: DC รู้จักแค่ค่าเดิม (โหมดอยู่ใน laneMode)
         TCT_Lib.laneController.StartShiftProcess();
         TCT_Lib.LaneDB.WriteNewTransactionStatistic();
 
@@ -271,6 +272,16 @@ public partial class MainWindow : Gtk.Window
 
         if (TCT_Lib.bAllowETC)
             TCT_Lib.etcRabbitMQ.SendChangeLoginSupervisorStaffToETC();
+
+        //--- v2.0.6: Remote Login FREE mode from RTO -> start toll-free mode once the main screen is up
+        if (loginType == LoginType.RTO_RemoteFree)
+        {
+            GLib.Timeout.Add(1000, () =>
+            {
+                TCT_Lib.laneController.StartFreeMode();
+                return false;
+            });
+        }
         //iTimerIdInit = GLib.Timeout.Add(1000, new GLib.TimeoutHandler(InitialUI));
 
 /*
@@ -588,6 +599,8 @@ public partial class MainWindow : Gtk.Window
             szLoginType = "Smart Card";
         else if (loginType == LoginType.RTO_Remote)
             szLoginType = "RTO Remote";
+        else if (loginType == LoginType.RTO_RemoteFree)
+            szLoginType = "RTO วิ่งฟรี";
         else if (loginType == LoginType.ETC_Auto)
             szLoginType = "Auto ETC";
         else if (loginType == LoginType.Maintenance)
@@ -1403,7 +1416,7 @@ public partial class MainWindow : Gtk.Window
                 if (bHPMC)
                 {
                     bPayType        = true;
-                    szPayType       = szPay_Exempt;
+                    szPayType       = TCT_Lib.bFreeMode ? TCT_Lib.szFreeModeText : szPay_Exempt;   // v2.0.6
                     areaPayType.ModifyBg(StateType.Normal, clBlue);
                     areaPayType.QueueDraw();
 
@@ -1609,7 +1622,10 @@ public partial class MainWindow : Gtk.Window
             {
                 bHPMC                   = true;
                 TCT_Lib.eCurLaneMode    = LaneMode.HPMC;
-                UpdateUI_VehicleType(imgVehicleHPMC, szVehicle_HPMC, szAmount_0, szTxt_EndHPMC);
+                if (TCT_Lib.bFreeMode)      // v2.0.6
+                    UpdateUI_VehicleType(imgVehicleHPMC, TCT_Lib.szFreeModeText, szAmount_0, szTxt_FreeMode);
+                else
+                    UpdateUI_VehicleType(imgVehicleHPMC, szVehicle_HPMC, szAmount_0, szTxt_EndHPMC);
                 //UpdateUI_PayType(szExempt, szTxt_EndHPMC);
             }
         }
@@ -1859,7 +1875,10 @@ public partial class MainWindow : Gtk.Window
                 if (iHPMC_TimerId > 0)
                     GLib.Source.Remove(iHPMC_TimerId);
                 iHPMC_TimerId = GLib.Timeout.Add(600, new GLib.TimeoutHandler(TimerMoving_HPMC));
-                UpdateUI_PayType(szPay_Exempt, szTxt_EndHPMC);
+                if (TCT_Lib.bFreeMode)      // v2.0.6
+                    UpdateUI_PayType(TCT_Lib.szFreeModeText, szTxt_FreeMode);
+                else
+                    UpdateUI_PayType(szPay_Exempt, szTxt_EndHPMC);
             }
             else
                 UpdateUI_PayType(szPay_Exempt, szTxt_Processing);
@@ -3363,6 +3382,8 @@ public partial class MainWindow : Gtk.Window
                 szLoginType = "Smart Card";
             else if (loginType == LoginType.RTO_Remote)
                 szLoginType = "RTO Remote";
+            else if (loginType == LoginType.RTO_RemoteFree)
+                szLoginType = "RTO วิ่งฟรี";
             else if (loginType == LoginType.ETC_Auto)
                 szLoginType = "Auto ETC";
             else if (loginType == LoginType.Maintenance)

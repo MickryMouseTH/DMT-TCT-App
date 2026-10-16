@@ -115,8 +115,8 @@ namespace TCT_App
             var xLane               = new LaneMts();
             xLane.laneId            = TCT_Lib.iLaneID.ToString();
             xLane.laneName          = TCT_Lib.szLaneName;
-            xLane.laneMode          = (int)TCT_Lib.eCurLaneMode;
-            xLane.laneModeName      = TCT_Lib.GetLaneModeName(TCT_Lib.eCurLaneMode);
+            xLane.laneMode          = (int)TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode);
+            xLane.laneModeName      = TCT_Lib.GetLaneModeName(TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode));
             xLane.laneType          = (int)TCT_Lib.eCurLaneType;
             xLane.laneTypeName      = TCT_Lib.GetLaneTypeName(TCT_Lib.eCurLaneType);
             xLane.laneDirection     = (int)TCT_Lib.eLaneDirection;

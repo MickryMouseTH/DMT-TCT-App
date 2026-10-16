@@ -106,8 +106,11 @@ namespace TCT_App.LaneSocket
             //LogInfo.WriteLog("+ SocketServer : " + session.Method + ", Mesage : " + value);
             if (LogInfo.IsEnabled(LogLevel.TRACE))
                 LogInfo.WriteLog(LogLevel.TRACE, $"+ LaneSocketServerRTO.NewMessageReceived : from={session.RemoteEndPoint?.ToString() ?? "null"}, msg={value}");
+            szLastSenderIP = session.RemoteEndPoint is System.Net.IPEndPoint ep ? ep.Address.ToString() : "";
             ClassifyServerMessage(value);
         }
+
+        string szLastSenderIP = "";     // v2.0.6: ผู้ส่งคำสั่งล่าสุด (ตรวจคำสั่ง REMOTE_LOGIN_FREE ว่ามาจาก RTO จริง)
 
         public void SendLaneMessageToClient(string szMethod, object objParams)
         {
@@ -433,6 +436,16 @@ namespace TCT_App.LaneSocket
                         LogInfo.WriteLaneEvent("+ From RTO => Remote Login : StaffCode=" + szStaffCode);
                         TCT_Lib.laneController.RemoteLoginFromRTO(szStaffCode);
                     }
+                    else if (method.ToUpper() == "REMOTE_LOGIN_FREE")
+                    {
+                        //--- v2.0.6: Remote Login เข้าโหมดไม่เก็บค่าผ่านทาง (เปิดวิ่งฟรี) - รับจากเครื่อง RTO ใน config เท่านั้น
+                        string szStaffCode = (string)jParams["code"];
+                        LogInfo.WriteLaneEvent($"+ From RTO => Remote Login FREE mode : StaffCode={szStaffCode}, from={szLastSenderIP}");
+                        if ((TCT_Lib.szRTO_IPAddress.Trim() != "") && (szLastSenderIP != TCT_Lib.szRTO_IPAddress.Trim()))
+                            LogInfo.WriteLaneEvent($"- Reject Remote Login FREE mode : sender {szLastSenderIP} is not RTO {TCT_Lib.szRTO_IPAddress}");
+                        else
+                            TCT_Lib.laneController.RemoteLoginFreeFromRTO(szStaffCode);
+                    }
                     else if (method.ToUpper() == "REMOTE_LOGOUT")
                     {
                         Console.WriteLine("+ From RTO => Remote LogOut");
@@ -467,7 +480,9 @@ namespace TCT_App.LaneSocket
                         int iValue = (int)jParams["value"];
                         Console.WriteLine("+ FROM RTO => Control HP&MC : Value=" + iValue);
                         LogInfo.WriteLaneEvent("+ FROM RTO => Control HP&MC : Value=" + iValue);
-                        if (iValue == 1)
+                        if (TCT_Lib.bFreeMode)
+                            LogInfo.WriteLaneEvent("- Ignore Control HP&MC : lane is in FREE mode (end it with Remote LogOff)");    // v2.0.6
+                        else if (iValue == 1)
                         {
                             if (TCT_Lib.eCurLaneMode != LaneMode.HPMC)
                             {
@@ -518,15 +533,17 @@ namespace TCT_App.LaneSocket
                     }
                     else if (method.ToUpper() == "WRTFI")
                     {
-                        dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
-                        int iMode           = paramsObj["mode"];
-                        string szClassType  = paramsObj["text_class"];
-                        string szFare       = paramsObj["text_fare"];
-                        string szBalance    = paramsObj["text_balance"];
-                        string szText1      = paramsObj["text1"];
-                        string szText2      = paramsObj["text2"];
-                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : WRTFI mode={iMode}, class={szClassType}, fare={szFare}, balance={szBalance}");
-                        TCT_Lib.webSocketLane.OutIo_WriteTFI(iMode, (int)TFI_Pattern.Normal, szClassType, szFare, szBalance, szText1, szText2);
+                        //--- v2.0.6: หน้าจอ TFI = params "state" (RTO 1.1.5) - ถ้าไม่มีใช้ "mode" ที่ RTO รุ่นเดิมส่งมาแทน state (4=เขียน, 0=ล้าง)
+                        //---         ("mode" ใน WRTFI ที่ TCT ส่ง LC คือกลางวัน/กลางคืน ซึ่ง TCT คำนวณเอง) และรับ "pattern" ได้ (ไม่มี = Normal)
+                        int iState          = (int?)jParams["state"] ?? (int?)jParams["mode"] ?? (int)TFI_State.StartSceen;
+                        int iPattern        = (int?)jParams["pattern"] ?? (int)TFI_Pattern.Normal;
+                        string szClassType  = (string)jParams["text_class"] ?? "";
+                        string szFare       = (string)jParams["text_fare"] ?? "";
+                        string szBalance    = (string)jParams["text_balance"] ?? "";
+                        string szText1      = (string)jParams["text1"] ?? "";
+                        string szText2      = (string)jParams["text2"] ?? "";
+                        LogInfo.WriteLaneEvent($"+ From RTO => Write TFI : state={iState}, pattern={iPattern}, class={szClassType}, fare={szFare}, balance={szBalance}, text1={szText1}, text2={szText2}");
+                        TCT_Lib.webSocketLane.OutIo_WriteTFI(iState, iPattern, szClassType, szFare, szBalance, szText1, szText2);
                     }
                     else if (method.ToUpper() == "WRCRS")
                     {

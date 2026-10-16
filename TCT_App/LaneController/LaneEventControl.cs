@@ -113,6 +113,7 @@ namespace TCT_App
 
         public delegate void LaneControlRemoteLogin(string staffCode);
         public event LaneControlRemoteLogin remoteLoginFromRTO;
+        public event LaneControlRemoteLogin remoteLoginFreeFromRTO;     // v2.0.6: REMOTE_LOGIN_FREE (โหมดไม่เก็บค่าผ่านทาง)
 
         public delegate void LaneControlManualLoginKey(int iKey);
         public event LaneControlManualLoginKey manualLoginKey;
@@ -257,6 +258,22 @@ namespace TCT_App
             (int)KeyPressedType.OTL_OPEN, (int)KeyPressedType.OTL_CLOSE
             //, (int)KeyPressedType.EDIT, (int)KeyPressedType.FORCE_RESET
         };
+        //--- v2.0.6: โหมดไม่เก็บค่าผ่านทาง (เปิดวิ่งฟรี) - เปิด/ปิดโหมดจาก RTO เท่านั้น, ที่ตู้กดได้แค่ OTL
+        static readonly HashSet<int> kModeFREE = new HashSet<int>
+        {
+            (int)KeyPressedType.OTL_OPEN, (int)KeyPressedType.OTL_CLOSE
+        };
+        bool bFreeModeSystemKey = false;        // true ขณะ StartFreeMode/StopFreeMode ฉีดคีย์ CLASS_9 เอง
+        string szHpmcText => TCT_Lib.bFreeMode ? TCT_Lib.szFreeModeText : szVehicle_HPMC;
+
+        //--- จอ TFI ของ HPMC: "รถขบวน" / "0 บาท" - โหมดไม่เก็บค่าผ่านทางแสดง "เปิดวิ่งฟรี" บรรทัดเดียว (ไม่มีประเภท/ค่าผ่านทาง/บรรทัด 2)
+        void WriteTfiHpmc()
+        {
+            if (TCT_Lib.bFreeMode)
+                TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.HPMC, (int)TFI_Pattern.HPMC, "", "", "", TCT_Lib.szFreeModeText, "");
+            else
+                TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.HPMC, (int)TFI_Pattern.HPMC, "0", "0", "", szVehicle_HPMC, szAmount_0);
+        }
         static readonly HashSet<int> kModeClassTypeTowing = new HashSet<int>
         {
             (int)KeyPressedType.EDIT, (int)KeyPressedType.CLASS_1, (int)KeyPressedType.CLASS_2, (int)KeyPressedType.FORCE_RESET,
@@ -548,7 +565,16 @@ namespace TCT_App
                     if (!kViolationMode.Contains(iKey))
                         return;
                 }
-                if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
+                if (TCT_Lib.bFreeMode && !bFreeModeSystemKey)
+                {
+                    //--- v2.0.6: โหมดไม่เก็บค่าผ่านทาง - ไม่รับคีย์อื่นนอกจาก OTL (และไม่รับเลยก่อนเริ่มโหมด)
+                    if ((TCT_Lib.eCurLaneMode != LaneMode.HPMC) || !kModeFREE.Contains(iKey))
+                    {
+                        LogInfo.WriteLaneEvent($"+ Key ignored in FREE mode : key={TCT_Lib.KeyMapName(iKey)}, mode={TCT_Lib.eCurLaneMode}");
+                        return;
+                    }
+                }
+                else if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
                 {
                     LogInfo.WriteLaneEvent("+ Key when HPMC");
                     if (!kModeHPMC.Contains(iKey))
@@ -1397,7 +1423,7 @@ namespace TCT_App
 
                     //----------------------------------------------
 
-                    LogInfo.WriteLaneEvent("Press CLASS 9 (START HPMC)");
+                    LogInfo.WriteLaneEvent(TCT_Lib.bFreeMode ? "Start FREE mode (HPMC state, no toll)" : "Press CLASS 9 (START HPMC)");
                     if (TCT_Lib.bAllowETC)
                     {
                         TCT_Lib.bEtcCtrlIO      = false;
@@ -1414,14 +1440,14 @@ namespace TCT_App
                     TCT_Lib.xCurPayment.payType     = (int)PayType.HPMC;
                     TCT_Lib.xCurPayment.payTypeName = "HPMC";
                     TCT_Lib.xCurPayment.payDateTime = DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB);
-                    TCT_Lib.xCurPayment.payRemark   = "HP&MC";
-                    TCT_Lib.szCurTransRemark        = szVehicle_HPMC;
+                    TCT_Lib.xCurPayment.payRemark   = TCT_Lib.bFreeMode ? "FREE" : "HP&MC";
+                    TCT_Lib.szCurTransRemark        = szHpmcText;
                     eCurVehicleType                 = VehicleType.HPMC;
                     vehicleTypeLaneControl(VehicleType.HPMC);
                     if (TCT_Lib.bMainUiReady)
                         drawETC_AlbMode(1);
                     WriteTextCRS(GetStrClassTypeCRS(eCurVehicleType), GetStrPayTypeCRS(PayType.HPMC));
-                    TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.HPMC, (int)TFI_Pattern.HPMC, "0", "0", "", szVehicle_HPMC, szAmount_0);
+                    WriteTfiHpmc();
                     TCT_Lib.webSocketLane.OutIo_RBell();
                     SendDigitalOutput_CmdALB_Open();
                     TCT_Lib.etcRabbitMQ.SendPassagePaymentToETC((int)TCT_Lib.LaneDB.GetCurTransID(), (int)VehicleType.HPMC, (int)PayType.HPMC, 0, ALB_Mode.Open, bReClassETC);
@@ -1449,7 +1475,7 @@ namespace TCT_App
                 }
                 else
                 {
-                    LogInfo.WriteLaneEvent("Press CLASS 9 (END HPMC)");
+                    LogInfo.WriteLaneEvent(TCT_Lib.bFreeMode ? "End FREE mode (from RTO)" : "Press CLASS 9 (END HPMC)");
                     //--- Finish HPMC
                     if (TCT_Lib.bAllowETC)
                     {
@@ -2622,7 +2648,7 @@ namespace TCT_App
                         else if (eCurVehicleType == VehicleType.HPMC)
                         {
                             WriteTextCRS(GetStrClassTypeCRS(eCurVehicleType), GetStrPayTypeCRS(PayType.HPMC));
-                            TCT_Lib.webSocketLane.OutIo_WriteTFI((int)TFI_State.HPMC, (int)TFI_Pattern.HPMC, "0", "0", "", szVehicle_HPMC, szAmount_0);
+                            WriteTfiHpmc();
                         }
                         if (TCT_Lib.eCurLaneMode != LaneMode.HPMC)
                         {
@@ -4017,8 +4043,9 @@ namespace TCT_App
                         }
                         else
                         {
-                            //-- HPMC Mode
-                            TCT_Lib.LaneDB.UpdateTransStatistic_HPMC();
+                            //-- HPMC Mode (v2.0.6: โหมดไม่เก็บค่าผ่านทางไม่นับเป็นรถขบวนในสถิติกะ)
+                            if (!TCT_Lib.bFreeMode)
+                                TCT_Lib.LaneDB.UpdateTransStatistic_HPMC();
                         }
 
 
@@ -4563,8 +4590,8 @@ namespace TCT_App
                 xLoopCar.xPayment.payType       = (int)PayType.HPMC;
                 xLoopCar.xPayment.payTypeName   = "HPMC";
                 xLoopCar.xPayment.payDateTime   = DateTime.Now.ToString(TCT_Lib.szDateTimeFormatDB);
-                xLoopCar.xPayment.payRemark     = "HPMC";
-                xLoopCar.szTransRemark              = szVehicle_HPMC;
+                xLoopCar.xPayment.payRemark     = TCT_Lib.bFreeMode ? "FREE" : "HPMC";
+                xLoopCar.szTransRemark              = szHpmcText;
                 TCT_Lib.xListLoopCar.Add(xLoopCar);
                 showTotalLoop();
                 LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ Process_RefreshPresenceLoop : HPMC car added, loopCar={TCT_Lib.LoopCarCount()}");
@@ -6345,7 +6372,7 @@ namespace TCT_App
             object objParams = new {
                 LaneConfigType  = TCT_Lib.iLaneConfigType,
                 LaneType        = (int)TCT_Lib.eCurLaneType,
-                LaneMode        = (int)TCT_Lib.eCurLaneMode,
+                LaneMode        = (int)TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode),   // v2.0.6: FREE
                 LaneDirection   = (int)TCT_Lib.eLaneDirection,
                 StaffId         = (TCT_Lib.eCurLaneMode == LaneMode.CLOSED) ? "" : TCT_Lib.szStaffID,
                 StaffCode       = (TCT_Lib.eCurLaneMode == LaneMode.CLOSED) ? "" : TCT_Lib.szStaffCode,
@@ -6398,6 +6425,7 @@ namespace TCT_App
 
         public void EndShiftProcess()
         {
+            TCT_Lib.bFreeMode = false;      // v2.0.6
             LogInfo.WriteLaneEvent("+ Clear CRS, Clear TFI");
             LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EndShiftProcess : laneMode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, laneConfigType={TCT_Lib.iLaneConfigType}, loopCar={TCT_Lib.LoopCarCount()}, convoy={TCT_Lib.bConvoyMode}, staffShiftId={TCT_Lib.iStaffShiftID}");
             TCT_Lib.webSocketLane.OutIo_ClearCRS();
@@ -6549,12 +6577,79 @@ namespace TCT_App
             SendLaneCurrentState();
         }
 
+        //--- v2.0.6: RTO สั่ง Remote Login เข้าโหมดไม่เก็บค่าผ่านทาง (REMOTE_LOGIN_FREE) - รับเฉพาะตอนอยู่หน้า Login
+        public void RemoteLoginFreeFromRTO(string szStaffCode)
+        {
+            LogInfo.WriteLaneEvent($"+ RemoteLoginFreeFromRTO : staffCode={szStaffCode ?? "null"}, page={TCT_Lib.eCurAppPage}");
+            if (TCT_Lib.eCurAppPage != AppPage.Login)
+            {
+                LogInfo.WriteLaneEvent("- Fail Remote Login FREE mode : lane is not at Login page (Remote LogOff first)");
+                return;
+            }
+            if (TCT_Lib.eCurLaneType != LaneType.MTC)
+            {
+                //--- HPMC state บนช่อง DUAL/ETC ไม่บันทึกรายการในเครื่อง (ETC เป็นคนบันทึก) -> โหมดนี้ใช้ได้เฉพาะช่อง MTC
+                LogInfo.WriteLaneEvent($"- Fail Remote Login FREE mode : lane type {TCT_Lib.eCurLaneType} (MTC only)");
+                return;
+            }
+            remoteLoginFreeFromRTO?.Invoke(szStaffCode);
+            SendLaneCurrentState();
+        }
+
+        //--- v2.0.6: เริ่มโหมดไม่เก็บค่าผ่านทางหลัง MainWindow พร้อม (ใช้ state ของ HPMC: ไม้กั้นเปิดค้าง บันทึกทุกคัน ค่าผ่านทาง 0)
+        public void StartFreeMode()
+        {
+            LogInfo.WriteLaneEvent($"+ StartFreeMode : freeMode={TCT_Lib.bFreeMode}, laneMode={TCT_Lib.eCurLaneMode}, page={TCT_Lib.eCurAppPage}, captureMethod={TCT_Lib.iVideoNVR_CaptureImageMethodConfig}->{TCT_Lib.iVideoNVR_CaptureImageMethod}");
+            if (!TCT_Lib.bFreeMode || (TCT_Lib.eCurLaneMode == LaneMode.HPMC) || (TCT_Lib.eCurAppPage != AppPage.Main))
+                return;
+            if (TCT_Lib.iVideoNVR_CaptureImageMethodConfig == 0)
+            {
+                //--- config เดิมเป็น time lapse: เตรียม running ID ของรูปเหมือนตอนเปิดโปรแกรมด้วย method > 0
+                TCT_Lib.iMaxImageCaptureCameraID = Math.Max(TCT_Lib.iMaxImageCaptureCameraID, TCT_Lib.LaneDB.GetMaxImageCaptureID());
+            }
+            bFreeModeSystemKey = true;
+            try
+            {
+                LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_9);
+            }
+            finally
+            {
+                bFreeModeSystemKey = false;
+            }
+            LogInfo.WriteLaneEvent($"+ StartFreeMode : done, laneMode={TCT_Lib.eCurLaneMode} (report {TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode)})");
+            SendLaneCurrentState();
+        }
+
+        void StopFreeMode()
+        {
+            LogInfo.WriteLaneEvent($"+ StopFreeMode : laneMode={TCT_Lib.eCurLaneMode}");
+            if (TCT_Lib.bFreeMode && (TCT_Lib.eCurLaneMode == LaneMode.HPMC))
+            {
+                bFreeModeSystemKey = true;
+                try
+                {
+                    LaneSocket_KeyPressedEvent(KeyBoardType.VK, (int)KeyPressedType.CLASS_9);     // end HPMC state: ALB close, TFI welcome
+                }
+                finally
+                {
+                    bFreeModeSystemKey = false;
+                }
+            }
+            TCT_Lib.bFreeMode = false;
+        }
+
         public void RemoteLogoutFromRTO()
         {
             LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ RemoteLogoutFromRTO : staffGroupId={TCT_Lib.szStaffGroupID}, staffShiftId={TCT_Lib.iStaffShiftID}, LSD={TCT_Lib.bEnableLSD}");
             //--- Process Logout
             //--- Check current Staff is Supervisor or Chief Toll Collector
-            if ((TCT_Lib.szStaffGroupID != "30") && (TCT_Lib.szStaffGroupID != "40"))
+            if (TCT_Lib.bFreeMode)
+            {
+                //--- v2.0.6: โหมดไม่เก็บค่าผ่านทางเปิดจาก RTO -> ปิดจาก RTO ได้ทุกกลุ่มพนักงาน
+                LogInfo.WriteLaneEvent("+ Remote Logout : end FREE mode");
+                StopFreeMode();
+            }
+            else if ((TCT_Lib.szStaffGroupID != "30") && (TCT_Lib.szStaffGroupID != "40"))
             {
                 LogInfo.WriteLaneEvent("- Fail Remote Logout, because current staff is not Supervisor/Chief Toll Collector.");
                 LogInfo.WriteLaneEvent($" + Current Staff is StaffID={TCT_Lib.szStaffID}, StaffCode={TCT_Lib.szStaffCode}, StaffName={TCT_Lib.szStaffName}, StaffGroupID={TCT_Lib.szStaffGroupID}, StaffGroupName={TCT_Lib.szStaffGroupName}");
@@ -7735,7 +7830,7 @@ namespace TCT_App
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
-            if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
+            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
                 return;
 
             //---------------------------------------------------------------------
@@ -8026,7 +8121,7 @@ namespace TCT_App
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
-            if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
+            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
                 return;
 
             //---------------------------------------------------------------------
@@ -8236,7 +8331,7 @@ namespace TCT_App
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
-            if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
+            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
                 return;
 
             //---------------------------------------------------------------------
@@ -8392,7 +8487,7 @@ namespace TCT_App
             if (!TCT_Lib.bEnableVideoNVR)
                 return;
 
-            if (TCT_Lib.eCurLaneMode == LaneMode.HPMC)
+            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
                 return;
 
             //---------------------------------------------------------------------

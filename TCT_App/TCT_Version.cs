@@ -794,4 +794,30 @@ TCT (V.2.0.5)   2026-10-15
     - Bump version 2.0.4 -> 2.0.5, AssemblyVersion 2.0.4 -> 2.0.5
 
 
+TCT (V.2.0.6)   2026-10-16
+    [โหมดใหม่: ไม่เก็บค่าผ่านทาง (เปิดวิ่งฟรี) - เปิดได้จาก RTO เท่านั้น]
+    - RTO ส่ง REMOTE_LOGIN_FREE {code} (ปุ่ม "เปิดวิ่งฟรี (Remote Login)" ใน Lane Control) -> login ด้วยรหัสพนักงาน (LoginType.RTO_RemoteFree)
+      แล้ว StartFreeMode() หลัง MainWindow พร้อม 1 วินาที
+        รับเฉพาะ: ส่งมาจาก RTO.IPAddress ใน TCT.config (ที่อื่น reject + log), อยู่หน้า Login, ช่อง MTC (DUAL/HPMC ไม่บันทึกรายการในเครื่อง)
+    - ทำงานบน state ของ HPMC (eCurLaneMode = HPMC + TCT_Lib.bFreeMode): ไม้กั้นเปิดค้าง บันทึกรถทุกคันตอน AVC ค่าผ่านทาง 0
+      ค่าที่บันทึก/ส่งออกเป็น LaneMode.FREE (4) ผ่าน TCT_Lib.ReportLaneMode() : DB LaneMode=4 'FREE', LANE_STATE ไป RTO LaneMode=4,
+      DC CompiledPassageRecord laneMode "FREE_MODE" / manualPayment.method "FREE", BOJ/EOJ/alarm laneMode=4
+    - รายการรถ: PayType.FREE (18) 'FREE', PayRemark 'FREE', TransRemark 'เปิดวิ่งฟรี', TC_Class 0, Fare 0
+    - ถ่ายรูปทุกคันด้วย Loop + OB: iVideoNVR_CaptureImageMethod เป็น property -> ในโหมดนี้ใช้ Method 2 ถ้า config เป็น 0/1
+      (ตัวที่อ่านจาก config ย้ายไป iVideoNVR_CaptureImageMethodConfig), Method 0-3 ไม่ return ทิ้งในโหมดนี้แล้ว (HPMC ปกติยังไม่ถ่ายเหมือนเดิม)
+    - ไม่ส่ง SupAdjust: SendLaneTransObjToSupAdjust ข้ามแถว PayType FREE และตั้ง SendStatusSupAdjust=1 (ไม่ resend วนซ้ำ),
+      AutoResendLaneTransactionToSupAdjust กรอง PayType<>18 ด้วย (BOJ/EOJ ยังส่งตามเดิม)
+    - จอ TFI: "เปิดวิ่งฟรี" บรรทัดเดียว (WriteTfiHpmc: state/pattern เดิมของ HPMC ที่จอรองรับแล้ว, ไม่มีประเภท/ค่าผ่านทาง/บรรทัด 2)
+    [WRTFI จาก RTO]
+    - Fix: TCT อ่านหน้าจอจาก params "state" และ "pattern" (RTO 1.1.5 ส่งมา) - ถ้าไม่มี state ใช้ "mode" แบบเดิม (RTO <= 1.1.4 ส่ง mode=4 เขียน, 0 ล้าง)
+      เดิมรับแค่ mode แล้วบังคับ pattern=Normal และ log ไม่บอกว่า RTO สั่งอะไร -> log "+ From RTO => Write TFI : state=.., text1=.."
+    - หน้าจอ TCT: "เปิดวิ่งฟรี" / "0 บาท" / "ไม่เก็บค่าผ่านทาง - ปิดโหมดจาก RTO (Remote LogOff)", ประเภท login "[ RTO วิ่งฟรี ]"
+    - ที่ตู้กดได้เฉพาะ OTL (kModeFREE) คีย์อื่น log "Key ignored in FREE mode" และไม่ส่งคีย์ที่ไม่ใช้ไปแสดงที่ RTO
+    - ปิดโหมด: RTO Remote LogOff (REMOTE_LOGOUT) -> StopFreeMode (ปิด HPMC state, ปิดไม้กั้น, TFI welcome) แล้วปิดกะตามเดิม
+      (ปกติ Remote LogOff ได้เฉพาะกลุ่ม 30/40 - โหมดนี้ได้ทุกกลุ่มเพราะเปิดจาก RTO), CTRL_HPMC จาก RTO ถูก ignore ระหว่างโหมดนี้
+    - ไม่นับเป็นรถขบวนในสถิติกะ (ไม่เรียก UpdateTransStatistic_HPMC), StaffLoginMethod ใน DB/BOJ ยังเป็น 2 (RTO Remote) ให้ DC รู้จัก
+    - ทดสอบใน MTC_Sim: tests/run_tests.py step free_mode (14 ข้อ) + ชุดทดสอบรวมทั้งระบบ
+    - Bump version 2.0.5 -> 2.0.6, AssemblyVersion 2.0.5 -> 2.0.6
+
+
 =============================================================================================*/

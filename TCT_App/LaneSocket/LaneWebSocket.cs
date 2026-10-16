@@ -360,7 +360,11 @@ namespace TCT_App
                                 towing_Fare2    = TCT_Lib.fTowingFareAmount,
                                 towing_PayType2 = TCT_Lib.xTowingPayment == null ? 0 : TCT_Lib.xTowingPayment.payType
                             };
-                        laneSocketServerRTO.SendLaneMessageToClient(method, objParams);
+                        //--- v2.0.6: โหมดไม่เก็บค่าผ่านทางไม่รับคีย์ (ยกเว้น OTL) -> ไม่ส่งคีย์ที่ไม่ได้ใช้ไปแสดงที่ RTO (เช่น TC class ทำให้ขึ้นรถผิดประเภท)
+                        if (TCT_Lib.bFreeMode && (iKeyId != (int)KeyPressedType.OTL_OPEN) && (iKeyId != (int)KeyPressedType.OTL_CLOSE))
+                            LogInfo.WriteLaneEventIO(LogLevel.DEBUG, $"+ KEY {iKeyId} not sent to RTO (FREE mode)");
+                        else
+                            laneSocketServerRTO.SendLaneMessageToClient(method, objParams);
                     }
                     else if (method.ToUpper() == "SCR")
                     {

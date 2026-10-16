@@ -363,6 +363,7 @@ namespace TCT_App
                 LaneMode xLaneMode = TCT_Lib.eCurLaneMode;
                 if (TCT_Lib.bMaintenanceMode && TCT_Lib.eCurLaneMode == LaneMode.HPMC)
                     xLaneMode = LaneMode.MAINTENANCE;
+                xLaneMode = TCT_Lib.ReportLaneMode(xLaneMode);      // v2.0.6: HPMC + bFreeMode -> FREE
 
                 //LogInfo.WriteLog("EventID : " + iEventID);
                 if (method.Trim() != "")
@@ -479,6 +480,7 @@ namespace TCT_App
                 LaneMode xLaneMode = TCT_Lib.eCurLaneMode;
                 if (TCT_Lib.bMaintenanceMode && TCT_Lib.eCurLaneMode == LaneMode.HPMC)
                     xLaneMode = LaneMode.MAINTENANCE;
+                xLaneMode = TCT_Lib.ReportLaneMode(xLaneMode);      // v2.0.6: HPMC + bFreeMode -> FREE
                 //---------------------------------------------------------
                 var InvC = CultureInfo.InvariantCulture;
                 long iID = iEventRtoID;
@@ -655,6 +657,7 @@ namespace TCT_App
                 LaneMode xLaneMode = TCT_Lib.eCurLaneMode;
                 if (TCT_Lib.bMaintenanceMode && TCT_Lib.eCurLaneMode == LaneMode.HPMC)
                     xLaneMode = LaneMode.MAINTENANCE;
+                xLaneMode = TCT_Lib.ReportLaneMode(xLaneMode);      // v2.0.6: HPMC + bFreeMode -> FREE
                 szQuery     = "INSERT INTO LaneAlarmRTO (AlarmRtoID, AlarmDateTime, PlazaID, LaneID, LaneType, LaneMode, LaneDirection, " +
                                     "StaffShiftID, StaffID, StaffCode, StaffName, SupervisorShiftID, SupervisorID, SupervisorCode, SupervisorName, " +
                                     "AlarmDevice, AlarmDeviceName, AlarmType, AlarmTypeName, AlarmDetail, AlarmRemark) VALUES " +
@@ -1211,6 +1214,7 @@ namespace TCT_App
                         else
                             xLaneMode = LaneMode.NORMAL;
                     }
+                    xLaneMode = TCT_Lib.ReportLaneMode(xLaneMode);  // v2.0.6: HPMC + bFreeMode -> FREE
 
                     if (TCT_Lib.bConvoyMode && TCT_Lib.bAllowConvoy)
                     {
@@ -1261,6 +1265,15 @@ namespace TCT_App
                     if ((iTC_Class == 0) && (xPayment.payType == (int)PayType.HPMC))
                     {
                         fFareAmount = xPayment.payAmount = 0;
+                    }
+
+                    //--- v2.0.6: โหมดไม่เก็บค่าผ่านทาง - บันทึกเป็น PayType FREE (DC: method "FREE", laneMode "FREE_MODE")
+                    if ((iTC_Class == 0) && (xPayment.payType == (int)PayType.HPMC) && (xLaneMode == LaneMode.FREE))
+                    {
+                        xPayment.payType            = (int)PayType.FREE;
+                        xPayment.payTypeName        = TCT_Lib.GetPayMethodName((int)PayType.FREE);
+                        xPayment.payRemark          = "FREE";
+                        szTransRemark               = TCT_Lib.szFreeModeText;
                     }
 
                     //---------------------------------------------------------------
@@ -1503,6 +1516,7 @@ namespace TCT_App
                         else
                             xLaneMode = LaneMode.NORMAL;
                     }
+                    xLaneMode = TCT_Lib.ReportLaneMode(xLaneMode);  // v2.0.6: HPMC + bFreeMode -> FREE
 
                     if (TCT_Lib.eCurLaneType == LaneType.DUAL)
                     {
@@ -1785,6 +1799,7 @@ namespace TCT_App
                     LaneMode xLaneMode = TCT_Lib.eCurLaneMode;
                     if (TCT_Lib.bMaintenanceMode && TCT_Lib.eCurLaneMode == LaneMode.HPMC)
                         xLaneMode = LaneMode.MAINTENANCE;
+                    xLaneMode = TCT_Lib.ReportLaneMode(xLaneMode);  // v2.0.6: HPMC + bFreeMode -> FREE
                     //--------
                     string szQuery = "INSERT INTO LaneTransaction (TransactionID, TransactionDateTime, PlazaID, PlazaName, " +
                                     "LaneID, LaneName, LaneType, LaneTypeName, LaneMode, LaneModeName, LaneDirection, LaneDirectionName, " +
@@ -1855,6 +1870,7 @@ namespace TCT_App
                     LaneMode xLaneMode = TCT_Lib.eCurLaneMode;
                     if (TCT_Lib.bMaintenanceMode && TCT_Lib.eCurLaneMode == LaneMode.HPMC)
                         xLaneMode = LaneMode.MAINTENANCE;
+                    xLaneMode = TCT_Lib.ReportLaneMode(xLaneMode);  // v2.0.6: HPMC + bFreeMode -> FREE
                     //--------
                     string szQuery = "INSERT INTO LaneTransaction (TransactionID, TransactionDateTime, PlazaID, PlazaName, " +
                                     "LaneID, LaneName, LaneType, LaneTypeName, LaneMode, LaneModeName, LaneDirection, LaneDirectionName, " +
@@ -1952,7 +1968,7 @@ namespace TCT_App
                                     "EmvDetailID, ReceiptNo, TransRemark, UpdateDateTime) VALUES " +
                                     $"({iSalesCouponTransID}, '{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}', '{TCT_Lib.szPlazaID}', '{TCT_Lib.szPlazaName}', " +
                                     $"{TCT_Lib.iLaneID}, '{TCT_Lib.szLaneName}', {(int)TCT_Lib.eCurLaneType}, '{TCT_Lib.GetLaneTypeName(TCT_Lib.eCurLaneType)}', " +
-                                    $"{(int)TCT_Lib.eCurLaneMode}, '{TCT_Lib.GetLaneModeName(TCT_Lib.eCurLaneMode)}', " +
+                                    $"{(int)TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode)}, '{TCT_Lib.GetLaneModeName(TCT_Lib.ReportLaneMode(TCT_Lib.eCurLaneMode))}', " +
                                     $"{(int)TCT_Lib.eLaneDirection}, '{TCT_Lib.GetLaneDirection(TCT_Lib.eLaneDirection)}', " +
                                     //$"{TCT_Lib.iStaffShiftID}, '{TCT_Lib.szStaffID}', '{TCT_Lib.szStaffCode}', '{TCT_Lib.szStaffName}', '{TCT_Lib.dtStaffStartShift.ToString("yyyy-MM-dd HH:mm:ss.fff", InvC)}'," +
                                     $"{TCT_Lib.iStaffShiftID}, '{TCT_Lib.szStaffID}', '{TCT_Lib.szStaffCode}', '{TCT_Lib.szStaffName}', '{TCT_Lib.dtStaffStartShift.ToString("yyyy-MM-dd HH:mm:ss", InvC)}'," +

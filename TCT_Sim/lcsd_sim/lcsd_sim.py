@@ -56,6 +56,10 @@ panel_clients: set = set()
 logs: deque = deque(maxlen=5000)
 seq_no = [0]
 status = {"tct": False, "rto": False, "supadj": False, "dc": False}
+# จอ TFI จำลอง: ค่าล่าสุดที่ TCT สั่งด้วย WRTFI (แสดงที่ /tfi) + ประวัติ
+TFI_BLANK = {"mode": 0, "state": 0, "pattern": 0, "text_class": "", "text_fare": "", "text_balance": "", "text1": "", "text2": ""}
+tfi = {**TFI_BLANK, "time": "", "cmd": ""}
+tfi_history: deque = deque(maxlen=50)
 counters = {"supadj_trans": 0, "rto_trans": 0, "dc_msgs": 0}
 
 
@@ -179,7 +183,16 @@ async def handle_tct_request(ws, req):
     elif method == "KEY":
         await log("TCT→SIM", f"KEY (ปุ่มบนจอ) keyId={params.get('keyId', params.get('id'))}", "dim")
     elif method == "WRTFI":
-        await log("TCT→SIM", "TFI " + " | ".join(str(params.get(k, "")) for k in params if params.get(k) not in ("", None)), "dim")
+        if params.get("clear"):
+            tfi.update(TFI_BLANK, cmd="clear")
+        elif params.get("reset"):
+            tfi.update(TFI_BLANK, cmd="reset")
+        else:
+            tfi.update({k: params.get(k, TFI_BLANK[k]) for k in TFI_BLANK}, cmd="write")
+        tfi["time"] = time.strftime("%H:%M:%S")
+        tfi_history.appendleft(dict(tfi))
+        await log("TCT→SIM", "TFI " + " | ".join(str(params.get(k, "")) for k in params if params.get(k) not in ("", None)), "dim",
+                  {"method": "WRTFI", "params": params})
     elif method == "WRCRS":
         await log("TCT→SIM", "CRS " + json.dumps(params, ensure_ascii=False), "dim")
     elif method == "RBELL":
@@ -782,7 +795,7 @@ async def api_state(request):
     since = int(request.query.get("since", "0"))
     items = [it for it in logs if it.get("seq", 0) > since]
     return web.json_response({"status": status, "counters": counters, "di": di_values, "do": do_values,
-                              "edc": edc_public(), "captures": list(captures),
+                              "edc": edc_public(), "captures": list(captures), "tfi": tfi,
                               "seq": seq_no[0], "logs": items})
 
 
@@ -819,6 +832,14 @@ async def edc_page(request):
     return web.FileResponse(Path(__file__).parent / "edc.html")
 
 
+async def tfi_page(request):
+    return web.FileResponse(Path(__file__).parent / "tfi.html")
+
+
+async def api_tfi(request):
+    return web.json_response({"tfi": tfi, "history": list(tfi_history)})
+
+
 async def keyboard_page(request):
     return web.FileResponse(Path(__file__).parent / "keyboard.html")
 
@@ -839,6 +860,8 @@ def main():
     panel.router.add_get("/ws", panel_ws)
     panel.router.add_get("/keyboard", keyboard_page)
     panel.router.add_get("/edc", edc_page)
+    panel.router.add_get("/tfi", tfi_page)
+    panel.router.add_get("/api/tfi", api_tfi)
     panel.router.add_post("/api", api)
     panel.router.add_get("/api/state", api_state)
     panel.router.add_get("/api/shot", api_shot)
