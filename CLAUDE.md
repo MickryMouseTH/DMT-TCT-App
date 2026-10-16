@@ -43,8 +43,10 @@ build.bat         # Windows -> dist\NovaDemo.exe , dist\ColorRecDemo.exe
 ```
 
 ### TCT_Sim (เครื่องจำลองช่องทางทั้งระบบ, Docker) — ใช้ทดสอบแอป C# อัตโนมัติ
+ย้ายไปอยู่ใน repo `mtc-sim.git` แล้ว → `../MTC_Sim/TCT_Sim/` (หา repo นี้ที่ `../../TCT_App` หรือตั้ง `TCT_REPO=<path>`)
+ทดสอบรวมทุกโปรแกรม (TCT + RTO + SupAdjust + LSD) ใช้ `../MTC_Sim` (`./sim.sh up` → http://localhost:8800)
 ```bash
-cd TCT_Sim
+cd ../MTC_Sim/TCT_Sim
 ./sim.sh build                   # build TCT_App.sln ด้วย Mono ใน Docker (image tct-mono-build:6.12) — เครื่องนี้ไม่มี mono/msbuild
 python3 prepare.py               # copy bin/Debug -> runtime/ + config ชี้ service จำลอง (ต้องรันทุกครั้งหลัง build ใหม่)
 ./sim.sh start                   # LCSD/RTO/SupAdjust/DC(RabbitMQ)/EDC/TA/กล้อง จำลอง + TCT ใน container, panel http://localhost:8090

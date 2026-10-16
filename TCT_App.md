@@ -77,7 +77,7 @@ TCT_App/
 ├── Config/                         log4net config
 └── gtk-gui/                        โค้ด UI ที่ Stetic generate (ไม่ควรแก้มือ)
 
-TCT_Sim/                            (ระดับ repo) ระบบจำลองช่องทาง สำหรับรัน/ทดสอบ TCT โดยไม่ต้องมีอุปกรณ์จริง (หัวข้อ 6)
+../MTC_Sim/TCT_Sim/                 ระบบจำลองช่องทาง (อยู่ใน repo mtc-sim.git) สำหรับรัน/ทดสอบ TCT โดยไม่ต้องมีอุปกรณ์จริง (หัวข้อ 6)
 ```
 
 ---
@@ -188,10 +188,10 @@ TCT_Sim/                            (ระดับ repo) ระบบจำล
 - รันบน Linux ผ่าน Mono, เปิดเต็มจอ (`#define __FULL_SCREEN__` ใน Program.cs)
 - โครงโฟลเดอร์ที่เครื่องช่อง: `<root>/app/TCT_App.exe`, `<root>/config/TCT.config` (JSON), `<root>/log/`
   — config อ่านจาก `../config/TCT.config` เทียบกับโฟลเดอร์ exe (`ConfigInfo.GetConfigPath()` ใน `TCT_Log.cs`)
-- **Simulator (`TCT_Sim/`)** — Docker: จอ TCT (Xvfb + noVNC), Lane Controller, คีย์บอร์ด Cherry บนเว็บ, EDC (บัตร/QR),
+- **Simulator (`../MTC_Sim/TCT_Sim/`, repo `mtc-sim.git`)** — Docker: จอ TCT (Xvfb + noVNC), Lane Controller, คีย์บอร์ด Cherry บนเว็บ, EDC (บัตร/QR),
   กล้อง 3 ตัว + Web API รับภาพ, DC (RabbitMQ), Sup Adjust, RTO, TA Web Service
   ```bash
-  cd TCT_Sim
+  cd ../MTC_Sim/TCT_Sim
   ./sim.sh build        # build ด้วย Mono 6.12 ใน Docker (Release + Debug)
   ./sim.sh start        # เปิดระบบจำลอง → http://localhost:8090
   ./sim.sh kbtest       # ทดสอบอัตโนมัติด้วยคีย์บอร์ด (35 กรณี)
@@ -231,4 +231,4 @@ TCT_Sim/                            (ระดับ repo) ระบบจำล
 กฎเมื่อเพิ่มหน้าจอ / Popup ใหม่:
 - Popup ใหม่ → เรียก `UiTheme.StylePopup(this)` หลัง `Build()` (ได้กรอบ มุมมน สีปุ่มตกลง/ยกเลิก อัตโนมัติ)
 - ปุ่มที่ตรงกับคีย์บนคีย์บอร์ด Cherry → `UiTheme.StyleKey(ปุ่ม, สีของคีย์นั้น)` ให้สีบนจอ = สีบนคีย์บอร์ด
-- ข้อความยาวในปุ่ม/DrawingArea → ตรวจว่าไม่ถูกตัดที่จอ 1024x768 (`python3 TCT_Sim/gui_tour.py`)
+- ข้อความยาวในปุ่ม/DrawingArea → ตรวจว่าไม่ถูกตัดที่จอ 1024x768 (`python3 ../MTC_Sim/TCT_Sim/gui_tour.py`)
