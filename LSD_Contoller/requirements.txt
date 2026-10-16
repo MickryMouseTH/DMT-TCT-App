@@ -1,3 +1,0 @@
-loguru>=0.7.0
-# ไม่บังคับ: ใช้เข้ารหัสค่า config ที่มีคำว่า "pass" (ตอนนี้ config ยังไม่มี secret)
-cryptography>=41.0.0

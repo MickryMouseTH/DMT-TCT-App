@@ -7,10 +7,11 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 แอปนี้คือ **Toll Collection Terminal (TCT)** — ซอฟต์แวร์หน้าตู้เก็บเงินค่าผ่านทาง 1 ช่อง (lane)
 เป็น **C# / GTK# 2.4 / Mono** desktop GUI (full screen, รันบน Linux) ไม่มี package.json/Node
 
-repo นี้มี 3 ส่วนที่ build/รันแยกกัน:
-- **`TCT_App/` + `TCT_Lib/`** — แอปหลัก (C#/Mono, `TCT_App.sln`)
-- **`LSD_Contoller/`** — LSD_Bridge (Python) ตัวแปลงคำสั่งป้าย LSD เดิม→controller ใหม่
-- **`LSD_Simulator/`** — NovaDemo + ColorRecDemo (Python GUI) ตัวจำลองไว้ทดสอบ Bridge
+repo นี้มีเฉพาะแอปหลัก **`TCT_App/` + `TCT_Lib/`** (C#/Mono, `TCT_App.sln`)
+ส่วนที่เคยอยู่ใน repo นี้ ย้ายไปมี repo ของตัวเองแล้ว (ใน workspace `DMT_ALL_MTC/`):
+- **LSD_Bridge** (Python) ตัวแปลงคำสั่งป้าย LSD เดิม→controller ใหม่ → `../LSD_Contoller/LSD_Bridge/` (`lsd-bridge.git`)
+- **LSD_Simulator** — NovaDemo + ColorRecDemo (Python GUI) ตัวจำลองไว้ทดสอบ Bridge → `../LSD_Simulator/` (`lsd-simulator.git`)
+- **TCT_Sim** — จำลองช่อง TCT + ชุดทดสอบ → `../MTC_Sim/TCT_Sim/` (`mtc-sim.git`)
 
 ## คำสั่ง Build / Run / Test
 
@@ -23,24 +24,8 @@ mono TCT_App/bin/Debug/TCT_App.exe              # รัน (target .NET Framewo
 - `TCT_App.csproj` เป็น project เดียวใน solution และ **include `TCT_Lib.cs` เข้ามา compile ตรง ๆ** (TCT_Lib ไม่ใช่ project แยก)
 - **ไม่มี unit test project** — การทดสอบแอปหลักทำแบบ manual บนเครื่อง/ตู้จริง
 
-### LSD_Contoller (LSD_Bridge, Python)
-```bash
-cd LSD_Contoller
-python3 -m pip install -r requirements.txt
-python3 LSD_Bridge.py            # รันครั้งแรกสร้าง LSD_Bridge_config.json แล้วรันใหม่
-python3 test_protocol.py         # ทดสอบ encode/decode + CRC ด้วยไบต์จริง (ไม่ต้องมีฮาร์ดแวร์)
-./build.sh                       # build เป็น executable เดียว (PyInstaller --onefile)
-```
-
-### LSD_Simulator (NovaDemo / ColorRecDemo, Python GUI)
-```bash
-cd LSD_Simulator
-python3 -m pip install -r requirements.txt   # ต้องมี PySide6 (GUI)
-python3 ColorRecDemo.py          # เปิดฝั่งรับก่อน (HTTP server, default 0.0.0.0:8080)
-python3 NovaDemo.py              # เปิดฝั่งส่ง (ตั้ง Target = <ip bridge>:16603 ใน GUI)
-./build.sh        # Linux/macOS -> dist/NovaDemo , dist/ColorRecDemo
-build.bat         # Windows -> dist\NovaDemo.exe , dist\ColorRecDemo.exe
-```
+### LSD_Bridge / LSD_Simulator (Python)
+อยู่ใน repo ของตัวเองแล้ว — คำสั่ง build/test ดู `../LSD_Contoller/LSD_Bridge/README.md` และ `../LSD_Simulator/README.md`
 
 ## สถาปัตยกรรมหลัก — แอป C# (จำไว้)
 - **Global static state เป็นศูนย์กลาง:** `TCT_Lib.cs` เก็บเกือบทุกอย่าง (config, สถานะช่อง, staff, payment, สถานะ connection, list คิวรถ) — object ระบบย่อยอ้างผ่าน `TCT_Lib.laneController / webSocketLane / lsdController / LaneDB`
@@ -55,7 +40,7 @@ build.bat         # Windows -> dist\NovaDemo.exe , dist\ColorRecDemo.exe
 รอรถ → AVC จำแนกประเภท → เลือก CLASS → เลือก PAYMENT → ประมวลผลชำระ → บันทึก DB + พิมพ์ใบเสร็จ + ส่ง RabbitMQ → เปิดไม้กั้น ALB/OTL → ถ่ายภาพ NVR → วนใหม่
 โหมดพิเศษ: TOWING (รถลาก, 6 state), CONVOY/HPMC (ขบวน), Violation
 
-## สถาปัตยกรรม — LSD Bridge + Simulators (Python)
+## สถาปัตยกรรม — LSD Bridge + Simulators (Python, อยู่ใน repo lsd-bridge / lsd-simulator)
 สายข้อมูลของระบบป้าย LSD ตัวใหม่ (แทน path C# `LSD/LaneSocketControl_LSD.cs`):
 ```
 [ TCT_App / NovaDemo ] --TCP 16603 (AVON binary)--> [ LSD_Bridge ] --HTTP PUT .../{vsn}/activated--> [ LSD Controller ใหม่ / ColorRecDemo ]
@@ -80,4 +65,4 @@ build.bat         # Windows -> dist\NovaDemo.exe , dist\ColorRecDemo.exe
 ## เอกสารในโปรเจกต์
 - `TCT_App.md` — เอกสารโครงสร้าง/การทำงานแอปหลัก (ภาษาไทย, สำหรับเจ้าของโปรเจกต์)
 - `Bug.md` — รายงานบั๊กที่ทำให้ระบบค้าง/ดับ พร้อมเลขบรรทัด จัดหมวด A–G
-- `LSD_Contoller/README.md`, `LSD_Simulator/README.md` — คู่มือ Bridge + ตัวจำลอง
+- `../LSD_Contoller/LSD_Bridge/README.md`, `../LSD_Simulator/README.md` — คู่มือ Bridge + ตัวจำลอง (repo แยก)

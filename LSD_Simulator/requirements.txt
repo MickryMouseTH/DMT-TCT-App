@@ -1,5 +1,0 @@
-loguru>=0.7.0
-# GUI — qt_compat รองรับ PyQt6 / PyQt5 / PySide2 ด้วย ถ้าอยากใช้ตัวอื่นเปลี่ยนบรรทัดนี้ได้
-PySide6>=6.5.0
-# ไม่บังคับ: เข้ารหัสค่า config ที่มีคำว่า "pass" (ปัจจุบันยังไม่มี secret)
-cryptography>=41.0.0
