@@ -477,7 +477,7 @@ namespace TCT_App
     //-------------------------------------------------------------
     public class TCT_Lib
     {
-        public static string szAppVersion               = "2.0.6";
+        public static string szAppVersion               = "2.0.8";
         public static string szAppBuild                 = "2026/10/07 18:00:00";         // 2.0.3 GUI review fixes; 2.0.2 keyboard + GUI restyle; 2.0.1 force reset / OB-only fix; 2.0.0 => "2026/06/02 00:00:00"; 1.5.7 => "2025/09/23 01:05:06";
         public static string szSysUserName              = WindowsIdentity.GetCurrent().Name;
         public static string szSysUserName2             = Environment.UserName;
@@ -576,6 +576,9 @@ namespace TCT_App
             
         //--- RTO Socket Setting
         public static string szRTO_IPAddress                = "";
+        //--- v2.0.7: control commands (CTRL_IO, REMOTE_LOGIN, CHANGE_TYPE ...) only from the RTO IP / RTO.AllowedIPs
+        public static bool bRTO_CommandFromRtoOnly          = true;
+        public static string szRTO_AllowedIPs               = "";       // extra IPs allowed to send commands, "a.b.c.d,e.f.g.h"
         public static int iRTO_SocketPort                   = 9094;
 
         //--- Video NVR Setting
@@ -1043,7 +1046,9 @@ namespace TCT_App
                 iLCIO_SocketPort                    = xTctConfig["LCIO"]["SocketPort"] ?? 18084;
 
                 iRTO_SocketPort                     = xTctConfig["RTO"]["SocketPort"] ?? 9094;
-                szRTO_IPAddress                     = xTctConfig["RTO"]["IPAddress"] ?? "";
+                szRTO_IPAddress                     = ((string)(xTctConfig["RTO"]["IPAddress"] ?? "")).Trim();     // v2.0.7: trimmed (a stray space dropped every transaction)
+                bRTO_CommandFromRtoOnly             = (int)(xTctConfig["RTO"]["CommandFromRtoOnly"] ?? 1) == 1;
+                szRTO_AllowedIPs                    = (string)(xTctConfig["RTO"]["AllowedIPs"] ?? "");
 
                 bEnableSupAdjust                    = (xTctConfig["SupAdjust"]["Enable"] ?? 0) == 1;
                 iSupAdjust_SocketPort               = xTctConfig["SupAdjust"]["SocketPort"] ?? 9095;
@@ -1365,6 +1370,8 @@ namespace TCT_App
                 LogInfo.WriteLog($"+ LCIO_SocketPort \t\t\t= {iLCIO_SocketPort}");
                 LogInfo.WriteLog($"+ RTO_IPAddress \t\t\t\t= {szRTO_IPAddress}");
                 LogInfo.WriteLog($"+ RTO_SocketPort \t\t\t\t= {iRTO_SocketPort}");
+                LogInfo.WriteLog($"+ RTO_CommandFromRtoOnly \t\t= {bRTO_CommandFromRtoOnly}");
+                LogInfo.WriteLog($"+ RTO_AllowedIPs \t\t\t= {szRTO_AllowedIPs}");
                 LogInfo.WriteLog($"+ SupAdjust_Enable \t\t\t= {bEnableSupAdjust}");
                 LogInfo.WriteLog($"+ SupAdjust_IPAddress \t\t= {szSupAdjust_IPAddress}");
                 LogInfo.WriteLog($"+ SupAdjust_SocketPort \t\t= {iSupAdjust_SocketPort}");
@@ -2038,6 +2045,92 @@ namespace TCT_App
         }
 
         //---------------------------------------------------------------------------------------------------
+        //--- v2.0.7: LANE_EVENT / LANE_ALARM that were not sent (RTO was down / port check flapped) are sent again.
+        //---         Only the last 2 days (RTO keeps lane events 2 days), at most 200 per cycle, oldest first.
+        async public static Task<bool> AutoResendLaneEventToRTO()
+        {
+            return await AutoResendRtoTable("LaneEventRTO", "EventRtoID", "EventDateTime", id => SendLaneEventObjToRTO(id, true));
+        }
+
+        async public static Task<bool> AutoResendLaneAlarmToRTO()
+        {
+            return await AutoResendRtoTable("LaneAlarmRTO", "AlarmRtoID", "AlarmDateTime", id => SendLaneAlarmObjToRTO(id, true));
+        }
+
+        async static Task<bool> AutoResendRtoTable(string szTable, string szIdColumn, string szDateColumn, Func<int, bool> xSend)
+        {
+            if (!TCT_Lib.bRTO_Connected)
+                return false;
+            string szQuery = $"SELECT {szIdColumn} FROM {szTable} " +
+                                "WHERE IFNULL(SendStatusRTO,0)=0 " +
+                                $"AND {szDateColumn}>='{DateTime.Today.AddDays(-2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}' " +
+                                $"ORDER BY {szIdColumn} LIMIT 200";
+            DataTable dt = TCT_Lib.LaneDB.List(szQuery);
+            if (dt == null || dt.Rows.Count == 0)
+                return true;
+            LogInfo.WriteLog($"+ AutoResend {szTable} to RTO : Total={dt.Rows.Count}");
+            for (int i = 0; i < dt.Rows.Count; i++)
+            {
+                int iId = int.Parse(dt.Rows[i][0].ToString());
+                if (!xSend(iId))
+                {
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning AutoResend {szTable} : {szIdColumn}={iId} failed at {i + 1}/{dt.Rows.Count} -> retry next cycle");
+                    return false;
+                }
+                await Task.Delay(50);
+            }
+            return true;
+        }
+
+        //--- bResend = true : returns whether it was really sent (the resend loop stops on false)
+        public static bool SendLaneEventObjToRTO(int iEventID, bool bResend)
+        {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneEventObjToRTO : EventRtoID={iEventID}, resend={bResend}");
+            if (iEventID == 0)
+                return false;
+            try
+            {
+                var xLaneEvent      = TCT_Obj.GenerateLaneEventRTO(iEventID);
+                if (xLaneEvent == null)
+                {
+                    UpdateLaneEventToRTO(iEventID, false);
+                    return true;                                // not buildable : do not block the queue
+                }
+                bool bResult        = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_EVENT", xLaneEvent);
+                UpdateLaneEventToRTO(iEventID, bResult);
+                return bResult;
+            }
+            catch (Exception err)
+            {
+                LogInfo.WriteLog("- Error SendLaneEventObjToRTO (resend) : " + err.Message);
+                return false;
+            }
+        }
+
+        public static bool SendLaneAlarmObjToRTO(int iAlarmID, bool bResend)
+        {
+            LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneAlarmObjToRTO : AlarmRtoID={iAlarmID}, resend={bResend}");
+            if (iAlarmID == 0)
+                return false;
+            try
+            {
+                var xLaneAlarm      = TCT_Obj.GenerateLaneAlarmRTO(iAlarmID);
+                if (xLaneAlarm == null)
+                {
+                    UpdateLaneAlarmToRTO(iAlarmID, false);
+                    return true;
+                }
+                bool bResult        = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_ALARM", xLaneAlarm);
+                UpdateLaneAlarmToRTO(iAlarmID, bResult);
+                return bResult;
+            }
+            catch (Exception err)
+            {
+                LogInfo.WriteLog("- Error SendLaneAlarmObjToRTO (resend) : " + err.Message);
+                return false;
+            }
+        }
+
         public static bool SendLaneEventObjToRTO(int iEventID)
         {
             LogInfo.WriteLog(LogLevel.DEBUG, $"+ SendLaneEventObjToRTO : EventRtoID={iEventID}");
@@ -2203,9 +2296,24 @@ namespace TCT_App
                 return false;
 
             bool bResult    = true;
+            //--- v2.0.7: same rows as 1.5.7 (JobNo + nTrx range, date >= requested date). Requests run one at a time
+            //---         and wait for each other (RTO gap check / Utility screen) - none is dropped.
+            DateTime dtReq;
+            if (!DateTime.TryParseExact((szDate ?? "").Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out dtReq))
+            {
+                LogInfo.WriteLog($"- SendFromReqLaneTransactionToRTO : bad date '{szDate}'");
+                return false;
+            }
+            if (!xReqResendLock.Wait(TimeSpan.FromMinutes(5)))
+            {
+                LogInfo.WriteLog(LogLevel.WARN, $"- Warning SendFromReqLaneTransactionToRTO : previous request still running after 5 min, JobNo={iJobNo}, nTrx={iStart_nTrx}..{iEnd_nTrx} not answered");
+                return false;
+            }
+            try
+            {
             string szQuery  = "SELECT * FROM LaneTransaction " +
                                 $"WHERE JobNo={iJobNo} AND (nTrx>={iStart_nTrx} AND nTrx<={iEnd_nTrx}) " +
-                                $"AND DATE(TransactionDateTime)>='{szDate}' " +   // Dummy Date, Take out when production
+                                $"AND DATE(TransactionDateTime)>='{dtReq.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}' " +
                                 "ORDER BY TransactionID";
 
             LogInfo.WriteLog(LogLevel.TRACE, $"+ SendFromReqLaneTransactionToRTO : SQL={szQuery}");
@@ -2225,6 +2333,39 @@ namespace TCT_App
             }
 
             return bResult;
+            }
+            finally
+            {
+                xReqResendLock.Release();
+            }
+        }
+        static readonly SemaphoreSlim xReqResendLock = new SemaphoreSlim(1, 1);
+
+        //--- v2.0.7: RTO reconnected : transactions sent in the last iSeconds may have been queued to the dead session
+        public static void ResendRecentLaneTransactionToRTO(int iSeconds)
+        {
+            try
+            {
+                if (!TCT_Lib.bRTO_Connected)
+                    return;
+                string szQuery = "SELECT TransactionID FROM LaneTransaction " +
+                                    "WHERE SendStatusRTO=1 " +
+                                    $"AND SendDateTimeRTO>='{DateTime.Now.AddSeconds(-iSeconds).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}' " +
+                                    "ORDER BY TransactionID LIMIT 50";
+                DataTable dt = TCT_Lib.LaneDB.List(szQuery);
+                if (dt == null || dt.Rows.Count == 0)
+                    return;
+                LogInfo.WriteLog($"+ RTO reconnected : send again {dt.Rows.Count} transaction(s) of the last {iSeconds} s");
+                for (int i = 0; i < dt.Rows.Count; i++)
+                {
+                    SendLaneTransObjToRTO(int.Parse(dt.Rows[i][0].ToString()), true);
+                    Thread.Sleep(100);
+                }
+            }
+            catch (Exception err)
+            {
+                LogInfo.WriteLog("- Error ResendRecentLaneTransactionToRTO : " + err.Message);
+            }
         }
 
         public static bool SendLaneTransObjToRTO(int iTransID, bool bResend=false)
@@ -2240,7 +2381,13 @@ namespace TCT_App
                 //Console.WriteLine("+ RTO Lane Transaction = " + szLaneTrans);
                 LogInfo.WriteLog($"+ RTO Send Lane Transaction : TransID={iTransID}");
                 if (xLaneTrans == null)
-                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning SendLaneTransObjToRTO : TransID={iTransID} message is null (not found / build failed)");
+                {
+                    //--- v2.0.7: was sent as params:null and marked as delivered. Count a retry; a resend loop goes on
+                    //---         with the next transaction (this one is retried next cycle) instead of stopping on it
+                    LogInfo.WriteLog(LogLevel.WARN, $"- Warning SendLaneTransObjToRTO : TransID={iTransID} message is null (not found / build failed), not sent");
+                    UpdateLaneTransToRTO(iTransID, false);
+                    return bResend;
+                }
                 bool bResult        = TCT_Lib.webSocketLane.laneSocketServerRTO.SendLaneMessageToRTO("LANE_TRANSACTION", xLaneTrans);
                 UpdateLaneTransToRTO(iTransID, bResult);
                 LogInfo.WriteLog($"+ RTO Result Send Lane Transaction : TransID={iTransID}, Result={bResult}");
@@ -2366,6 +2513,12 @@ namespace TCT_App
                 }
 
                 var xLaneTrans      = TCT_Obj.GenerateLaneTransMessage(iTransID);
+                if (xLaneTrans == null)
+                {
+                    //--- v2.0.7: DB read failed -> do not send "null" / mark sent, resend picks it up later
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error SendLaneTransObjToSupAdjust : TransID={iTransID} cannot be read from DB, not sent (kept for resend)");
+                    return false;
+                }
                 string szLaneTrans  = JsonConvert.SerializeObject(xLaneTrans, Formatting.Indented);
                 //Console.WriteLine("+ SCW Lane Transaction = " + szLaneTrans);
                 LogInfo.WriteLog($"+ SupAdjust Lane Transaction : TransID={iTransID}");
@@ -2448,6 +2601,12 @@ namespace TCT_App
             try
             {
                 var xLaneTrans      = TCT_Obj.GenerateLaneTransaction(iTransID);
+                if ((xLaneTrans == null) || (xLaneTrans.@params == null) || (xLaneTrans.@params.laneTransMessage == null))
+                {
+                    //--- v2.0.7: DB read failed -> "null" was sent and the row marked sent = car lost at DC. Keep it unsent.
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error SendLaneTransObjToDC : TransID={iTransID} cannot be read from DB, not sent (kept for resend)");
+                    return false;
+                }
                 string szLaneTrans  = JsonConvert.SerializeObject(xLaneTrans, Formatting.Indented);
                 szLaneTrans         = szLaneTrans.Replace("Params", "params").Replace("startShiftDateTime", "boj");
                 //Console.WriteLine("+ Rabbit Lane Transaction = " + szLaneTrans);
@@ -2512,7 +2671,9 @@ namespace TCT_App
                                 "WHERE (BojSendStatusDC=0 OR BojSendStatusDC IS NULL) " +
                                 //$"AND DATE(TransactionDateTime)='{DateTime.Today.ToString("yyyy-MM-dd")}' " +
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
-                                $"AND StaffShiftID <> {iStaffShiftID} " +
+                                //--- v2.0.7: the current shift too once its login send had time to run (BOJ failed at login
+                                //---         = DC got no BOJ for the whole shift before)
+                                $"AND (StaffShiftID <> {iStaffShiftID} OR StaffStartShiftDateTime<'{DateTime.Now.AddMinutes(-2).ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}') " +
                                 "ORDER BY StaffShiftID";
             LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendBeginJobToDC : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
@@ -2539,6 +2700,12 @@ namespace TCT_App
             try
             {
                 var xLaneBOJ        = TCT_Obj.GenerateLaneBeginOfJob(iStaffShiftID);
+                if (xLaneBOJ == null)
+                {
+                    //--- v2.0.7: "null" was sent and the BOJ marked sent. Keep it unsent; a resend goes on with the next shift.
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error SendLaneBeginJobObjToDC : StaffShiftID={iStaffShiftID} BOJ cannot be built from DB, not sent (kept for resend)");
+                    return bResend;
+                }
                 string szLaneBOJ    = JsonConvert.SerializeObject(xLaneBOJ, Formatting.Indented);
                 szLaneBOJ           = szLaneBOJ.Replace("Params", "params");
 
@@ -2599,6 +2766,9 @@ namespace TCT_App
                                 //$"AND DATE(TransactionDateTime)='{DateTime.Today.ToString("yyyy-MM-dd")}' " +
                                 $"AND DATE(StaffStartShiftDateTime)>='2021-01-01' " +   // Dummy Date, Take out when production
                                 $"AND StaffShiftID <> {iStaffShiftID} "+
+                                //--- v2.0.7: only ended shifts - a shift without end time (crash / power cut) made the resend
+                                //---         stop on it, so no later EOJ was ever resent
+                                "AND StaffEndShiftDateTime IS NOT NULL AND StaffEndShiftDateTime<>'' " +
                                 "ORDER BY StaffShiftID";
             LogInfo.WriteLog(LogLevel.TRACE, $"+ AutoResendEndJobToDC : SQL={szQuery}");
             DataTable dtStaffShift = TCT_Lib.LaneDB.List(szQuery);
@@ -2630,7 +2800,7 @@ namespace TCT_App
                 if (xLaneEOJ == null)
                 {
                     LogInfo.WriteLog("- Not create EndOfJob file (Not found EOJ DateTime");
-                    return false;
+                    return bResend;         // v2.0.7: a resend goes on with the next shift (this one stays unsent)
                 }
                 //-----------------------------------------------------------------------------------
                 string szLaneEOJ    = JsonConvert.SerializeObject(xLaneEOJ, Formatting.Indented);
@@ -2746,6 +2916,12 @@ namespace TCT_App
             try
             {
                 var xLaneBOJ        = TCT_Obj.GenerateLaneBeginOfJob(iStaffShiftID);
+                if (xLaneBOJ == null)
+                {
+                    //--- v2.0.7: "null" was sent and the BOJ marked sent. Keep it unsent; a resend goes on with the next shift.
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error SendBeginJobObjToRTO : StaffShiftID={iStaffShiftID} BOJ cannot be built from DB, not sent (kept for resend)");
+                    return bResend;
+                }
                 string szLaneBOJ    = JsonConvert.SerializeObject(xLaneBOJ, Formatting.Indented);
                 szLaneBOJ           = szLaneBOJ.Replace("Params", "params");
                 //Console.WriteLine("+ RTO Lane Begin of Job = " + szLaneBOJ);
@@ -2911,6 +3087,12 @@ namespace TCT_App
             try
             {
                 var xLaneBOJ        = TCT_Obj.GenerateLaneBeginOfJob(iStaffShiftID);
+                if (xLaneBOJ == null)
+                {
+                    //--- v2.0.7: "null" was sent and the BOJ marked sent. Keep it unsent; a resend goes on with the next shift.
+                    LogInfo.WriteLog(LogLevel.ERROR, $"- Error SendBeginJobObjToSupAdjust : StaffShiftID={iStaffShiftID} BOJ cannot be built from DB, not sent (kept for resend)");
+                    return bResend;
+                }
                 string szLaneBOJ    = JsonConvert.SerializeObject(xLaneBOJ, Formatting.Indented);
                 szLaneBOJ           = szLaneBOJ.Replace("Params", "params");
                 //Console.WriteLine("+ RTO Lane Begin of Job = " + szLaneBOJ);
@@ -4050,8 +4232,14 @@ namespace TCT_App
 
                 //=== Data sent to DC : delete only SendStatus=1 ==================================
                 //--- LaneTransaction (DC)
+                //--- v2.0.7: also never delete a car that RTO / SupAdjust did not get yet (when they are used)
+                string szTransSentCond = "SendStatusDC=1";
+                if ((TCT_Lib.szRTO_IPAddress ?? "").Trim() != "")
+                    szTransSentCond += " AND SendStatusRTO=1";
+                if (TCT_Lib.bEnableSupAdjust)
+                    szTransSentCond += $" AND (SendStatusSupAdjust=1 OR IFNULL(Tag_SignalCode,'')<>'' OR PayType={(int)PayType.FREE})";
                 PurgeTableRows("LaneTransaction",
-                    $"SendStatusDC=1 AND TransactionDateTime<'{szKeep}' " +
+                    $"{szTransSentCond} AND TransactionDateTime<'{szKeep}' " +
                     "AND TransactionID<(SELECT MAX(TransactionID) FROM LaneTransaction)", bBackground);
 
                 //--- EmvDetail / DMTCardTrans / ImageCaptureCamera : child rows, delete only when no transaction left that uses them
@@ -4071,7 +4259,9 @@ namespace TCT_App
                     PurgeTableRows("ImageCaptureCamera",
                         $"UpdateDateTime<'{szKeep}' " +
                         "AND ImageCaptureID<(SELECT MAX(ImageCaptureID) FROM ImageCaptureCamera) " +
-                        "AND LaneTransactionID NOT IN (SELECT TransactionID FROM LaneTransaction)", bBackground);
+                        "AND LaneTransactionID NOT IN (SELECT TransactionID FROM LaneTransaction) " +
+                        //--- v2.0.7: an image record not yet sent to the image web service is kept until it is sent
+                        (TCT_Lib.iVideoNVR_CaptureImageMethod >= 1 ? "AND (SendStatusImage=1 OR LaneTransactionID=0) " : ""), bBackground);
 
                 //--- LaneEventHQ (DC)
                 PurgeTableRows("LaneEventHQ",
@@ -4090,8 +4280,14 @@ namespace TCT_App
                     "AND AlarmRtoID<(SELECT MAX(AlarmRtoID) FROM LaneAlarmRTO)", bBackground);
 
                 //--- StaffShift (DC : BOJ + EOJ) -> both sent, shift ended, not the current / last shift
+                //--- v2.0.7: BOJ/EOJ also delivered to RTO / SupAdjust when they are used
+                string szShiftSentCond = "BojSendStatusDC=1 AND EojSendStatusDC=1 ";
+                if ((TCT_Lib.szRTO_IPAddress ?? "").Trim() != "")
+                    szShiftSentCond += "AND BojSendStatusRTO=1 AND EojSendStatusRTO=1 ";
+                if (TCT_Lib.bEnableSupAdjust)
+                    szShiftSentCond += "AND BojSendStatusSupAdjust=1 AND EojSendStatusSupAdjust=1 ";
                 PurgeTableRows("StaffShift",
-                    "BojSendStatusDC=1 AND EojSendStatusDC=1 " +
+                    szShiftSentCond +
                     $"AND StaffEndShiftDateTime IS NOT NULL AND StaffEndShiftDateTime<>'' AND StaffEndShiftDateTime<'{szKeep}' " +
                     $"AND StaffShiftID<>{TCT_Lib.iStaffShiftID} " +
                     "AND StaffShiftID<(SELECT MAX(StaffShiftID) FROM StaffShift)", bBackground);

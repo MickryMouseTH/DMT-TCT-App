@@ -1386,6 +1386,10 @@ namespace TCT_App
             Application.Invoke(delegate
             {
                 LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ LoginWnd : key {LogKeyName(iKey)} ({(iFocus == 0 ? "code" : "password")} field, manual panel {frameManualLogin.Visible})");
+                //--- v2.0.7: 1.5.7 = ENTER while the manual panel is closed pressed the focused [Manual Login] button
+                //---         (opens the panel). Buttons take no focus since 2.0.2, so ENTER logged in with an empty code.
+                if ((iKey == (int)KeyPressedType.ENTER) && !frameManualLogin.Visible)
+                    iKey = (int)KeyPressedType.MANUAL;
                 if (iKey == (int)KeyPressedType.MANUAL)
                 {
                     szUserName = "";

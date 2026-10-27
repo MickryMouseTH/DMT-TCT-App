@@ -631,7 +631,7 @@ namespace TCT_App.EMV.V0
                     if (szResponse == null || szResponse.Length < 19)
                     {
                         LogInfo.WriteLogEDC($"- Error : EDC response too short (len={szResponse?.Length ?? 0}) : {szResponse}");
-                        return;
+                        throw new FormatException("EDC response too short");   // v2.0.7: catch below closes the popup as not paid (1.5.7)
                     }
                     string szRespCode   = szResponse.Substring(17, 2);
                     Console.WriteLine("+ Response Code : " + szRespCode);

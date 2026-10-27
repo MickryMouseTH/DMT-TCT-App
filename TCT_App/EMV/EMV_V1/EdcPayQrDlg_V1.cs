@@ -18,6 +18,7 @@ namespace TCT_App.EMV.EMV_V1
         bool bTowing;
         bool bCancel    = false;
         volatile bool bResponded = false;   // v2.0.2: dialog already answered (guard for cancel fallback)
+        volatile bool bApproved  = false;   // v2.0.7: EDC said paid
         uint iTimerIdCancelFallback = 0;
 
         bool bRetryRecv = false;
@@ -704,6 +705,7 @@ namespace TCT_App.EMV.EMV_V1
                     //-------------------------------------
                     LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : approved -> respond Ok");
                     LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ QR popup closed : Ok, amount={fPayAmount}");
+                    bApproved = true;                   // v2.0.7: a Cancel queued before the Ok must not undo a paid QR
                     RespondOnGtk(ResponseType.Ok);     // v2.0.2: was Respond() + self Abort() on socket thread
 
                     //Console.WriteLine("Start 1");
@@ -1182,6 +1184,11 @@ namespace TCT_App.EMV.EMV_V1
 
         protected void Process_CancelEMV()
         {
+            if (bApproved)
+            {
+                LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning Process_CancelEMV (QR) : already paid, cancel ignored (popup closes with Ok)");
+                return;
+            }
             LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelEMV : bStartCmd={bStartCmd}, bRetryRecv={bRetryRecv}, responded={bResponded}, inquiries={iCurCountInquiry}");
             if (!bRetryRecv)
             {

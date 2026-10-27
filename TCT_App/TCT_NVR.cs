@@ -16,6 +16,24 @@ namespace TCT_App
     {
         int iJobNo, nTrx, iCurMode;
         //--------------------------------------------------------------------------------------------
+        //--- v2.0.8: .NET/Mono allow only 2 concurrent HTTP connections per host by default. The 3 camera threads start
+        //---         together, and 2-3 of them go to the same host (one NVR in Method 0, rear + third camera on one IP,
+        //---         Method 3 Index 1/2 both rear) -> the third request waited for a free connection and its timeout
+        //---         (counted from GetResponse) ran out = image 3 "sometimes" missing. Seen in MTC_Sim with a 3 s camera.
+        static TCT_NVR()
+        {
+            try
+            {
+                if (ServicePointManager.DefaultConnectionLimit < 16)
+                    ServicePointManager.DefaultConnectionLimit = 16;
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ TCT_NVR : ServicePointManager.DefaultConnectionLimit={ServicePointManager.DefaultConnectionLimit}");
+            }
+            catch (Exception err)
+            {
+                LogInfo.WriteLogVideoCapture(LogLevel.WARN, $"- Warning TCT_NVR : cannot set DefaultConnectionLimit : {err.Message}");
+            }
+        }
+
         public TCT_NVR(int _iJobNo, int _nTrx, int _iCurMode)
         {
             iJobNo      = _iJobNo;
@@ -117,10 +135,8 @@ namespace TCT_App
 
                 request.Abort();
                 request = null;
-                //GC.SuppressFinalize(request);
-                //GC.Collect();
-                //GC.WaitForPendingFinalizers();
-                Thread.ResetAbort();
+                //--- v2.0.8: no Thread.ResetAbort() here: without a pending abort it throws ThreadStateException
+                //---         out of this catch on every camera timeout / connection error
 
                 return false;
             }
@@ -398,22 +414,43 @@ namespace TCT_App
             return result;
         }
 
+        //--- v2.0.8: encode to a temp file first, then replace the target under a lock. Method 1 names the file
+        //---         <lane>-<date>-<job>-<nTrx>-<index>.jpg (no time part), and a queued EXEMPT / LEFT_EXIT car is captured
+        //---         twice for the same nTrx (at the key and again when the key is replayed as the car arrives): two threads
+        //---         wrote the same file at once -> sharing violation / half-written JPEG = "capture ordered, no picture".
+        static readonly object _saveLock = new object();
         private static void SaveJpeg(Image img, string szPath, int iQuality)
         {
             ImageCodecInfo jpeg = null;
             foreach (ImageCodecInfo c in ImageCodecInfo.GetImageEncoders())
                 if (c.FormatID == ImageFormat.Jpeg.Guid)
                     jpeg = c;
-            if (jpeg == null)
+            string szTmp = szPath + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            try
             {
-                LogInfo.WriteLogVideoCapture(LogLevel.WARN, $"- Warning SaveJpeg : no JPEG encoder found -> default quality, File={szPath}");
-                img.Save(szPath, ImageFormat.Jpeg);
-                return;
+                if (jpeg == null)
+                {
+                    LogInfo.WriteLogVideoCapture(LogLevel.WARN, $"- Warning SaveJpeg : no JPEG encoder found -> default quality, File={szPath}");
+                    img.Save(szTmp, ImageFormat.Jpeg);
+                }
+                else
+                {
+                    using (var prms = new EncoderParameters(1))
+                    {
+                        prms.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)iQuality);
+                        img.Save(szTmp, jpeg, prms);
+                    }
+                }
+                lock (_saveLock)
+                {
+                    if (File.Exists(szPath))
+                        File.Delete(szPath);
+                    File.Move(szTmp, szPath);
+                }
             }
-            using (var prms = new EncoderParameters(1))
+            finally
             {
-                prms.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)iQuality);
-                img.Save(szPath, jpeg, prms);
+                try { if (File.Exists(szTmp)) File.Delete(szTmp); } catch { }
             }
         }
 
@@ -567,15 +604,16 @@ namespace TCT_App
                 {
                     //--- Check Job, and nTrx
                     //long iImageCaptureID = TCT_Lib.LaneDB.GetMaxImageCaptureID();
-                    long iImageCaptureID = TCT_Lib.iMaxImageCaptureCameraID;
-                    TCT_Lib.iMaxImageCaptureCameraID++;
+                    //--- v2.0.7: the 3 camera threads take IDs atomically, and a failed INSERT throws again so the
+                    //---         retry below runs (1.5.7); Execute() had stopped throwing, the image row was lost.
+                    long iImageCaptureID = System.Threading.Interlocked.Increment(ref TCT_Lib.iMaxImageCaptureCameraID) - 1;
                     LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ SaveImageCaptureIntoDB : ImageCaptureID={iImageCaptureID} (next={TCT_Lib.iMaxImageCaptureCameraID}), JobNo={iJobNo}, nTrx={nTrx}, CurMode={iCurMode}");
                     string szQuery = "INSERT INTO ImageCaptureCamera (ImageCaptureID, CaptureRunningNo, JobNo, nTrx, " +
                                     "CurMode, CameraIndex, ImageCameraFileName, UpdateDateTime) VALUES (" +
                                     $"{iImageCaptureID}, {iCaptureRunningNo}, {iJobNo}, {nTrx}, {iCurMode}, '{index}', " +
                                     $"'{szImageFileName}', '{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", InvC)}')";
                     LogInfo.WriteLogVideoCapture("+ Query : " + szQuery);
-                    TCT_Lib.LaneDB.Execute(szQuery);
+                    TCT_Lib.LaneDB.ExecuteOrThrow(szQuery, true);
                 }
 
                 return true;
@@ -586,8 +624,7 @@ namespace TCT_App
                 LogInfo.WriteLogVideoCapture($"- Retry SaveImageCaptureCamera again");
                 LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"- SaveImageCaptureIntoDB : stack={err.StackTrace}");
                 //long iImageCaptureID = TCT_Lib.LaneDB.GetMaxImageCaptureID();
-                long iImageCaptureID = TCT_Lib.iMaxImageCaptureCameraID;
-                TCT_Lib.iMaxImageCaptureCameraID++;
+                long iImageCaptureID = System.Threading.Interlocked.Increment(ref TCT_Lib.iMaxImageCaptureCameraID) - 1;
                 LogInfo.WriteLogVideoCapture(LogLevel.WARN, $"- Warning SaveImageCaptureIntoDB : retry with ImageCaptureID={iImageCaptureID}, Index={index}, RunningNo={iCaptureRunningNo}");
                 string szQuery = "INSERT INTO ImageCaptureCamera (ImageCaptureID, CaptureRunningNo, JobNo, nTrx, " +
                                 "CurMode, CameraIndex, ImageCameraFileName, UpdateDateTime) VALUES (" +

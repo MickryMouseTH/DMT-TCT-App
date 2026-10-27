@@ -398,6 +398,21 @@ namespace TCT_App
         DateTime dtChkLoopOnOB      = DateTime.Now;
 
         int iCurRunIdx              = 0;     // Only NVR Method=3
+
+        //--- v2.0.8 (NVR Method 3): one car = one capture sequence. Opened at Index=1 (Loop ON, or OB ON without loop),
+        //---   Index=2/3 reuse it from memory, the AVC side takes it from the queue and links the images by CaptureRunningNo.
+        class CaptureSeq_M3
+        {
+            public long iRunningNo;
+            public int nTrx;                        // capture nTrx (may be ahead of TCT_Lib.nTrx when 2 cars are between loop and AVC)
+            public int iLastIdx;                    // highest camera index started (3 = sequence complete)
+            public int iInFlight;                   // capture threads still running (Interlocked)
+            public DateTime dtStart = DateTime.Now;
+        }
+        readonly object _captureSeqLock_M3 = new object();
+        CaptureSeq_M3 xCurCaptureSeq_M3 = null;
+        readonly List<CaptureSeq_M3> xCaptureSeqQueue_M3 = new List<CaptureSeq_M3>();
+        const int MAX_CAPTURE_SEQ_M3 = 6;
         //--------------------------------------------------------------------
         public LaneEventController()
         {
@@ -2844,9 +2859,26 @@ namespace TCT_App
                 }
                 else
                 {
-                    //--- None Towing, if Class and Payment already, then force end transaction
-                    //if (((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.bAfterPayment)) ||
-                    //    (TCT_Lib.xListLoopCar.Count > 0))
+                    //--- v2.0.7: every paid car gets its transaction (DB -> DC / RTO / SupAdjust), in the order the cars came.
+                    //---   Force End writes the head of ListLoopCar (or the current car when the list is empty) and then
+                    //---   ClearCurTransData(). Before, with a car still in the list AND a paid current car, the list car
+                    //---   was written and the current paid car was wiped (2.x skipped the 2nd Force End = H3, 1.5.7 wrote it
+                    //---   with cleared data). Now the current paid car goes to the end of the list first, then Force End
+                    //---   runs until no paid car is left. A car in front of a paid car is also written (it is a real car).
+                    if ((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.bAfterPayment) && (TCT_Lib.LoopCarCount() > 0))
+                    {
+                        var xCurCar = new objLoopInfo
+                        {
+                            iTC_Class       = TCT_Lib.iCurTC_Class,
+                            fFareAmount     = TCT_Lib.fCurFareAmount,
+                            xPayment        = TCT_Lib.xCurPayment,
+                            szTransRemark   = TCT_Lib.szCurTransRemark,
+                        };
+                        TCT_Lib.LoopCarAdd(xCurCar);
+                        TCT_Lib.ClearCurTransData();
+                        LogInfo.WriteLaneEvent($"+ Force Reset : current paid car (TC Class={xCurCar.iTC_Class}, PayType={xCurCar.xPayment?.payType}, {xCurCar.xPayment?.payTypeName}) queued behind {TCT_Lib.LoopCarCount() - 1} car(s) in ListLoopCar");
+                    }
+
                     if ((TCT_Lib.iCurTC_Class > 0) && (TCT_Lib.bAfterPayment))
                     {
                         //if (bDetectLoopBack)
@@ -2864,12 +2896,21 @@ namespace TCT_App
                         for (int i = 0; i < iMaxLoopCar; i++)
                         {
                             var xLoopCar = TCT_Lib.LoopCarFirst();
-                            if ((xLoopCar == null) || (xLoopCar.iTC_Class <= 0) || (xLoopCar.xPayment == null) || (xLoopCar.xPayment.payType <= 0))
+                            if (xLoopCar == null)
+                                break;
+                            bool bHeadPaid = (xLoopCar.iTC_Class > 0) && (xLoopCar.xPayment != null) && (xLoopCar.xPayment.payType > 0);
+                            if (!bHeadPaid && !PaidLoopCarLeft())
                                 break;
 
-                            LogInfo.WriteLaneEvent($"+ Force Reset : Found paid car in ListLoopCar (TC Class={xLoopCar.iTC_Class}, PayType={xLoopCar.xPayment.payType}, {xLoopCar.xPayment.payTypeName}). Then call ForceEnd Transaction.");
+                            LogInfo.WriteLaneEvent($"+ Force Reset : Found {(bHeadPaid ? "paid" : "unpaid (paid car behind)")} car in ListLoopCar (TC Class={xLoopCar.iTC_Class}, PayType={xLoopCar.xPayment?.payType}, {xLoopCar.xPayment?.payTypeName}). Then call ForceEnd Transaction.");
+                            int iCountBefore = TCT_Lib.LoopCarCount();
                             Perform_ForceEndTransaction();
                             bForceEnded = true;
+                            if (TCT_Lib.LoopCarCount() >= iCountBefore)
+                            {
+                                LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning Force Reset : ListLoopCar not reduced by ForceEnd ({iCountBefore}), stop");
+                                break;
+                            }
                         }
                     }
                 }
@@ -2885,6 +2926,13 @@ namespace TCT_App
                 {
                     LogInfo.WriteLaneEvent($"+ Force Reset from Loop On/OFF and OB ON Found : Then call ForceEnd Transaction. TC Class={TCT_Lib.iCurTC_Class}, PayType={TCT_Lib.xCurPayment.payType}, {TCT_Lib.xCurPayment.payTypeName}");
                     Perform_ForceEndTransaction();
+                }
+
+                //--- v2.0.7: a paid car must never be dropped by the Clear() below; log it loudly if one is still there
+                foreach (var xLeft in TCT_Lib.LoopCarSnapshot())
+                {
+                    if ((xLeft != null) && (xLeft.iTC_Class > 0) && (xLeft.xPayment != null) && (xLeft.xPayment.payType > 0))
+                        LogInfo.WriteLaneEvent(LogLevel.ERROR, $"- Error Force Reset : paid car left in ListLoopCar (TC Class={xLeft.iTC_Class}, PayType={xLeft.xPayment.payType}, Fare={xLeft.fFareAmount}) is cleared without transaction");
                 }
 
                 //------------------------------------------------------------
@@ -3209,6 +3257,17 @@ namespace TCT_App
 
 
         //--------------------------------------------------------------
+        //--- v2.0.7: true when any car in ListLoopCar has class + payment (Force Reset must write it)
+        static bool PaidLoopCarLeft()
+        {
+            foreach (var xCar in TCT_Lib.LoopCarSnapshot())
+            {
+                if ((xCar != null) && (xCar.iTC_Class > 0) && (xCar.xPayment != null) && (xCar.xPayment.payType > 0))
+                    return true;
+            }
+            return false;
+        }
+
         protected bool Perform_ForceEndTransaction()
         {
             LogInfo.WriteLog("+ Force End Transaction");
@@ -3948,7 +4007,9 @@ namespace TCT_App
 
                 LogInfo.WriteLog($"++ TotalSum Vehicle : {iTotalSum}, LastTrans (Towing) = {iTowingTransID}, nTrx={TCT_Lib.nTrx - 1}");
                 //--- Send Lane Transaction to RabbitMQ
-                if (iTowingTransID != 0)
+                //--- v2.0.8: NVR Method 3 sends it from ThreadCreateImageCameraSendJsonFile_Method_3 (same as the normal path
+                //---         below) - here it was sent a second time: the towed car reached DC / RTO / SupAdjust twice
+                if ((iTowingTransID != 0) && (TCT_Lib.iVideoNVR_CaptureImageMethod != 3))
                 {
                     TCT_Lib.SendLaneTransObjToDC(iTowingTransID);
                     TCT_Lib.SendLaneTransObjToRTO(iTowingTransID);
@@ -4725,7 +4786,16 @@ namespace TCT_App
             updateUI_Convoy(0);
         }
 
+        //--- v2.0.8: the LCSD WebSocket thread and the ETC RabbitMQ thread (EtcLaneState inputDevices) both raise this handler,
+        //---         and the DI state lives in instance fields (bIn*/bCur*) -> run one call at a time (an ON/OFF edge was lost otherwise)
+        readonly object _diEventLock = new object();
         protected void LaneSocket_DigitalInputLaneEvent(int[] values, bool bMTC = true)
+        {
+            lock (_diEventLock)
+                LaneSocket_DigitalInputLaneEvent_Body(values, bMTC);
+        }
+
+        private void LaneSocket_DigitalInputLaneEvent_Body(int[] values, bool bMTC)
         {
             try
             {
@@ -4870,10 +4940,8 @@ namespace TCT_App
                     }
                     if (TCT_Lib.iVideoNVR_CaptureImageMethod == 3)
                     {
-                        int inTrxIdx = TCT_Lib.nTrx;
-                        if ((iCurRunIdx != 3)  && (iCurRunIdx != 0))
-                            inTrxIdx += 1;
-                        LogInfo.WriteLaneEvent($"+ Call Capture Image Method 3 : Start Capture Image => Index=1, JobNo={TCT_Lib.iJobNo}, nTrx={inTrxIdx}");
+                        //--- v2.0.8: Index=1 opens a new capture sequence (new CaptureRunningNo + capture nTrx), see CreateProcessVideoCaptureImage_Method_3
+                        LogInfo.WriteLaneEvent($"+ Call Capture Image Method 3 : Start Capture Image => Index=1, JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}");
                         CreateProcessVideoCaptureImage_Method_3(1, TCT_Lib.nTrx);
                     }
                     //========================================
@@ -5047,12 +5115,27 @@ namespace TCT_App
                         }
                         if (TCT_Lib.iVideoNVR_CaptureImageMethod == 3)
                         {
-                            LogInfo.WriteLaneEvent($"+ Capture Image : Start Capture Image => Index=1,  JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}");
-                            CreateProcessVideoCaptureImage_Method_3(1, TCT_Lib.nTrx);
-                            Thread.Sleep(500);
-                            LogInfo.WriteLaneEvent($"+ Capture Image : Start Capture Image => Index=2 (No LoopOn),  JobNo={TCT_Lib.iJobNo}, nTrx={TCT_Lib.nTrx}");
-                            CreateProcessVideoCaptureImage_Method_3(2, TCT_Lib.nTrx, false, false, true);
-                            CreateProcessVideoCaptureImage_Method_3(3, TCT_Lib.nTrx);
+                            //--- v2.0.8: the 500 ms spacing between Index=1 and Index=2 ran on the LCSD WebSocket thread
+                            //---         (every following DI message waited ~1 s) -> run the 3 captures on a background thread
+                            int nTrxCapture = TCT_Lib.nTrx;
+                            LogInfo.WriteLaneEvent($"+ Capture Image : Start Capture Image => Index=1,2,3 (No LoopOn), JobNo={TCT_Lib.iJobNo}, nTrx={nTrxCapture}");
+                            var xNoLoopCaptureThread = new Thread(() =>
+                            {
+                                try
+                                {
+                                    CreateProcessVideoCaptureImage_Method_3(1, nTrxCapture);
+                                    Thread.Sleep(500);
+                                    CreateProcessVideoCaptureImage_Method_3(2, nTrxCapture, false, false, true);
+                                    CreateProcessVideoCaptureImage_Method_3(3, nTrxCapture);
+                                }
+                                catch (Exception errCap)
+                                {
+                                    LogInfo.WriteLogVideoCapture(LogLevel.ERROR, $"- Error Capture Image Method 3 (No LoopOn) : nTrx={nTrxCapture} : {errCap.Message}");
+                                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, "- Capture Image Method 3 (No LoopOn) stack : " + errCap.StackTrace);
+                                }
+                            });
+                            xNoLoopCaptureThread.IsBackground = true;
+                            xNoLoopCaptureThread.Start();
                         }
                         //========================================
                     }
@@ -6734,6 +6817,9 @@ namespace TCT_App
                 string szSupervisorGroupID      = (string)objSupervisor["supervisorGroupId"];
                 string szSupervisorGroupName    = (string)objSupervisor["supervisorGroupName"];
                 DateTime dtSupervisorStartShift = (DateTime)objSupervisor["supervisorStartShift"];
+                //--- v2.0.7: the same supervisor shift again (RTO reconnected) is not a supervisor change
+                bool bSameShift                 = (iSupervisorShiftID == TCT_Lib.iSupervisorShiftID) &&
+                                                  ((szSupervisorID ?? "") == (TCT_Lib.szSupervisorID ?? "")) && (TCT_Lib.szSupervisorID ?? "") != "";
                 LogInfo.WriteLog(LogLevel.DEBUG, $"+ SetCurrentSupervisor : shiftId={iSupervisorShiftID}, code={szSupervisorCode}, name={szSupervisorName}, group={szSupervisorGroupID}/{szSupervisorGroupName}, start={dtSupervisorStartShift:yyyy-MM-dd HH:mm:ss}, laneType={TCT_Lib.eCurLaneType}");
                 LogInfo.WriteLog("+ Update Current Supervisor in DB");
                 TCT_Lib.LaneDB.UpdateCurrentSupervisor(iSupervisorShiftID, szSupervisorID, szSupervisorCode, szSupervisorName,
@@ -6752,8 +6838,12 @@ namespace TCT_App
                 //---------------------------------------------------------
                 if (TCT_Lib.eCurLaneType == LaneType.ETC)
                 {
-                    //--- Change Current Staff 
-                    AutoChangeStaffOfAutoLoginETC();
+                    //--- Change Current Staff
+                    //--- v2.0.7: only on a real change; the same shift again ended and restarted the staff shift (fake EOJ/BOJ)
+                    if (bSameShift)
+                        LogInfo.WriteLaneEvent($"+ SetCurrentSupervisor : same supervisor shift {iSupervisorShiftID} ({szSupervisorID}), ETC staff shift kept");
+                    else
+                        AutoChangeStaffOfAutoLoginETC();
                 }
             }
             catch (Exception err)
@@ -6787,6 +6877,7 @@ namespace TCT_App
             LogInfo.WriteLaneEvent($"Auto Login with ETC Mode (When Change Sup) : StaffID={TCT_Lib.szStaffID}, StaffCode={TCT_Lib.szStaffCode}, StaffName={TCT_Lib.szStaffName}");
             TCT_Lib.nTrx                            = 1;
             TCT_Lib.laneController.iCapture_nTrx    = 0;
+            TCT_Lib.laneController.ClearCaptureSeq_M3("new job (change supervisor)");      // v2.0.8
             // Start transaction of each JobNo
             // if ETC mode then JobNo will fix=0 (2021/03/17)
             TCT_Lib.iStaffShiftID                   = (int)TCT_Lib.LaneDB.GetStaffShiftID();
@@ -7117,8 +7208,15 @@ namespace TCT_App
                                 checkNetworkStatus((int)ChkDeviceType.Device_LC, false);
                             }
                             //--- Check RTO Connection
+                            //--- v2.0.7: RTO is also "connected" when its WebSocket session is alive (when the 9093 check
+                            //---         listener of RTO died, every message to RTO stopped although the WebSocket was fine);
+                            //---         the RTO WebSocket server is started again here if it stopped
+                            var xRtoServer = TCT_Lib.webSocketLane == null ? null : TCT_Lib.webSocketLane.laneSocketServerRTO;
+                            if (xRtoServer != null)
+                                xRtoServer.EnsureServerRunning();
                             //if (TestNetworkConnection(TCT_Lib.szRTO_IPAddress, TCT_Lib.iRTO_SocketPort - 1))
-                            if (await IsPortReachable(TCT_Lib.szRTO_IPAddress, TCT_Lib.iRTO_SocketPort - 1))
+                            if ((xRtoServer != null && xRtoServer.HasLiveRtoSession()) ||
+                                await IsPortReachable(TCT_Lib.szRTO_IPAddress, TCT_Lib.iRTO_SocketPort - 1))
                             {
                                 Console.WriteLine("+ RTO Connection is SUCCESS");
                                 checkNetworkStatus((int)ChkDeviceType.Device_RTO, true);
@@ -7528,47 +7626,77 @@ namespace TCT_App
                     LogInfo.WriteLog("+--- Start Thread AutoResendTrans()");
                     var swResend = System.Diagnostics.Stopwatch.StartNew();
                     LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC={TCT_Lib.bEnableDcRabbitMQ}, nvrMethod={TCT_Lib.iVideoNVR_CaptureImageMethod}, staffShiftId={TCT_Lib.iStaffShiftID}");
-                    //--- Resend data to DC (Data Center)
-                    if (TCT_Lib.bEnableDcRabbitMQ)
+                    //--- v2.0.7: cars kept in PendingDB (DB write failed) go into the DB first, then they are resent below
+                    try
                     {
-                        if (TestNetworkConnection(TCT_Lib.szDC_RabbitMQ_ServerIPAddress, TCT_Lib.iDC_RabbitMQ_ServerPort, TCT_Lib.iDC_RabbitMQ_TimeoutSec * 1000))
-                        //if (await IsPortReachable(TCT_Lib.szDC_RabbitMQ_ServerIPAddress, TCT_Lib.iDC_RabbitMQ_ServerPort))
-                        {
-                            bool bResult = await TCT_Lib.AutoResendLaneTransactionToDC();
-                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC lane transaction resend result={bResult}");
-                            if (bResult)
-                            {
-                                bResult = await TCT_Lib.AutoResendLaneEventToDC();
-                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC lane event resend result={bResult}");
-                                if (bResult)
-                                {
-                                    bResult = await TCT_Lib.AutoResendBeginJobToDC(TCT_Lib.iStaffShiftID);
-                                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC begin job resend result={bResult}");
-                                    //if (bResult)
-                                    //    await TCT_Lib.AutoResendEndJobToDC(TCT_Lib.iStaffShiftID);
-                                }
-                            }
-                        }
-                        else
-                        {
-                            LogInfo.WriteLog("- Auto Resend to DC : Fail Connect to DC.");
-                            LogInfo.WriteLog($"- Fail TestNetworkConnection to RabbitMQ => Connect DC Rabbit MQ : IP = {TCT_Lib.szDC_RabbitMQ_ServerIPAddress}, PORT = {TCT_Lib.iDC_RabbitMQ_ServerPort}");
-                            TCT_Lib.bDC_NetworkStatus = false;
-                        }
+                        int iPending = TCT_Lib.LaneDB.ReplayPendingInserts();
+                        if (iPending != 0)
+                            LogInfo.WriteLog(LogLevel.WARN, $"- Warning ThreadAutoResendTrans : PendingDB statements still waiting={iPending}");
+                    }
+                    catch (Exception errPending)
+                    {
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadAutoResendTrans (PendingDB) : {errPending.Message}");
                     }
 
-                    //--- Resend data to RTO
-                    //if (TestNetworkConnection(TCT_Lib.szRTO_IPAddress, TCT_Lib.iRTO_SocketPort - 1))
+                    //--- v2.0.7: every destination in its own try/catch. An error in one (DC, RTO, a bad DB row ...) used to
+                    //---         end the cycle, so SupAdjust and image resend were skipped - for every cycle if it repeated.
+                    try
                     {
-                        bool bResult = await TCT_Lib.AutoResendLaneTransactionToRTO();
-                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : RTO lane transaction resend result={bResult}");
-                        if (bResult)
+                        //--- Resend data to DC (Data Center)
+                        if (TCT_Lib.bEnableDcRabbitMQ)
                         {
-                            bResult = await TCT_Lib.AutoResendBeginJobToRTO();
-                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : RTO begin job resend result={bResult}");
-                            if (bResult)
-                                await TCT_Lib.AutoResendEndJobToRTO();
+                            if (TestNetworkConnection(TCT_Lib.szDC_RabbitMQ_ServerIPAddress, TCT_Lib.iDC_RabbitMQ_ServerPort, TCT_Lib.iDC_RabbitMQ_TimeoutSec * 1000))
+                            //if (await IsPortReachable(TCT_Lib.szDC_RabbitMQ_ServerIPAddress, TCT_Lib.iDC_RabbitMQ_ServerPort))
+                            {
+                                //--- v2.0.7: DC gets every BOJ / transaction / EOJ : BOJ first (a shift starts before its cars),
+                                //---         then transactions, events, and EOJ of ended shifts last (EOJ was resent only at
+                                //---         login, so an EOJ that failed at end of shift waited for the next login - or forever).
+                                bool bResult = await TCT_Lib.AutoResendBeginJobToDC(TCT_Lib.iStaffShiftID);
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC begin job resend result={bResult}");
+                                bResult = await TCT_Lib.AutoResendLaneTransactionToDC();
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC lane transaction resend result={bResult}");
+                                if (bResult)
+                                {
+                                    bResult = await TCT_Lib.AutoResendLaneEventToDC();
+                                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC lane event resend result={bResult}");
+                                    bResult = await TCT_Lib.AutoResendEndJobToDC(TCT_Lib.iStaffShiftID);
+                                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : DC end job resend result={bResult}");
+                                }
+                            }
+                            else
+                            {
+                                LogInfo.WriteLog("- Auto Resend to DC : Fail Connect to DC.");
+                                LogInfo.WriteLog($"- Fail TestNetworkConnection to RabbitMQ => Connect DC Rabbit MQ : IP = {TCT_Lib.szDC_RabbitMQ_ServerIPAddress}, PORT = {TCT_Lib.iDC_RabbitMQ_ServerPort}");
+                                TCT_Lib.bDC_NetworkStatus = false;
+                            }
                         }
+                    }
+                    catch (Exception errStep)
+                    {
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadAutoResendTrans (DC) : {errStep.Message}");
+                        LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadAutoResendTrans (DC) stack : " + errStep.StackTrace);
+                    }
+
+                    try
+                    {
+                        //--- Resend data to RTO
+                        //if (TestNetworkConnection(TCT_Lib.szRTO_IPAddress, TCT_Lib.iRTO_SocketPort - 1))
+                        {
+                            bool bResult = await TCT_Lib.AutoResendLaneTransactionToRTO();
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : RTO lane transaction resend result={bResult}");
+                            if (bResult)
+                            {
+                                bResult = await TCT_Lib.AutoResendBeginJobToRTO();
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : RTO begin job resend result={bResult}");
+                                if (bResult)
+                                    bResult = await TCT_Lib.AutoResendEndJobToRTO();
+                            }
+                        }
+                    }
+                    catch (Exception errStep)
+                    {
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadAutoResendTrans (RTO) : {errStep.Message}");
+                        LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadAutoResendTrans (RTO) stack : " + errStep.StackTrace);
                     }
                     /*
                                         else
@@ -7576,33 +7704,64 @@ namespace TCT_App
                                             LogInfo.WriteLog("- Auto Resend to RTO : Fail Connect to RTO.IP=" + TCT_Lib.szRTO_IPAddress + ", Port=" + (TCT_Lib.iRTO_SocketPort - 1));
                                         }
                     */
-                    //--- Resend data to SupAdjust
-                    //if (TestNetworkConnection(TCT_Lib.szSupAdjust_IPAddress, TCT_Lib.iSupAdjust_SocketPort))
+                    try
                     {
-                        //LogInfo.WriteLog("+ Start Auto Resend to SupAdjust");
-                        bool bResult = await TCT_Lib.AutoResendLaneTransactionToSupAdjust();
-                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : SupAdjust lane transaction resend result={bResult}");
-                        if (bResult)
+                        //--- Resend data to SupAdjust
+                        //if (TestNetworkConnection(TCT_Lib.szSupAdjust_IPAddress, TCT_Lib.iSupAdjust_SocketPort))
                         {
-                            bResult = await TCT_Lib.AutoResendBeginJobToSupAdjust();
-                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : SupAdjust begin job resend result={bResult}");
+                            //LogInfo.WriteLog("+ Start Auto Resend to SupAdjust");
+                            bool bResult = await TCT_Lib.AutoResendLaneTransactionToSupAdjust();
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : SupAdjust lane transaction resend result={bResult}");
                             if (bResult)
-                                await TCT_Lib.AutoResendEndJobToSupAdjust();
+                            {
+                                bResult = await TCT_Lib.AutoResendBeginJobToSupAdjust();
+                                LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : SupAdjust begin job resend result={bResult}");
+                                if (bResult)
+                                    await TCT_Lib.AutoResendEndJobToSupAdjust();
+                            }
+                        }
+                        /*
+                                            else
+                                            {
+                                                LogInfo.WriteLog("- Auto Resend to SupAdjust : Fail Connect to SupAdjust. IP="+ TCT_Lib.szSupAdjust_IPAddress+", Port="+ TCT_Lib.iSupAdjust_SocketPort);
+                                            }
+                        */
+                    }
+                    catch (Exception errStep)
+                    {
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadAutoResendTrans (SupAdjust) : {errStep.Message}");
+                        LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadAutoResendTrans (SupAdjust) stack : " + errStep.StackTrace);
+                    }
+
+                    try
+                    {
+                        //--- Resend CaptureImageCamera
+                        if (TCT_Lib.iVideoNVR_CaptureImageMethod >= 1)
+                        {
+                            LogInfo.WriteLog("+ Start Auto Resend to CaptureImageCamera");
+                            bool bResult = await TCT_Lib.AutoResendImageCaptureCamera();
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : capture image resend result={bResult}");
                         }
                     }
-                    /*
-                                        else
-                                        {
-                                            LogInfo.WriteLog("- Auto Resend to SupAdjust : Fail Connect to SupAdjust. IP="+ TCT_Lib.szSupAdjust_IPAddress+", Port="+ TCT_Lib.iSupAdjust_SocketPort);
-                                        }
-                    */
-
-                    //--- Resend CaptureImageCamera
-                    if (TCT_Lib.iVideoNVR_CaptureImageMethod >= 1)
+                    catch (Exception errStep)
                     {
-                        LogInfo.WriteLog("+ Start Auto Resend to CaptureImageCamera");
-                        bool bResult = await TCT_Lib.AutoResendImageCaptureCamera();
-                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ ThreadAutoResendTrans : capture image resend result={bResult}");
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadAutoResendTrans (CaptureImage) : {errStep.Message}");
+                        LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadAutoResendTrans (CaptureImage) stack : " + errStep.StackTrace);
+                    }
+
+                    try
+                    {
+                        //--- v2.0.7: lane events / alarms that RTO did not get (after transactions of every destination)
+                        {
+                            bool bResult = await TCT_Lib.AutoResendLaneEventToRTO();
+                            if (bResult)
+                                await TCT_Lib.AutoResendLaneAlarmToRTO();
+                        }
+                    }
+                    catch (Exception errStep)
+                    {
+                        LogInfo.WriteLog(LogLevel.ERROR, $"- Error ThreadAutoResendTrans (RTO event/alarm) : {errStep.Message}");
+                        LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadAutoResendTrans (RTO event/alarm) stack : " + errStep.StackTrace);
                     }
 
                     //--- v2.0.5: clear old database data once a day (startup clear runs in LoginWnd), after resend
@@ -7811,6 +7970,21 @@ namespace TCT_App
         }
 
         //==================================================================
+        //--- v2.0.8: why a capture request is skipped (null = capture allowed). Shared by Method 0-3 and logged at INFO:
+        //---   before, a skipped capture left no trace at INFO level ("the lane saw the car but took no photo").
+        private string CaptureSkipReason()
+        {
+            if (!TCT_Lib.bEnableVideoNVR)
+                return "VideoNVR.Enable=0";
+            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: free mode captures every car
+                return "HPMC mode";
+            if (TCT_Lib.eCurLaneType == LaneType.ETC)
+                return "ETC lane";
+            if ((TCT_Lib.eCurLaneType == LaneType.DUAL) && TCT_Lib.bEtcCtrlIO)
+                return "DUAL lane, EtcCtrlIO=true (ETC vehicle, reset by CLASS 9 / EDIT)";
+            return null;
+        }
+
         protected void CreateProcessVideoCaptureImage(int nTrx, bool bIsTowing = false, bool bViolation = false)
         {
             LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage : method={TCT_Lib.iVideoNVR_CaptureImageMethod}, nTrx={nTrx}, towing={bIsTowing}, violation={bViolation}");
@@ -7827,20 +8001,12 @@ namespace TCT_App
         private void CreateProcessVideoCaptureImage_Method_0(int nTrx, bool bIsTowing = false)
         {
             LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_0 : nTrx={nTrx}, towing={bIsTowing}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, maintenance={TCT_Lib.bMaintenanceMode}, page={TCT_Lib.eCurAppPage}, captureTrx={iCapture_nTrx}");
-            if (!TCT_Lib.bEnableVideoNVR)
-                return;
-
-            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
-                return;
-
-            //---------------------------------------------------------------------
-            if (TCT_Lib.eCurLaneType == LaneType.ETC)
-                return;
-
-            if (TCT_Lib.eCurLaneType == LaneType.DUAL)
+            string szSkip = CaptureSkipReason();      // v2.0.8
+            if (szSkip != null)
             {
-                if (TCT_Lib.bEtcCtrlIO)
-                    return;
+                if (TCT_Lib.bEnableVideoNVR)
+                    LogInfo.WriteLaneEvent($"- Skip CreateProcessVideoCaptureImage Method_{TCT_Lib.iVideoNVR_CaptureImageMethod} : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx} : {szSkip}");
+                return;
             }
             //---------------------------------------------------------------------
 
@@ -8118,20 +8284,12 @@ namespace TCT_App
         private void CreateProcessVideoCaptureImage_Method_1(int nTrx, bool bIsTowing = false, bool bViolation = false)
         {
             LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_1 : nTrx={nTrx}, towing={bIsTowing}, violation={bViolation}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, captureTrx={iCapture_nTrx}");
-            if (!TCT_Lib.bEnableVideoNVR)
-                return;
-
-            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
-                return;
-
-            //---------------------------------------------------------------------
-            if (TCT_Lib.eCurLaneType == LaneType.ETC)
-                return;
-
-            if (TCT_Lib.eCurLaneType == LaneType.DUAL)
+            string szSkip = CaptureSkipReason();      // v2.0.8
+            if (szSkip != null)
             {
-                if (TCT_Lib.bEtcCtrlIO)
-                    return;
+                if (TCT_Lib.bEnableVideoNVR)
+                    LogInfo.WriteLaneEvent($"- Skip CreateProcessVideoCaptureImage Method_{TCT_Lib.iVideoNVR_CaptureImageMethod} : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx} : {szSkip}");
+                return;
             }
             //---------------------------------------------------------------------
 
@@ -8217,9 +8375,11 @@ namespace TCT_App
             }
             else if (camPosition == CameraPosition.ThirdCamera)
             {
-                if (TCT_Lib.szVideoNVR_ThirdCaptureUrl.Trim() == "")
+                //--- VideoNVR.ThirdCaptureUrl empty = third image off (documented behaviour); v2.0.8: the URL that is actually
+                //--- requested is VideoLaneCapture.ThirdCameraUrl, so that one must be set too
+                if ((TCT_Lib.szVideoNVR_ThirdCaptureUrl.Trim() == "") || (TCT_Lib.szVideoLane_ThirdCameraUrl.Trim() == ""))
                 {
-                    LogInfo.WriteLog("- Not found third camera url setting.");
+                    LogInfo.WriteLog($"- Not found third camera url setting (VideoNVR.ThirdCaptureUrl={TCT_Lib.szVideoNVR_ThirdCaptureUrl.Trim() != ""}, VideoLaneCapture.ThirdCameraUrl={TCT_Lib.szVideoLane_ThirdCameraUrl.Trim() != ""}).");
                     return;
                 }
                 szCaptureUrl    = TCT_Lib.szVideoLane_ThirdCameraUrl.Trim();
@@ -8255,7 +8415,7 @@ namespace TCT_App
                 //--- Last Image of Violation, then Send image again
                 if (bViolation && (index == 3))
                 {
-                    Task.Delay(1000);
+                    Thread.Sleep(1000);     // v2.0.8: was Task.Delay(1000) without await (no wait at all)
                     int iTransID = TCT_Lib.GetLaneTransactionId(TCT_Lib.iJobNo, nTrx, DateTime.Now);
                     int _iJobNo = 0, _nTrx = 0;
                     var xImageCameraObj     = TCT_Obj.GenerateCaptureImageCamera(iTransID, ref _iJobNo, ref _nTrx);
@@ -8313,14 +8473,10 @@ namespace TCT_App
             }
             finally
             {
-                int idxThread = (index - 1);
-                if (videoCaptureThread[idxThread].IsAlive)
-                    videoCaptureThread[idxThread].Abort();
-
-                //GC.SuppressFinalize(tctNVR);
+                //--- v2.0.8: no Abort() here. videoCaptureThread[] is shared by every car: when the next car's capture of the
+                //---         same camera had already started, this aborted THAT thread (its image was lost and the
+                //---         "Thread was being aborted" message was filtered out of the log)
                 tctNVR = null;
-                //GC.Collect();
-                //GC.WaitForPendingFinalizers();
             }
         }
 
@@ -8328,20 +8484,12 @@ namespace TCT_App
         private void CreateProcessVideoCaptureImage_Method_2(int nTrx, bool bIsTowing = false)
         {
             LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_2 : nTrx={nTrx}, towing={bIsTowing}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, captureTrx={iCapture_nTrx}");
-            if (!TCT_Lib.bEnableVideoNVR)
-                return;
-
-            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
-                return;
-
-            //---------------------------------------------------------------------
-            if (TCT_Lib.eCurLaneType == LaneType.ETC)
-                return;
-
-            if (TCT_Lib.eCurLaneType == LaneType.DUAL)
+            string szSkip = CaptureSkipReason();      // v2.0.8
+            if (szSkip != null)
             {
-                if (TCT_Lib.bEtcCtrlIO)
-                    return;
+                if (TCT_Lib.bEnableVideoNVR)
+                    LogInfo.WriteLaneEvent($"- Skip CreateProcessVideoCaptureImage Method_{TCT_Lib.iVideoNVR_CaptureImageMethod} : JobNo={TCT_Lib.iJobNo}, nTrx={nTrx} : {szSkip}");
+                return;
             }
             //---------------------------------------------------------------------
 
@@ -8425,9 +8573,11 @@ namespace TCT_App
             }
             else if (camPosition == CameraPosition.ThirdCamera)
             {
-                if (TCT_Lib.szVideoNVR_ThirdCaptureUrl.Trim() == "")
+                //--- VideoNVR.ThirdCaptureUrl empty = third image off (documented behaviour); v2.0.8: the URL that is actually
+                //--- requested is VideoLaneCapture.ThirdCameraUrl, so that one must be set too
+                if ((TCT_Lib.szVideoNVR_ThirdCaptureUrl.Trim() == "") || (TCT_Lib.szVideoLane_ThirdCameraUrl.Trim() == ""))
                 {
-                    LogInfo.WriteLog("- Not found third camera url setting.");
+                    LogInfo.WriteLog($"- Not found third camera url setting (VideoNVR.ThirdCaptureUrl={TCT_Lib.szVideoNVR_ThirdCaptureUrl.Trim() != ""}, VideoLaneCapture.ThirdCameraUrl={TCT_Lib.szVideoLane_ThirdCameraUrl.Trim() != ""}).");
                     return "";
                 }
                 szCaptureUrl    = TCT_Lib.szVideoLane_ThirdCameraUrl.Trim();
@@ -8470,10 +8620,7 @@ namespace TCT_App
             }
             finally
             {
-                GC.SuppressFinalize(tctNVR);
-                tctNVR = null;
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                tctNVR = null;      // v2.0.8: no GC.Collect()+WaitForPendingFinalizers() per image (froze the whole program 3x per car)
             }
 
             return szResult;
@@ -8481,65 +8628,95 @@ namespace TCT_App
 
         //=======================================================================================
         //----------------------------------------------------------------------------------------
+        //--- v2.0.8 (NVR Method 3): one car = one capture sequence (CaptureSeq_M3).
+        //---   Index=1 (Loop ON, or OB ON without loop) opens the sequence: new CaptureRunningNo + capture nTrx.
+        //---   Index=2/3 (OB ON) reuse the same sequence from memory. Before, GetCurCaptureRunningNo looked the number up in the
+        //---   DB and raced with the Index=1 thread (row not inserted yet) -> fell back to "current max" = the next car's number.
+        //---   The capture nTrx is bumped when the previous sequence's transaction is not written yet (2 cars between loop and AVC),
+        //---   the same rule Method 0/1/2 use. The AVC side takes the sequence from the queue (TakeCaptureSeqForTrans_M3) and
+        //---   links the images by CaptureRunningNo, so the capture nTrx no longer has to match the transaction nTrx.
         protected void CreateProcessVideoCaptureImage_Method_3(int idx, int nTrx, bool bIsTowing = false, bool bViolation = false, bool bWaitLoop = false)
         {
             LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_3 : idx={idx}, nTrx={nTrx}, towing={bIsTowing}, violation={bViolation}, waitLoop={bWaitLoop}, nvr={TCT_Lib.bEnableVideoNVR}, mode={TCT_Lib.eCurLaneMode}, laneType={TCT_Lib.eCurLaneType}, etcCtrlIO={TCT_Lib.bEtcCtrlIO}, captureTrx={iCapture_nTrx}");
-            if (!TCT_Lib.bEnableVideoNVR)
-                return;
-
-            if ((TCT_Lib.eCurLaneMode == LaneMode.HPMC) && !TCT_Lib.bFreeMode)     // v2.0.6: โหมดไม่เก็บค่าผ่านทางถ่ายรูปทุกคัน
-                return;
-
-            //---------------------------------------------------------------------
-            if (TCT_Lib.eCurLaneType == LaneType.ETC)
-                return;
-
-            if (TCT_Lib.eCurLaneType == LaneType.DUAL)
+            string szSkip = CaptureSkipReason();
+            if (szSkip != null)
             {
-                if (TCT_Lib.bEtcCtrlIO)
-                    return;
+                if (TCT_Lib.bEnableVideoNVR)
+                    LogInfo.WriteLaneEvent($"- Skip Capture Image Method_3 : Index={idx}, JobNo={TCT_Lib.iJobNo}, nTrx={nTrx} : {szSkip}");
+                return;
             }
-            //---------------------------------------------------------------------
+
             if (bWaitLoop)
-                Thread.Sleep(500);
+                Thread.Sleep(500);      // the caller runs this on a background thread (v2.0.8)
 
-            if (iCapture_nTrx == 0)
-                iCapture_nTrx = nTrx;
-            /*
-                        else
-                        {
-                            if (iCapture_nTrx >= nTrx)
-                                nTrx += 1;
-                        }
-                        iCapture_nTrx = nTrx;
-            */
-
-            if (TCT_Lib.eCurLaneType == LaneType.ETC)
-                nTrx = 0;
-
-            long iCaptureRunningNo = idx == 1 ? TCT_Lib.LaneDB.GetMaxCaptureRunningNo() : TCT_Lib.LaneDB.GetCurCaptureRunningNo(TCT_Lib.iJobNo, nTrx);
-            long iRunningNo = iCaptureRunningNo;
-            if ((idx == 3) && (iCurRunIdx == 1))
+            CaptureSeq_M3 xSeq;
+            lock (_captureSeqLock_M3)
             {
-                //iRunningNo--;
-                iCaptureRunningNo = iRunningNo-1;
-            }
+                if (idx == 1)
+                {
+                    //--- the previous sequence got Index=1 only and the next car already touches the loop (> 2 s later):
+                    //--- that car backed out of the loop, no transaction will come for it -> drop it and give its nTrx back,
+                    //--- otherwise every following car would be linked one car late
+                    var xPrev = xCurCaptureSeq_M3;
+                    if ((xPrev != null) && (xPrev.iLastIdx < 2) && xCaptureSeqQueue_M3.Contains(xPrev) &&
+                        (DateTime.Now.Subtract(xPrev.dtStart).TotalMilliseconds > 2000))
+                    {
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning Capture Image Method_3 : sequence RunningNo={xPrev.iRunningNo}, nTrx={xPrev.nTrx} had Index=1 only (no OB) -> dropped");
+                        xCaptureSeqQueue_M3.Remove(xPrev);
+                        if (iCapture_nTrx >= xPrev.nTrx)
+                            iCapture_nTrx = xPrev.nTrx - 1;
+                    }
 
-            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ CreateProcessVideoCaptureImage_Method_3 : runIdx {iCurRunIdx} -> {idx}, runningNo={iCaptureRunningNo} (db={iRunningNo})");
+                    int nTrxCapture = nTrx;
+                    if ((iCapture_nTrx != 0) && (iCapture_nTrx >= nTrxCapture))
+                        nTrxCapture = iCapture_nTrx + 1;        // previous car not at AVC yet -> next number
+                    iCapture_nTrx = nTrxCapture;
+
+                    xSeq = new CaptureSeq_M3 { iRunningNo = TCT_Lib.LaneDB.GetMaxCaptureRunningNo(), nTrx = nTrxCapture };
+                    xCurCaptureSeq_M3 = xSeq;
+                    xCaptureSeqQueue_M3.Add(xSeq);
+                    while (xCaptureSeqQueue_M3.Count > MAX_CAPTURE_SEQ_M3)
+                    {
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning Capture Image Method_3 : sequence RunningNo={xCaptureSeqQueue_M3[0].iRunningNo}, nTrx={xCaptureSeqQueue_M3[0].nTrx} never reached AVC -> dropped (queue full)");
+                        xCaptureSeqQueue_M3.RemoveAt(0);
+                    }
+                }
+                else
+                {
+                    xSeq = xCurCaptureSeq_M3;
+                    if (xSeq == null)
+                    {
+                        //--- Index 2/3 without an open sequence (OB before any loop since start) -> old behaviour, number from DB
+                        long iRunningNo = TCT_Lib.LaneDB.GetCurCaptureRunningNo(TCT_Lib.iJobNo, nTrx);
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning Capture Image Method_3 : Index={idx} without an Index=1 sequence -> RunningNo={iRunningNo} from DB");
+                        xSeq = new CaptureSeq_M3 { iRunningNo = iRunningNo, nTrx = nTrx };
+                        xCurCaptureSeq_M3 = xSeq;
+                        xCaptureSeqQueue_M3.Add(xSeq);
+                    }
+                }
+                if (idx > xSeq.iLastIdx)
+                    xSeq.iLastIdx = idx;
+                Interlocked.Increment(ref xSeq.iInFlight);
+            }
             iCurRunIdx = idx;
 
-            LogInfo.WriteLaneEvent($"+ CreateProcessVideoCaptureImage Method_3 : Index={idx}, JobNo={TCT_Lib.iJobNo}, nTrx={nTrx}, CaptureRunningNo={iCaptureRunningNo}");
+            LogInfo.WriteLaneEvent($"+ CreateProcessVideoCaptureImage Method_3 : Index={idx}, JobNo={TCT_Lib.iJobNo}, nTrx={xSeq.nTrx}, CaptureRunningNo={xSeq.iRunningNo}");
             //---------------------------------------------------------------------------------------
+            bool bStarted = false;
             if (idx == 1)
-                ProcessVideoCaptureThread_Method_3(nTrx, 1, CameraPosition.RearCamera, iCaptureRunningNo);
+                bStarted = ProcessVideoCaptureThread_Method_3(xSeq.nTrx, 1, CameraPosition.RearCamera, xSeq.iRunningNo, false, xSeq);
             else if (idx == 2)
-                ProcessVideoCaptureThread_Method_3(nTrx, 2, CameraPosition.RearCamera, iCaptureRunningNo);
+                bStarted = ProcessVideoCaptureThread_Method_3(xSeq.nTrx, 2, CameraPosition.RearCamera, xSeq.iRunningNo, false, xSeq);
             else if (idx == 3)
-                ProcessVideoCaptureThread_Method_3(nTrx, 3, CameraPosition.FrontCamera, iCaptureRunningNo);
+                bStarted = ProcessVideoCaptureThread_Method_3(xSeq.nTrx, 3, CameraPosition.FrontCamera, xSeq.iRunningNo, false, xSeq);
+            if (!bStarted)
+                Interlocked.Decrement(ref xSeq.iInFlight);
 
             if (bIsTowing && (idx == 2))
             {
-                Thread videoCaptureTowingThread_Method_3        = new Thread(() => ThreadVideoCaptureImage_Towing_Method_3(nTrx, iCaptureRunningNo));
+                int nTrxTowing          = xSeq.nTrx;
+                long iRunningNoTowing   = xSeq.iRunningNo;
+                Thread videoCaptureTowingThread_Method_3        = new Thread(() => ThreadVideoCaptureImage_Towing_Method_3(nTrxTowing, iRunningNoTowing));
                 videoCaptureTowingThread_Method_3.Priority      = ThreadPriority.Normal;
                 videoCaptureTowingThread_Method_3.IsBackground  = true;
                 videoCaptureTowingThread_Method_3.Start();
@@ -8558,16 +8735,37 @@ namespace TCT_App
             ProcessVideoCaptureThread_Method_3(nTrx + 1, 3, CameraPosition.FrontCamera, iCaptureRunningNo);
         }
 
-        protected void ProcessVideoCaptureThread_Method_3(int nTrx, int index, CameraPosition camPosition, long iCaptureRunningNo, bool bIsTowing = false)
+        private bool ProcessVideoCaptureThread_Method_3(int nTrx, int index, CameraPosition camPosition, long iCaptureRunningNo, bool bIsTowing = false, CaptureSeq_M3 xSeq = null)
         {
-            //videoCaptureThread            = new Thread(new ThreadStart(ThreadVideoCaptureImage));
-            Thread videoCaptureThread_Method_3          = new Thread(() => ThreadVideoCaptureImage_Method_3(nTrx, index, camPosition, iCaptureRunningNo, bIsTowing));
-            videoCaptureThread_Method_3.Priority        = ThreadPriority.Normal;
-            videoCaptureThread_Method_3.IsBackground    = true;
-            videoCaptureThread_Method_3.Start();
+            try
+            {
+                Thread videoCaptureThread_Method_3          = new Thread(() => ThreadVideoCaptureImage_Method_3(nTrx, index, camPosition, iCaptureRunningNo, bIsTowing, xSeq));
+                videoCaptureThread_Method_3.Priority        = ThreadPriority.Normal;
+                videoCaptureThread_Method_3.IsBackground    = true;
+                videoCaptureThread_Method_3.Start();
+                return true;
+            }
+            catch (Exception err)
+            {
+                LogInfo.WriteLogVideoCapture(LogLevel.ERROR, $"- Error ProcessVideoCaptureThread_Method_3 : nTrx={nTrx}, index={index}, RunningNo={iCaptureRunningNo} : {err.Message}");
+                return false;
+            }
         }
 
-        private string ThreadVideoCaptureImage_Method_3(int nTrx, int index, CameraPosition camPosition, long iCaptureRunningNo, bool bIsTowing)
+        private string ThreadVideoCaptureImage_Method_3(int nTrx, int index, CameraPosition camPosition, long iCaptureRunningNo, bool bIsTowing, CaptureSeq_M3 xSeq = null)
+        {
+            try
+            {
+                return ThreadVideoCaptureImage_Method_3_Run(nTrx, index, camPosition, iCaptureRunningNo, bIsTowing);
+            }
+            finally
+            {
+                if (xSeq != null)
+                    Interlocked.Decrement(ref xSeq.iInFlight);      // v2.0.8: the AVC side waits for this
+            }
+        }
+
+        private string ThreadVideoCaptureImage_Method_3_Run(int nTrx, int index, CameraPosition camPosition, long iCaptureRunningNo, bool bIsTowing)
         {
             string szCaptureUrl = "", szUserName = "", szPassword = "";
             string szShortCamera = "";
@@ -8673,29 +8871,94 @@ namespace TCT_App
             }
             finally
             {
-                GC.SuppressFinalize(tctNVR);
-                tctNVR = null;
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                tctNVR = null;      // v2.0.8: no GC.Collect()+WaitForPendingFinalizers() per image (froze the whole program 3x per car)
             }
 
             return szResult;
         }
 
 
+        //--- v2.0.8 (NVR Method 3): the capture sequence of the transaction just written (nTrx = iTransTrx). Sequences are
+        //---   consumed in order; one whose nTrx is lower than the transaction's belongs to an earlier car that already got its
+        //---   transaction (or never got one) -> stale, dropped.
+        private CaptureSeq_M3 TakeCaptureSeqForTrans_M3(int iTransID, int iTransTrx)
+        {
+            lock (_captureSeqLock_M3)
+            {
+                while (xCaptureSeqQueue_M3.Count > 0)
+                {
+                    var xSeq = xCaptureSeqQueue_M3[0];
+                    xCaptureSeqQueue_M3.RemoveAt(0);
+                    if ((iTransTrx > 0) && (xSeq.nTrx < iTransTrx))
+                    {
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning Capture Image Method_3 : stale sequence RunningNo={xSeq.iRunningNo}, nTrx={xSeq.nTrx} < transaction nTrx={iTransTrx} (TransID={iTransID}) -> dropped");
+                        continue;
+                    }
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ TakeCaptureSeqForTrans_M3 : TransID={iTransID}, nTrx={iTransTrx} -> RunningNo={xSeq.iRunningNo}, seq nTrx={xSeq.nTrx}, lastIdx={xSeq.iLastIdx}, inFlight={xSeq.iInFlight}, queue left={xCaptureSeqQueue_M3.Count}");
+                    return xSeq;
+                }
+            }
+            LogInfo.WriteLogVideoCapture(LogLevel.WARN, $"- Warning TakeCaptureSeqForTrans_M3 : TransID={iTransID}, nTrx={iTransTrx} : no capture sequence (captures skipped?) -> link by nTrx only");
+            return null;
+        }
+
+        //--- v2.0.8: wait until every capture thread of the sequence has finished (max NVR TimeoutSec + 5 s) and, for at most
+        //---   2 s, until Index=3 has been started (AVC can come before the OB ON captures are all started)
+        private void WaitCaptureSeqDone_M3(CaptureSeq_M3 xSeq, int iTransID)
+        {
+            if (xSeq == null)
+                return;
+            int iMaxMs = (Math.Max(TCT_Lib.iVideoNVR_TimeoutSec, 5) + 5) * 1000;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < iMaxMs)
+            {
+                bool bBusy = (Volatile.Read(ref xSeq.iInFlight) > 0) || ((Volatile.Read(ref xSeq.iLastIdx) < 3) && (sw.ElapsedMilliseconds < 2000));
+                if (!bBusy)
+                    break;
+                Thread.Sleep(100);
+            }
+            int iLeft = Volatile.Read(ref xSeq.iInFlight);
+            LogInfo.WriteLogVideoCapture(iLeft > 0 ? LogLevel.WARN : LogLevel.DEBUG, $"{(iLeft > 0 ? "- Warning" : "+")} WaitCaptureSeqDone_M3 : TransID={iTransID}, RunningNo={xSeq.iRunningNo}, waited {sw.ElapsedMilliseconds} ms, inFlight={iLeft}, lastIdx={xSeq.iLastIdx}");
+        }
+
+        //--- v2.0.8: new job (nTrx restarts at 1) -> sequences of the old job must not be linked to the new job's transactions
+        public void ClearCaptureSeq_M3(string szWhy)
+        {
+            lock (_captureSeqLock_M3)
+            {
+                if (xCaptureSeqQueue_M3.Count > 0)
+                    LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ClearCaptureSeq_M3 : {szWhy}, dropped {xCaptureSeqQueue_M3.Count} sequence(s)");
+                xCaptureSeqQueue_M3.Clear();
+                xCurCaptureSeq_M3 = null;
+            }
+        }
+
         protected void ProcessCreateImageCameraSendJsonFileThread_Method_3(int iTransID)
         {
-            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ProcessCreateImageCameraSendJsonFileThread_Method_3 : transId={iTransID}, start thread (delay 2 s)");
+            LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ProcessCreateImageCameraSendJsonFileThread_Method_3 : transId={iTransID}, start thread (waits for the capture sequence)");
             Thread createImageCameraSendJsonFileThread_Method_3             = new Thread(() => ThreadCreateImageCameraSendJsonFile_Method_3(iTransID));
             createImageCameraSendJsonFileThread_Method_3.Priority           = ThreadPriority.Normal;
             createImageCameraSendJsonFileThread_Method_3.IsBackground       = true;
             createImageCameraSendJsonFileThread_Method_3.Start();
         }
 
-        async protected void ThreadCreateImageCameraSendJsonFile_Method_3(int iTransID) 
+        protected void ThreadCreateImageCameraSendJsonFile_Method_3(int iTransID)
         {
             LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadCreateImageCameraSendJsonFile_Method_3 : start, transId={iTransID}");
-            await Task.Delay(2000);
+            if (iTransID == 0)
+            {
+                LogInfo.WriteLogVideoCapture(LogLevel.WARN, "- Warning ThreadCreateImageCameraSendJsonFile_Method_3 : transId=0 (no transaction) -> no image message");
+                return;
+            }
+            //--- v2.0.8: wait for this car's capture threads instead of a fixed 2 s. A slow camera made the message go out with
+            //---         3 empty images, it was marked sent, and the image rows that arrived later stayed unlinked (LaneTransactionID=0)
+            //---         and were never resent = "no photo". Then link the images by CaptureRunningNo (not by nTrx only).
+            int iTransJobNo = 0, iTransTrx = 0;
+            TCT_Lib.LaneDB.GetLaneTransactionJobTrx(iTransID, ref iTransJobNo, ref iTransTrx);
+            CaptureSeq_M3 xSeq = TakeCaptureSeqForTrans_M3(iTransID, iTransTrx);
+            WaitCaptureSeqDone_M3(xSeq, iTransID);
+            if (xSeq != null)
+                TCT_Lib.LaneDB.LinkCaptureRunningNoToTrans(xSeq.iRunningNo, iTransID, iTransJobNo, iTransTrx);
             int _iJobNo = 0, _nTrx = 0;
             var xImageCameraObj         = TCT_Obj.GenerateCaptureImageCamera(iTransID, ref _iJobNo, ref _nTrx);
             string szImageCameraJson    = JsonConvert.SerializeObject(xImageCameraObj, Formatting.Indented);
@@ -8726,18 +8989,6 @@ namespace TCT_App
                 //--------------------------------
                 var sendImgCamera = new WebService_ImageCamera();
                 sendImgCamera.CallWebService_SendImageCaptureCamera(iTransID, _iJobNo, _nTrx, szImageCameraJson, iCaptureRunningNo, xImageCameraObj.captureImages);
-
-                //-----------------
-                if (iTransID != 0)
-                {
-                    TCT_Lib.SendLaneTransObjToRTO(iTransID);
-                    if (TCT_Lib.xCurTAG.tagPAN == null)
-                    {
-                        TCT_Lib.SendLaneTransObjToDC(iTransID);
-                        TCT_Lib.SendLaneTransObjToSupAdjust(iTransID);
-                    }
-                }
-                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadCreateImageCameraSendJsonFile_Method_3 : done, transId={iTransID}, sendTrans={iTransID != 0}, toDC/SupAdjust={(iTransID != 0) && (TCT_Lib.xCurTAG?.tagPAN == null)}");
             }
             catch (Exception err)
             {
@@ -8745,6 +8996,24 @@ namespace TCT_App
                 LogInfo.WriteLaneEvent($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                 LogInfo.WriteLogVideoCapture($"- Error create capture image path={TCT_Lib.szVideoLane_CaptureImagePath}, Error={err.Message}");
                 LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadCreateImageCameraSendJsonFile_Method_3 stack : " + err.StackTrace);
+            }
+
+            //--- Method 3 sends the transaction from here (AvcLaneEvent skips it for Method 3).
+            //--- v2.0.8: outside the image try/catch, so an image-message error cannot hold the transaction back from RTO / DC / SupAdjust
+            try
+            {
+                TCT_Lib.SendLaneTransObjToRTO(iTransID);
+                if (TCT_Lib.xCurTAG?.tagPAN == null)
+                {
+                    TCT_Lib.SendLaneTransObjToDC(iTransID);
+                    TCT_Lib.SendLaneTransObjToSupAdjust(iTransID);
+                }
+                LogInfo.WriteLogVideoCapture(LogLevel.DEBUG, $"+ ThreadCreateImageCameraSendJsonFile_Method_3 : done, transId={iTransID}, sendTrans=True, toDC/SupAdjust={TCT_Lib.xCurTAG?.tagPAN == null}");
+            }
+            catch (Exception err)
+            {
+                LogInfo.WriteLaneEvent(LogLevel.ERROR, $"- Error ThreadCreateImageCameraSendJsonFile_Method_3 : send transaction TransID={iTransID} : {err.Message} (auto resend will retry)");
+                LogInfo.WriteLog(LogLevel.DEBUG, "- ThreadCreateImageCameraSendJsonFile_Method_3 (send trans) stack : " + err.StackTrace);
             }
         }
 

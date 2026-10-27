@@ -48,6 +48,24 @@ namespace TCT_App.WebServiceAPI
             public string edcref3;
         }
 
+        //--- v2.0.7: staff the local SalesCouponList was downloaded for ("" = unknown, e.g. after restart)
+        static string szCouponListStaffID = "";
+
+        //--- v2.0.7: TA answered with an error (e.g. no coupon for this staff) -> empty list like 1.5.7.
+        //---         No answer (network / timeout) -> keep the list (v2.0.4 J4) only when it is this staff's list,
+        //---         a list of the previous staff must not be sold by the next one.
+        static void ClearCouponList(string szReason, bool bKeepIfSameStaff)
+        {
+            if (bKeepIfSameStaff && (szCouponListStaffID != "") && (szCouponListStaffID == TCT_Lib.szStaffID))
+            {
+                LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : {szReason} -> keep SalesCouponList of StaffID={szCouponListStaffID}");
+                return;
+            }
+            int iRows = TCT_Lib.LaneDB.Execute("DELETE FROM SalesCouponList WHERE IFNULL(CouponStatus,0)=0");
+            LogInfo.WriteLog($"+ CallWebService_GetCoupons : {szReason} -> clear unsold SalesCouponList (list StaffID='{szCouponListStaffID}', StaffID={TCT_Lib.szStaffID}), rows={iRows}");
+            szCouponListStaffID = "";
+        }
+
         //-----------------------------------
         public static bool CallWebService_GetCoupons(ref string szErrMsg)
         {
@@ -60,6 +78,7 @@ namespace TCT_App.WebServiceAPI
                 Console.WriteLine($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
                 LogInfo.WriteLog($"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}");
                 szErrMsg = $"Fail Connect LaneWebService IP={TCT_Lib.szLaneWebService_ServerIPAddress}, Port={TCT_Lib.iLaneWebService_ServerPort}";
+                ClearCouponList("TA not reachable", true);
                 return false;
             }
 
@@ -107,6 +126,7 @@ namespace TCT_App.WebServiceAPI
                         {
                             szErrMsg = ((HttpWebResponse)webResponse).StatusDescription;
                             LogInfo.WriteLog("- Error Response CallWebService_GetCoupons : " + szErrMsg);
+                            ClearCouponList("HTTP " + (int)((HttpWebResponse)webResponse).StatusCode, true);
 
                             return false;
                         }
@@ -125,6 +145,7 @@ namespace TCT_App.WebServiceAPI
                                 {
                                     szErrMsg = (string)xResponse["errors"]["errMsg"];
                                     LogInfo.WriteLog("- Fail CallWebService_GetCoupons : " + (string)xResponse["errors"]["errMsg"]);
+                                    ClearCouponList("TA answered error", false);
                                     return false;
                                 }
                                 else
@@ -159,6 +180,7 @@ namespace TCT_App.WebServiceAPI
                                         else
                                             LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_GetCoupons : SerialNo={xCoupon.SerialNo} already in list, skip");
                                     }
+                                    szCouponListStaffID = TCT_Lib.szStaffID ?? "";
                                     return true;
                                 }
                             }
@@ -173,12 +195,14 @@ namespace TCT_App.WebServiceAPI
                 Console.WriteLine($"- Error CallWebService_GetCoupons : {err.Message}");
                 LogInfo.WriteLog($"- Error CallWebService_GetCoupons : {err.Message}");
                 LogInfo.WriteLog(LogLevel.DEBUG, $"- CallWebService_GetCoupons : failed after {sw.ElapsedMilliseconds} ms, WebStatus={(err as WebException)?.Status}, StackTrace : {err.StackTrace}");
+                ClearCouponList("no answer (" + err.Message + ")", true);
                 return false;
             }           
         }
 
         public static bool CallWebService_SoldCoupon(string szCouponType, string szSerialNo, decimal fCouponPrice, DateTime dtSoldDate,
-                                                    int iPayTypeID, string szPayTypeName, objCreditCardInfo xCreditCard, ref string szErrMsg)
+                                                    int iPayTypeID, string szPayTypeName, objCreditCardInfo xCreditCard, ref string szErrMsg,
+                                                    string szSoldByStaffID = null)
         {
             LogInfo.WriteLog(LogLevel.DEBUG, $"+ CallWebService_SoldCoupon : enable={TCT_Lib.bEnableLaneWebService}, Type={szCouponType}, SerialNo={szSerialNo}, Price={fCouponPrice}, PayType={iPayTypeID}({szPayTypeName}), card={xCreditCard != null}");
             if (!TCT_Lib.bEnableLaneWebService)
@@ -201,7 +225,7 @@ namespace TCT_App.WebServiceAPI
                 xCoupon.coupontype  = szCouponType;
                 xCoupon.serialno    = szSerialNo;
                 xCoupon.price       = fCouponPrice;
-                xCoupon.userid      = TCT_Lib.szStaffID;
+                xCoupon.userid      = szSoldByStaffID ?? TCT_Lib.szStaffID;     // v2.0.7: staff who sold it (send runs later, retries)
                 xCoupon.solddate    = dtSoldDate.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
                 xCoupon.paytypeid   = iPayTypeID;
                 xCoupon.paytypename = szPayTypeName;

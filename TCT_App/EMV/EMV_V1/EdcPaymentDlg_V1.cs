@@ -715,6 +715,13 @@ namespace TCT_App.EMV.EMV_V1
                     if (szResponse.Length < 19)
                     {
                         LogInfo.WriteLogEDC($"- Error : EDC response too short (len={szResponse.Length}) : {szResponse}");
+                        //--- v2.0.7: close the popup as not paid like 1.5.7 (its catch closed it); returning left it
+                        //---         waiting with no listener, and without EDC it could not be closed at all
+                        bError = true;
+                        TCT_Lib.bActiveEMVDlg = false;
+                        TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- EMV popup closed : EDC response too short (len={szResponse.Length}), not paid");
+                        RespondOnGtk(ResponseType.None);
                         return;
                     }
                     string szRespCode   = szResponse.Substring(17, 2);
@@ -965,6 +972,7 @@ namespace TCT_App.EMV.EMV_V1
                         TCT_Lib.laneController.manageProcessEMV -= LaneController_ManageProcessEMV;
                         LogInfo.WriteLogEDC(LogLevel.DEBUG, "+ AnalysisEdcMsg : approved -> respond Ok");
                         LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ EMV popup closed : Ok, amount={fPayAmount}");
+                        bApproved = true;               // v2.0.7: a Cancel queued before the Ok must not undo a paid card
                         RespondOnGtk(ResponseType.Ok);   // v2.0.2: was Respond() on socket thread
 
                         Thread.Sleep(500);
@@ -1154,6 +1162,11 @@ namespace TCT_App.EMV.EMV_V1
 
         protected void Process_CancelEMV()
         {
+            if (bApproved)
+            {
+                LogInfo.WriteLogEDC(LogLevel.WARN, "- Warning Process_CancelEMV : card already approved, cancel ignored (popup closes with Ok)");
+                return;
+            }
             LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ Process_CancelEMV : bError={bError}, bStartCmd={bStartCmd}, bHasResult={bHasResult}");
             if (!bError)
             {
@@ -1234,6 +1247,7 @@ namespace TCT_App.EMV.EMV_V1
         //--- v2.0.2: GTK is not thread-safe - the socket threads must not Respond/Dispose/Destroy this
         //--- dialog directly (native crash in gtk_dialog_run). MainWindow disposes it after Run().
         volatile bool bResponded = false;
+        volatile bool bApproved  = false;     // v2.0.7: EDC approved the card
         void RespondOnGtk(ResponseType xResponse)
         {
             LogInfo.WriteLogEDC(LogLevel.DEBUG, $"+ RespondOnGtk : {xResponse}, alreadyResponded={bResponded}");

@@ -781,46 +781,63 @@ namespace TCT_App.LaneView.MiscDlg
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog EMV_V1");
                 LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPaymentDlg_V1 opened, amount {fTotalAmount}");
-                ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
-                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPaymentDlg_V1 closed -> {xResult}");
-
-                if (xResult == ResponseType.Ok)
+                //--- v2.0.7: the V1 popup no longer closes itself (I1, MainWindow closes it) -> close it here for every
+                //---         result. Before, after Reject / Cancel / no ack it stayed open over this popup with live buttons.
+                try
                 {
-                    Console.WriteLine("+ Show Response EMV_V1");
-                    var xCreditCardInfo         = frmEdcPaymentDlg.xOutCreditCard;
-                    LogInfo.WriteLog("+ Pay CreditCard Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
-                    LogInfo.WriteLaneEvent("+ Pay CreditCard Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
+                    ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPaymentDlg_V1 closed -> {xResult}");
 
-                    iOutEmvDetailID             = (int)TCT_Lib.LaneDB.InsertEmvDetailData(0, xCreditCardInfo);
+                    if (xResult == ResponseType.Ok)
+                    {
+                        Console.WriteLine("+ Show Response EMV_V1");
+                        var xCreditCardInfo         = frmEdcPaymentDlg.xOutCreditCard;
+                        LogInfo.WriteLog("+ Pay CreditCard Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
+                        LogInfo.WriteLaneEvent("+ Pay CreditCard Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
 
-                    txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
-                    txtCreditCardNo.UseMarkup   = true;
+                        iOutEmvDetailID             = (int)TCT_Lib.LaneDB.InsertEmvDetailData(0, xCreditCardInfo);
 
-                    txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
-                    txtReference.UseMarkup      = true;
+                        txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
+                        txtCreditCardNo.UseMarkup   = true;
 
-                    txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
-                    txtMsg.UseMarkup            = true;
+                        txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
+                        txtReference.UseMarkup      = true;
+
+                        txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
+                        txtMsg.UseMarkup            = true;
                       
-                    //Console.WriteLine("+ After show Response");
-                    frmEdcPaymentDlg.Dispose();
-                    //Console.WriteLine("+ After Dispose");
-                    //--- Disable active button
-                    edtTotalClass1.Sensitive = edtTotalClass2.Sensitive = false;
-                    btnCancel.Sensitive     = false;
-                    frameKeyNum.Sensitive   = false;
-                    bPayCompleted           = true;
-                    this.Activate();
+                        //Console.WriteLine("+ After show Response");
+                        //--- Disable active button
+                        edtTotalClass1.Sensitive = edtTotalClass2.Sensitive = false;
+                        btnCancel.Sensitive     = false;
+                        frameKeyNum.Sensitive   = false;
+                        bPayCompleted           = true;
+                        this.Activate();
+                    }
+                    else
+                    {
+                        //--- Back to Pay Cash
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
+                        iSelPayType = 0;
+                        btnSelPayCash.QueueDraw();
+                        btnSelPayEMV.QueueDraw();
+                        btnSelPayQrCode.QueueDraw();
+                    }
                 }
-                else
+                finally
                 {
-                    //--- Back to Pay Cash
-                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
-                    iSelPayType = 0;
-                    btnSelPayCash.QueueDraw();
-                    btnSelPayEMV.QueueDraw();
-                    btnSelPayQrCode.QueueDraw();
+                    try
+                    {
+                        frmEdcPaymentDlg.Dispose();
+                        frmEdcPaymentDlg.Destroy();
+                    }
+                    catch (Exception errDlg)
+                    {
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning PrintConvoy : close EdcPaymentDlg_V1 : {errDlg.Message}");
+                    }
                 }
+                if (bPayCompleted)
+                    this.Activate();        // focus back to this popup after the EDC popup is gone
             }
                        
             TCT_Lib.eCurAppPage   = AppPage.PayConvoy;     // v2.0.2: give keys back to this popup
@@ -939,46 +956,63 @@ namespace TCT_App.LaneView.MiscDlg
                 frmEdcPaymentDlg.ModifyBg(StateType.Normal, colBk);
                 Console.WriteLine("+ Before Show dialog QrCode");
                 LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPayQrDlg_V1 opened, amount {fTotalAmount}");
-                ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
-                LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPayQrDlg_V1 closed -> {xResult}");
-
-                if (xResult == ResponseType.Ok)
+                //--- v2.0.7: the V1 popup no longer closes itself (I1, MainWindow closes it) -> close it here for every
+                //---         result. Before, after Reject / Cancel / no ack it stayed open over this popup with live buttons.
+                try
                 {
-                    Console.WriteLine("+ Show Response QrCode");
-                    var xCreditCardInfo         = frmEdcPaymentDlg.xOutCreditCard;
-                    LogInfo.WriteLog("+ Pay QR Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
-                    LogInfo.WriteLaneEvent("+ Pay QR Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
+                    ResponseType xResult    = (ResponseType) frmEdcPaymentDlg.Run();
+                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, $"+ PrintConvoy : EdcPayQrDlg_V1 closed -> {xResult}");
 
-                    iOutEmvDetailID             = (int)TCT_Lib.LaneDB.InsertEmvDetailData(1, xCreditCardInfo);
+                    if (xResult == ResponseType.Ok)
+                    {
+                        Console.WriteLine("+ Show Response QrCode");
+                        var xCreditCardInfo         = frmEdcPaymentDlg.xOutCreditCard;
+                        LogInfo.WriteLog("+ Pay QR Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
+                        LogInfo.WriteLaneEvent("+ Pay QR Convoy : " + xCreditCardInfo.szCardNo + ", Ref3 : " + xCreditCardInfo.szRef3);
 
-                    txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
-                    txtCreditCardNo.UseMarkup   = true;
+                        iOutEmvDetailID             = (int)TCT_Lib.LaneDB.InsertEmvDetailData(1, xCreditCardInfo);
 
-                    txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
-                    txtReference.UseMarkup      = true;
+                        txtCreditCardNo.Text        = $"<span fgcolor='#00FF00'>{"CreditCard No : " + xCreditCardInfo.szCardNo}</span>";
+                        txtCreditCardNo.UseMarkup   = true;
 
-                    txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
-                    txtMsg.UseMarkup            = true;
+                        txtReference.Text           = $"<span fgcolor='#00FF00'>{"Reference : " + xCreditCardInfo.szRef3}</span>";
+                        txtReference.UseMarkup      = true;
+
+                        txtMsg.Text                 = $"<span fgcolor='#00FF00'>{"Approve Code : " + xCreditCardInfo.szApprovalCode}</span>";
+                        txtMsg.UseMarkup            = true;
                       
-                    //Console.WriteLine("+ After show Response");
-                    frmEdcPaymentDlg.Dispose();
-                    //Console.WriteLine("+ After Dispose");
-                    //--- Disable active button
-                    edtTotalClass1.Sensitive = edtTotalClass2.Sensitive = false;
-                    btnCancel.Sensitive     = false;
-                    frameKeyNum.Sensitive   = false;
-                    bPayCompleted           = true;
-                    this.Activate();
+                        //Console.WriteLine("+ After show Response");
+                        //--- Disable active button
+                        edtTotalClass1.Sensitive = edtTotalClass2.Sensitive = false;
+                        btnCancel.Sensitive     = false;
+                        frameKeyNum.Sensitive   = false;
+                        bPayCompleted           = true;
+                        this.Activate();
+                    }
+                    else
+                    {
+                        //--- Back to Pay Cash
+                        LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
+                        iSelPayType = 0;
+                        btnSelPayCash.QueueDraw();
+                        btnSelPayEMV.QueueDraw();
+                        btnSelPayQrCode.QueueDraw();
+                    }
                 }
-                else
+                finally
                 {
-                    //--- Back to Pay Cash
-                    LogInfo.WriteLaneEvent(LogLevel.DEBUG, "+ PrintConvoy : payment not approved -> back to pay Cash");
-                    iSelPayType = 0;
-                    btnSelPayCash.QueueDraw();
-                    btnSelPayEMV.QueueDraw();
-                    btnSelPayQrCode.QueueDraw();
+                    try
+                    {
+                        frmEdcPaymentDlg.Dispose();
+                        frmEdcPaymentDlg.Destroy();
+                    }
+                    catch (Exception errDlg)
+                    {
+                        LogInfo.WriteLaneEvent(LogLevel.WARN, $"- Warning PrintConvoy : close EdcPayQrDlg_V1 : {errDlg.Message}");
+                    }
                 }
+                if (bPayCompleted)
+                    this.Activate();        // focus back to this popup after the EDC popup is gone
             }
 
             TCT_Lib.eCurAppPage   = AppPage.PayConvoy;     // v2.0.2: give keys back to this popup

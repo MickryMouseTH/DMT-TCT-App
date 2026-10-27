@@ -998,6 +998,18 @@ namespace TCT_App
             }
         }
 
+        //--- v2.0.7: DATETIME column value (DateTime or text) -> DateTime, now when empty / unreadable
+        static DateTime DbDateTimeOrNow(object xValue)
+        {
+            if (xValue is DateTime)
+                return (DateTime)xValue;
+            DateTime dt;
+            string sz = (xValue == null || xValue == DBNull.Value) ? "" : xValue.ToString().Trim();
+            if (sz != "" && DateTime.TryParse(sz, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt))
+                return dt;
+            return DateTime.Now;
+        }
+
         public static LaneEventRTO GenerateLaneEventRTO(long iEventRtoID)
         {
             string szQuery = @"SELECT * FROM LaneEventRTO " +
@@ -1015,7 +1027,8 @@ namespace TCT_App
             {
                 var xLaneEvent              = new LaneEventRTO();
                 xLaneEvent.eventId          = long.Parse(dtLaneEvent.Rows[0]["EventRtoID"].ToString());
-                xLaneEvent.eventDateTime    = TCT_Lib.DateTime_ISO8601(DateTime.Now);
+                //--- v2.0.7: time of the event (row), not the time the message is built (a resend came with "now")
+                xLaneEvent.eventDateTime    = TCT_Lib.DateTime_ISO8601(DbDateTimeOrNow(dtLaneEvent.Rows[0]["EventDateTime"]));
 
                 var xPlaza                  = new Plaza();
                 xPlaza.plazaId              = dtLaneEvent.Rows[0]["PlazaID"].ToString();
@@ -1090,7 +1103,7 @@ namespace TCT_App
             {
                 var xLaneAlarm              = new LaneAlarmRTO();
                 xLaneAlarm.alarmId          = long.Parse(dtLaneAlarm.Rows[0]["AlarmRtoID"].ToString());
-                xLaneAlarm.alarmDateTime    = TCT_Lib.DateTime_ISO8601(DateTime.Now);
+                xLaneAlarm.alarmDateTime    = TCT_Lib.DateTime_ISO8601(DbDateTimeOrNow(dtLaneAlarm.Rows[0]["AlarmDateTime"]));
 
                 var xPlaza                  = new Plaza();
                 xPlaza.plazaId              = dtLaneAlarm.Rows[0]["PlazaID"].ToString();
@@ -1620,11 +1633,13 @@ namespace TCT_App
 
         static string GetImageCameraFileName(int iLaneTransID, int idx, ref DateTime dtDateTime)
         {
+            //--- v2.0.8: newest image row of this camera, deterministic. The old "GROUP BY CameraIndex" let SQLite pick any
+            //---         row when the same JobNo/nTrx had been captured more than once (violation after RTO open: nTrx--,
+            //---         Method 1 links every row with CaptureRunningNo=0) -> an older file, already moved/deleted = no image
             string szQuery = @"SELECT ImageCameraFileName, A.UpdateDateTime FROM ImageCaptureCamera A " +
                             "JOIN LaneTransaction B ON A.JobNo=B.JobNo AND A.nTrx=B.nTrx AND A.LaneTransactionID=B.TransactionID " +
                             $"WHERE B.TransactionID={iLaneTransID} AND A.CameraIndex={idx} " +
-                            "GROUP BY A.CameraIndex " +
-                            "ORDER BY A.CameraIndex, A.UpdateDateTime DESC";
+                            "ORDER BY A.UpdateDateTime DESC, A.ImageCaptureID DESC LIMIT 1";
             LogInfo.WriteLogVideoCapture("+ Query : " + szQuery);
             DataTable dtImage = TCT_Lib.LaneDB.List(szQuery);
             if (dtImage.Rows.Count == 0)

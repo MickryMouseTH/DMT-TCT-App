@@ -50,6 +50,8 @@ namespace TCT_App.LaneView.MiscDlg
         objCreditCardInfo xCreditCardInfo = null;
         //--- v2.0.4
         bool bClosed    = false;        // Respond() already sent -> ignore every later key / touch
+        string szSaleReceiptNo = "";    // v2.0.7: receipt number of this sale (taken once)
+        int iSaleWriteFail     = 0;     // v2.0.7: failed sale writes (card paid -> cancel allowed after 3)
         bool bMsgOpen   = false;        // a MessageDialog is running on top of this popup
         readonly Dictionary<Widget, Gdk.Color> dicBg = new Dictionary<Widget, Gdk.Color>();
         //string szCouponType1 = "35", szCouponType2 = "80";
@@ -1325,14 +1327,22 @@ namespace TCT_App.LaneView.MiscDlg
             //---------------------------------------------
             if (!TCT_Lib.bMaintenanceMode)
             {
-                TCT_Lib.szCurSalesCouponReceiptNo = TCT_Lib.LaneDB.GetRunningReceiptNo(PrintReceiptType.SalesCoupon);   // "CP-DD01-2020000218";
+                //--- v2.0.7: one receipt number per sale - a retry after a failed write reuses it (no gap in the receipt run)
+                if (szSaleReceiptNo == "")
+                    szSaleReceiptNo = TCT_Lib.LaneDB.GetRunningReceiptNo(PrintReceiptType.SalesCoupon);   // "CP-DD01-2020000218";
+                TCT_Lib.szCurSalesCouponReceiptNo = szSaleReceiptNo;
                 long iTransID = TCT_Lib.LaneDB.WriteSalesCouponTransaction(iTotalCoupon_Type1, fCouponPrice_Type1, szSelCouponType1, szCouponType1,
                                                                            iTotalCoupon_Type2, fCouponPrice_Type2, szSelCouponType2, szCouponType2,
                                                                            iSelPayType, xCreditCardInfo);
                 if (iTransID <= 0)
                 {
-                    LogInfo.WriteLaneEvent(LogLevel.ERROR, $"- Error SalesCoupon : {szAction} - sale not written to database (receipt {TCT_Lib.szCurSalesCouponReceiptNo}, {szPayTypeName}), popup kept open");
-                    txtMsg.Text         = $"<span font_size = 'large' fgcolor = '#FF4444'>บันทึกการขายไม่สำเร็จ กรุณากด [ยืนยัน] อีกครั้ง</span>";
+                    iSaleWriteFail++;
+                    LogInfo.WriteLaneEvent(LogLevel.ERROR, $"- Error SalesCoupon : {szAction} - sale not written to database (receipt {TCT_Lib.szCurSalesCouponReceiptNo}, {szPayTypeName}, try {iSaleWriteFail}), popup kept open");
+                    txtMsg.Text         = (bPayCompleted && iSaleWriteFail >= 3)
+                                            ? $"<span font_size = 'large' fgcolor = '#FF4444'>บันทึกการขายไม่สำเร็จ กด [ยืนยัน] อีกครั้ง หรือ [ยกเลิก] แล้วแจ้งหัวหน้า</span>"
+                                            : $"<span font_size = 'large' fgcolor = '#FF4444'>บันทึกการขายไม่สำเร็จ กรุณากด [ยืนยัน] อีกครั้ง</span>";
+                    if (bPayCompleted && iSaleWriteFail >= 3)
+                        btnCancel.Sensitive = true;
                     txtMsg.UseMarkup    = true;
                     return false;
                 }
@@ -1365,6 +1375,17 @@ namespace TCT_App.LaneView.MiscDlg
             if (bClosed)
             {
                 LogInfo.WriteLaneEvent(LogLevel.WARN, "+ SalesCoupon : cancel ignored, popup already closed");
+                return;
+            }
+            if (bPayCompleted && (iSaleWriteFail >= 3))
+            {
+                //--- v2.0.7: the DB keeps failing -> the lane must not stay locked in this popup. The card payment is
+                //---         written to the log for the supervisor to record by hand.
+                var xCard = xCreditCardInfo;
+                LogInfo.WriteLaneEvent(LogLevel.ERROR, $"- Error SalesCoupon : closed after {iSaleWriteFail} failed writes, CARD PAID BUT NOT RECORDED : " +
+                    $"pay {iSelPayType}, card {xCard?.szCardNo}, approve {xCard?.szApprovalCode}, ref3 {xCard?.szRef3}, amount {xCard?.szAmount}, receipt {szSaleReceiptNo}");
+                LogInfo.WriteLog(LogLevel.ERROR, $"- Error SalesCoupon : CARD PAID BUT NOT RECORDED : card {xCard?.szCardNo}, approve {xCard?.szApprovalCode}, ref3 {xCard?.szRef3}, amount {xCard?.szAmount}");
+                CloseDialog(ResponseType.Cancel, "Cancel after failed writes (card paid, see ERROR log)");
                 return;
             }
             if (bPayCompleted)

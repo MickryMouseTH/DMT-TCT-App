@@ -820,4 +820,75 @@ TCT (V.2.0.6)   2026-10-16
     - Bump version 2.0.5 -> 2.0.6, AssemblyVersion 2.0.5 -> 2.0.6
 
 
+TCT (V.2.0.7)   2026-10-18
+    [การเชื่อม RTO - รายงาน RTO_Communication_Review_2026-10-16 (รูปแบบข้อความไม่เปลี่ยน)]
+    - LaneSocketServer: ClearIdleSession 120 s, session ใหม่จาก RTO ปิด session เก่า + ResendRecentLaneTransactionToRTO(120),
+      HasLiveRtoSession/EnsureServerRunning (restart server จาก network check เท่านั้น), ส่ง error แยก session, IODI 16 ค่า,
+      คำสั่งควบคุม (CONTROL_METHODS) รับเฉพาะ RTO.IPAddress / RTO.AllowedIPs (RTO.CommandFromRtoOnly=1 ค่าเริ่ม), WRCRS clear, GET_SUP no-op
+    - AutoResendLaneEventToRTO / AutoResendLaneAlarmToRTO (2 วันล่าสุด, LIMIT 200), ข้อความ null ไม่ส่ง, วันที่ event/alarm ใช้ DbDateTimeOrNow
+    - SetCurrentSupervisor กะเดิมไม่เรียก AutoChangeStaffOfAutoLoginETC ซ้ำ
+    [รายการผ่านทางห้ามหาย - ทุกคันลง DB และถึง DC / RTO / SupAdjust]
+    - LaneDB.ExecuteOrThrow / ListOrThrow : ทางเขียนที่ 1.5.7 ล้มเหลวด้วย exception (Execute/List ของ 2.0.0 กลืน error คืน -1 / ตารางว่าง)
+      ใช้ใน WriteLaneEvent/EventRTO_Device(+ self-heal DELETE เมื่อ constraint)/EventHQ(ไม่ส่ง DC ถ้า insert ไม่ได้)/AlarmRTO,
+      EmvDetail, EdcDetail, DmtCardTransaction, Get/UpdateCurrentSupervisor, UpdateTransStatistic_TotalSum, GetMaxCaptureRunningNo (lock), Import* ทั้ง 6
+    - TakeID/GiveBackID: เลข ID แจกแบบ Interlocked และคืนเมื่อ insert ไม่สำเร็จ (เดิม ++ หลัง Execute ที่ไม่ throw = นับเลขแม้ไม่ได้เขียน)
+    - InsertTransactionNoLoss (LaneTransaction 4 จุด): ลอง 3 ครั้ง, ID ซ้ำ -> ใช้ MAX+1, ยังไม่ได้ -> เก็บ SQL ที่ config/PendingDB/*.sql
+      ReplayPendingInserts ตอนเปิด DB (ก่อนคำนวณ ID, รวม MaxPendingID) และทุกรอบ ThreadAutoResendTrans; QR PayRemark ตามไปด้วย
+    - PRAGMA synchronous=FULL (เดิม NORMAL)
+    - TCT_NVR.SaveImageCaptureIntoDB: ID atomic + ExecuteOrThrow ให้ retry ใน catch ทำงานอีกครั้ง
+    - SendLaneTransObjToDC/SupAdjust, SendLaneBeginJobObjToDC/RTO/SupAdjust: object null (อ่าน DB ไม่ได้) -> ไม่ส่ง ไม่ mark (resend ข้ามไปแถวถัดไป)
+    - Force Reset: คันปัจจุบันที่จ่ายแล้ว + มีรถในคิว -> ต่อท้าย ListLoopCar แล้ว ForceEnd จนไม่เหลือคันที่จ่ายแล้ว (PaidLoopCarLeft), log ERROR ถ้ายังเหลือ
+    - ThreadAutoResendTrans: แยก try/catch ต่อปลายทาง, DC ลำดับ BOJ -> Trans -> Event -> EOJ (เปิด AutoResendEndJobToDC), event/alarm RTO ไว้ท้ายสุด
+      AutoResendBeginJobToDC รวมกะปัจจุบันเมื่อเริ่มเกิน 2 นาที, AutoResendEndJobToDC เฉพาะกะที่มี StaffEndShiftDateTime
+    - ClearDatabaseFile: LaneTransaction ต้อง SendStatusDC=1 + SendStatusRTO=1 (ถ้ามี RTO IP) + SupAdjust=1/ไม่ต้องส่ง (ถ้าเปิด SupAdjust),
+      StaffShift ต้อง BOJ/EOJ ส่ง RTO/SupAdjust ครบด้วย, ImageCaptureCamera ที่ยังไม่ส่ง (SendStatusImage=0) ไม่ลบ
+    - SendLaneMessageToRTO: session จาก RTO.IPAddress ก่อน, ที่อื่นเฉพาะไม่มี RTO IP หรืออยู่ใน RTO.AllowedIPs
+    - SendFromReqLaneTransactionToRTO: รอคิว (สูงสุด 5 นาที) แทนทิ้งคำขอ, เงื่อนไขแถวเหมือน 1.5.7 (date >= วันที่ขอ ไม่จำกัดจำนวน)
+    [ตรวจ logic ครบตาม 1.5.7]
+    - PrintConvoyPaymentDlg: EdcPaymentDlg_V1 / EdcPayQrDlg_V1 Dispose+Destroy ใน finally ทุกผล (V1 ไม่ปิดตัวเองตั้งแต่ 2.0.2)
+    - EdcPaymentDlg_V1: response สั้น -> bError, ปลด event, RespondOnGtk(None) (1.5.7 catch ปิด popup); V0: throw เข้า catch เดิม
+    - EdcPaymentDlg_V1 / EdcPayQrDlg_V1: bApproved -> Process_CancelEMV ไม่ทำงานหลังอนุมัติแล้ว
+    - WebService_SalesCoupons: TA hasError -> ลบคูปองที่ยังไม่ขาย (1.5.7), ไม่ตอบ -> เก็บเฉพาะของพนักงานเดิม; SoldCoupon ใช้รหัสพนักงานตอนขาย
+    - Sales_CouponDlg: เลขใบเสร็จครั้งเดียวต่อการขาย, จ่ายบัตรแล้วเขียนไม่ได้ 3 ครั้ง -> ยกเลิกได้ + log ERROR ข้อมูลบัตร
+    - LoginWnd: ENTER ตอนแผง manual ปิด = เปิดแผง (1.5.7 ENTER กดปุ่ม Manual Login ที่มี focus)
+    - ตรวจแล้วไม่ต้องแก้: UI/Maintenance, RabbitMQ, LSD, TCT_Log, SupAdjust socket; __SIM__ ปิด (binary 1.5.7 ที่เปิด __SIM__ เป็น build จำลอง)
+    - ทดสอบใน MTC_Sim: tests/run_tests.py step no_loss (DC ล่มระหว่างรถผ่าน) + ชุดทดสอบรวมทั้งระบบ
+    - Bump version 2.0.6 -> 2.0.7, AssemblyVersion 2.0.6 -> 2.0.7
+
+
+TCT (V.2.0.8)   2026-10-26
+    [ถ่ายภาพกล้อง (NVR) - ตรวจทุกเส้นทางสั่งถ่าย หลังพบว่าบางคันไม่มีภาพ (ช่องที่ใช้ Method 3 Loop+OB)]
+    - Method 3: 1 คัน = 1 ชุดถ่าย (CaptureSeq_M3) เปิดชุดตอน Index=1 (Loop ON / OB ON ไม่มี Loop) ได้ CaptureRunningNo ใหม่ + nTrx ถ่าย
+      Index=2/3 ใช้ชุดเดิมจากหน่วยความจำ (เดิม GetCurCaptureRunningNo ค้น DB แข่งกับ thread ของ Index=1 ที่ยัง insert ไม่เสร็จ -> ได้เลข "max ปัจจุบัน" = ของคันถัดไป)
+      nTrx ถ่ายขยับ +1 เมื่อคันก่อนยังไม่ถึง AVC (รถ 2 คันระหว่าง Loop กับ AVC) กติกาเดียวกับ Method 0/1/2 (เดิม Loop ON คำนวณ inTrxIdx แล้วไม่ได้ใช้)
+      ชุดที่มีแต่ Index=1 เกิน 2 วินาทีแล้วรถคันใหม่ทับ Loop = รถถอยออก -> ทิ้งชุด คืน nTrx ถ่าย; คิวเก็บสูงสุด 6 ชุด; ล้างคิวตอนเริ่มกะ (ClearCaptureSeq_M3)
+    - Method 3 ฝั่ง AVC (ThreadCreateImageCameraSendJsonFile_Method_3): รอ thread ถ่ายของคันนั้นจบจริง (สูงสุด VideoNVR.TimeoutSec+5 วินาที
+      และรอให้ถึง Index=3 ไม่เกิน 2 วินาที) แทนรอ 2 วินาทีคงที่ แล้วผูกภาพด้วย CaptureRunningNo (LaneDB.LinkCaptureRunningNoToTrans ตั้ง
+      LaneTransactionID + JobNo + nTrx ให้ตรง transaction) ชุดที่ nTrx ต่ำกว่า transaction = ค้างจากคันก่อน -> ทิ้ง
+      เดิมกล้องช้ากว่า ~2 วินาที -> ส่ง JSON ภาพว่าง 3 ภาพ ถูก mark ส่งแล้ว แถวภาพที่มาทีหลัง LaneTransactionID=0 ไม่ถูกส่งซ้ำและถูกลบ = "ไม่ถ่ายรูป"
+      transId=0 (DUAL+HPMC) ไม่สร้างข้อความภาพ (เดิม NullReference ใน thread)
+    - Method 3 OB ON ไม่มี Loop: ถ่าย 3 ภาพ (เว้น 500 ms) บน thread พื้นหลัง (เดิม Thread.Sleep 2 ครั้งบน thread รับ WebSocket LCSD ทุก DI ถัดไปค้าง ~1 วินาที)
+    - LaneSocket_DigitalInputLaneEvent: lock ให้เข้าได้ทีละ thread (WebSocket LCSD และ RabbitMQ ETC EtcLaneState เรียกพร้อมกันได้ ค่า DI เป็น field ร่วม ขอบ ON/OFF หายได้)
+    - CaptureSkipReason (Method 0-3): เหตุผลที่ไม่ถ่าย (HPMC / ETC / DUAL+EtcCtrlIO) log ที่ LaneEvent ระดับ INFO "- Skip ..." (เดิมเงียบ มีแต่ DEBUG)
+    - Method 1: ตัด Abort() ใน finally ของ ThreadVideoCaptureImage_Method_1 - videoCaptureThread[] ใช้ร่วมทุกคัน ถ้าคันถัดไปเริ่มถ่ายกล้องเดิมแล้ว
+      จะ abort thread ของคันถัดไป (ภาพหาย และข้อความ "Thread was being aborted" ถูกกรองออกจาก log); Task.Delay(1000) ที่ไม่ได้ await -> Thread.Sleep(1000)
+    - Method 0: ตัด Thread.ResetAbort() ใน catch WebException ของ TCT_NVR.CreateImageFromUrl (โยน ThreadStateException ทุกครั้งที่กล้อง timeout)
+    - Method 1/2: กล้อง 3 ต้องมี VideoLaneCapture.ThirdCameraUrl ด้วย (เดิมเช็คเฉพาะ VideoNVR.ThirdCaptureUrl แล้วยิง URL ว่าง -> exception)
+    - Method 2/3: ตัด GC.Collect()+WaitForPendingFinalizers() ใน thread ถ่ายทุกภาพ (ทั้งโปรแกรมสะดุดคันละ 3 ครั้ง)
+    - TCT_NVR: ServicePointManager.DefaultConnectionLimit 2 -> 16 (ค่าเริ่มต้น .NET/Mono ต่อ host ได้ 2 connection พร้อมกัน กล้อง 3 ตัวยิงพร้อมกันไป host เดียว
+      (NVR เดียวใน Method 0 / กล้องหลัง+กล้อง 3 IP เดียวกัน / Method 3 Index 1-2 กล้องหลังทั้งคู่) ภาพที่ 3 ต้องรอ connection ว่างจน timeout = ภาพหาย "บางครั้ง")
+    - Method 3 รถลากจูง: รายการรถถูกลาก (TOWING #2) ถูกส่ง DC / RTO / SupAdjust 2 ครั้ง (AvcLaneEvent ส่งเอง + thread ข้อความภาพส่งอีกครั้ง)
+      -> AvcLaneEvent ไม่ส่งเมื่อ Method 3 เหมือนทางปกติ (เจอใน MTC_Sim เคส q_cam_towing)
+    - TCT_NVR.SaveJpeg: เขียนไฟล์ชั่วคราวก่อนแล้วค่อยแทนที่ภายใต้ lock - Method 1 ตั้งชื่อไฟล์ <ช่อง>-<วันที่>-<Job>-<nTrx>-<กล้อง>.jpg (ไม่มีเวลา)
+      รถยกเว้น/ออกซ้ายที่จองเป็นคันถัดไปถูกถ่าย 2 ครั้งใน nTrx เดียว (ตอนกดคีย์ และตอน replay คีย์เมื่อรถมาถึง) 2 thread เขียนไฟล์เดียวกันพร้อมกัน
+      -> sharing violation / JPEG ไม่สมบูรณ์ = "สั่งถ่ายแต่ไม่ได้รูป"
+    - LaneDB: GetLaneTransactionJobTrx, LinkCaptureRunningNoToTrans
+    - TCT_Obj.GetImageCameraFileName: เลือกแถวภาพล่าสุดของกล้องนั้นแบบแน่นอน (ORDER BY UpdateDateTime, ImageCaptureID DESC LIMIT 1)
+      เดิม GROUP BY CameraIndex ให้ SQLite เลือกแถวไหนก็ได้ ถ้า JobNo/nTrx เดิมเคยถ่ายมากกว่า 1 ชุด (Method 1 ผูกทุกแถวที่ CaptureRunningNo=0, violation หลัง RTO เปิดไม้ nTrx--)
+      อาจได้ไฟล์เก่าที่ถูกย้าย/ลบไปแล้ว -> ข้อความภาพว่าง (เจอใน MTC_Sim เคส OB อย่างเดียว)
+    - ยังไม่แก้ (ต้องรู้ flow ETC ก่อน): ช่อง DUAL bEtcCtrlIO ค้าง true หลังรถ ETC จนกด CLASS 9 / EDIT -> รถ MTC ถัดไปไม่ถ่าย (ตอนนี้ log บอกเหตุผลแล้ว)
+    - ทดสอบ: build Mono (Docker) ผ่าน; ช่องจริง Method 3 ยังต้องทดสอบ (MTC_Sim ใช้ Method 1)
+    - Bump version 2.0.7 -> 2.0.8, AssemblyVersion 2.0.7 -> 2.0.8
+
+
 =============================================================================================*/

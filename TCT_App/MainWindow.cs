@@ -150,6 +150,7 @@ public partial class MainWindow : Gtk.Window
         TCT_Lib.laneController.bHasViolation    = false;
         TCT_Lib.nTrx                            = 1;
         TCT_Lib.laneController.iCapture_nTrx    = 0;
+        TCT_Lib.laneController.ClearCaptureSeq_M3("new job");      // v2.0.8
         // Start transaction of each JobNo
         // if ETC mode then JobNo will fix=0 (2021/03/17)
         TCT_Lib.iStaffShiftID                   = (int)TCT_Lib.LaneDB.GetStaffShiftID();

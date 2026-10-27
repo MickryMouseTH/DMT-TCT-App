@@ -1,4 +1,8 @@
 ﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Net;
+using System.Threading.Tasks;
 using SuperSocket.WebSocket;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -12,6 +16,11 @@ namespace TCT_App.LaneSocket
     public class LaneSocketServerRTO
     {
         WebSocketServer laneServer;
+        readonly object xLockServer = new object();         // v2.0.7: laneServer is replaced only under this lock
+        //--- v2.0.7: sessions that sent an RTO-only method (REQ_STATE / CURRENT_SUPERVISOR) = RTO even when its IP is not
+        //---         the configured one (RTO with 2 NICs); used to send RTO data, never to allow control commands
+        readonly ConcurrentDictionary<string, DateTime> xRtoSessions = new ConcurrentDictionary<string, DateTime>();
+        const int RTO_SESSION_ALIVE_SEC = 60;               // RTO asks REQ_STATE every 5-15 s
 
         //--- Declare delegate and event
         public delegate void EtcChangeLaneMode(int iEtcLaneMode, int iEtcLaneState); 
@@ -54,7 +63,11 @@ namespace TCT_App.LaneSocket
                             Port    = TCT_Lib.iRTO_SocketPort,
                             Mode    = SocketMode.Tcp,
                             SendTimeOut = 5000,
-                            SyncSend = true
+                            SyncSend = true,
+                            //--- v2.0.7: drop half-open sessions (RTO sends REQ_STATE every 5-15 s), TCP keepalive took ~10 min
+                            ClearIdleSession            = true,
+                            IdleSessionTimeOut          = 120,
+                            ClearIdleSessionInterval    = 30,
                         }))
                 {
                     laneServer.NewSessionConnected  += LaneServer_NewSessionConnected;
@@ -84,7 +97,145 @@ namespace TCT_App.LaneSocket
             Console.WriteLine("+ Find new session socket - RTO : IP=" + session.Host + ", SessionID=" + session.SessionID);
             LogInfo.WriteLog("+ Find new session socket - RTO : IP=" + session.Host + ", SessionID=" + session.SessionID);
             LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.NewSessionConnected : remote={session.RemoteEndPoint?.ToString() ?? "null"}, sessions={laneServer?.SessionCount}, send lane state");
-            TCT_Lib.laneController.SendLaneCurrentState();
+
+            //--- v2.0.7: RTO reconnected (network blip) : the old session from the same IP can still look connected
+            //---         (half-open) and data sent to it was lost although it was marked "sent to RTO". Close it.
+            string szIP = SessionIP(session);
+            if (IsRtoIP(szIP))
+            {
+                var xServer = laneServer;
+                if (xServer != null)
+                {
+                    foreach (WebSocketSession xOld in xServer.GetAllSessions().ToList())
+                    {
+                        if ((xOld.SessionID != session.SessionID) && (SessionIP(xOld) == szIP))
+                        {
+                            LogInfo.WriteLog($"+ Close old RTO session {xOld.SessionID} (new session {session.SessionID} from {szIP})");
+                            try { xOld.Close(); } catch (Exception) { }
+                        }
+                    }
+                }
+                //--- transactions sent in the last 2 minutes may have gone to the dead session : send them again
+                //--- (RTO replaces a transaction it already has; same message as the normal resend)
+                Task.Run(async () =>
+                {
+                    await Task.Delay(3000);
+                    TCT_Lib.ResendRecentLaneTransactionToRTO(120);
+                });
+            }
+
+            if (TCT_Lib.laneController != null)
+                TCT_Lib.laneController.SendLaneCurrentState();
+        }
+
+        //--- v2.0.7: IPv4 text of a session ("::ffff:a.b.c.d" -> "a.b.c.d")
+        static string SessionIP(WebSocketSession session)
+        {
+            try
+            {
+                var ep = session?.RemoteEndPoint as IPEndPoint;
+                if (ep == null)
+                    return "";
+                IPAddress ip = ep.Address;
+                if (ip.IsIPv4MappedToIPv6)
+                    ip = ip.MapToIPv4();
+                return ip.ToString();
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        static bool IsRtoIP(string szIP)
+        {
+            string szRto = (TCT_Lib.szRTO_IPAddress ?? "").Trim();
+            return (szRto != "") && (szIP == szRto);
+        }
+
+        //--- v2.0.7: a session that is not from the RTO IP may get RTO messages only when RTO IP is not configured
+        //---         or its IP is listed in RTO.AllowedIPs
+        static bool IsRtoFallbackIP(string szIP)
+        {
+            string szRto = (TCT_Lib.szRTO_IPAddress ?? "").Trim();
+            if (szRto == "")
+                return true;
+            foreach (string szAllowed in (TCT_Lib.szRTO_AllowedIPs ?? "").Split(','))
+                if (szAllowed.Trim() != "" && szAllowed.Trim() == szIP)
+                    return true;
+            return false;
+        }
+
+        //--- control commands : RTO IP or RTO.AllowedIPs (RTO IP not configured = everybody, as before)
+        static bool IsAllowedCommandIP(string szIP)
+        {
+            if (!TCT_Lib.bRTO_CommandFromRtoOnly)
+                return true;
+            string szRto = (TCT_Lib.szRTO_IPAddress ?? "").Trim();
+            if (szRto == "" || szIP == szRto)
+                return true;
+            foreach (string szAllowed in (TCT_Lib.szRTO_AllowedIPs ?? "").Split(','))
+                if (szAllowed.Trim() != "" && szAllowed.Trim() == szIP)
+                    return true;
+            return false;
+        }
+
+        //--- v2.0.7: an RTO WebSocket session is alive (TCT_Lib.bRTO_Connected uses it too: the 9093 port check alone
+        //---         stopped every message to RTO when that listener died although the WebSocket was fine)
+        public bool HasLiveRtoSession()
+        {
+            var xServer = laneServer;
+            if (xServer == null)
+                return false;
+            try
+            {
+                return xServer.GetAllSessions().Any(x => x.Connected && IsRtoSession(x) &&
+                                                         (DateTime.Now - x.LastActiveTime).TotalSeconds < RTO_SESSION_ALIVE_SEC);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        bool IsRtoSession(WebSocketSession session)
+        {
+            return IsRtoIP(SessionIP(session)) || xRtoSessions.ContainsKey(session.SessionID);
+        }
+
+        //--- v2.0.7: the server is restarted here (called by the 10 s network check), never from a send that failed
+        public void EnsureServerRunning()
+        {
+            lock (xLockServer)
+            {
+                try
+                {
+                    if (laneServer != null && laneServer.State == ServerState.Running)
+                        return;
+                    LogInfo.WriteLog(LogLevel.WARN, $"- RTO WebSocket server not running (state={laneServer?.State.ToString() ?? "null"}), start again");
+                    try
+                    {
+                        if (laneServer != null)
+                        {
+                            laneServer.Stop();
+                            laneServer.Dispose();
+                        }
+                    }
+                    catch (Exception)
+                    {
+
+                    }
+                    laneServer = new WebSocketServer();
+                    if (SetupSocketServer() && laneServer.Start())
+                        LogInfo.WriteLog("+ Successs Start LaneSocketServer - RTO");
+                    else
+                        LogInfo.WriteLog("- Fail Start LaneSocketServer - RTO (retry in 10 s)");
+                }
+                catch (Exception err)
+                {
+                    LogInfo.WriteLog("- Error EnsureServerRunning : " + err.Message);
+                }
+            }
         }
 
         void LaneServer_SessionClosed(WebSocketSession session, SuperSocket.SocketBase.CloseReason value)
@@ -92,6 +243,8 @@ namespace TCT_App.LaneSocket
             Console.WriteLine("+ Close session socket - RTO : " + session.Host + ", SessionID=" + session.SessionID);
             LogInfo.WriteLog("+ Close session socket - RTO : " + session.Host + ", SessionID=" + session.SessionID);
             LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SessionClosed : remote={session.RemoteEndPoint?.ToString() ?? "null"}, reason={value}, sessions={laneServer?.SessionCount}");
+            DateTime dtRemoved;
+            xRtoSessions.TryRemove(session.SessionID, out dtRemoved);
         }
 
         void LaneServer_NewMessageReceived(WebSocketSession session, string value)
@@ -106,11 +259,9 @@ namespace TCT_App.LaneSocket
             //LogInfo.WriteLog("+ SocketServer : " + session.Method + ", Mesage : " + value);
             if (LogInfo.IsEnabled(LogLevel.TRACE))
                 LogInfo.WriteLog(LogLevel.TRACE, $"+ LaneSocketServerRTO.NewMessageReceived : from={session.RemoteEndPoint?.ToString() ?? "null"}, msg={value}");
-            szLastSenderIP = session.RemoteEndPoint is System.Net.IPEndPoint ep ? ep.Address.ToString() : "";
-            ClassifyServerMessage(value);
+            //--- v2.0.7: sender IP is passed with the message (was one shared field, raced between sessions)
+            ClassifyServerMessage(value, session);
         }
-
-        string szLastSenderIP = "";     // v2.0.6: ผู้ส่งคำสั่งล่าสุด (ตรวจคำสั่ง REMOTE_LOGIN_FREE ว่ามาจาก RTO จริง)
 
         public void SendLaneMessageToClient(string szMethod, object objParams)
         {
@@ -135,17 +286,25 @@ namespace TCT_App.LaneSocket
                     if (obj is JObject)
                     {
                         JArray jValues  = obj["values"];
-                        jValues[14]     = TCT_Lib.bEMV_Connected ? 1 : 0;
-                        jValues[15]     = TCT_Lib.iTotalQueue;
-                        jValues[11]     = (TCT_Lib.iLastAvcStatus == -99) ? 1 : 0;  // 2022-01-04   For alert OB ON, not OFF
-
+                        //--- v2.0.7: an IODI with less than 16 values threw here and restarted the whole RTO server
+                        while (jValues != null && jValues.Count < 16)
+                            jValues.Add(0);
+                        if (jValues != null)
+                        {
+                            jValues[14]     = TCT_Lib.bEMV_Connected ? 1 : 0;
+                            jValues[15]     = TCT_Lib.iTotalQueue;
+                            jValues[11]     = (TCT_Lib.iLastAvcStatus == -99) ? 1 : 0;  // 2022-01-04   For alert OB ON, not OFF
+                        }
                         objParams       = obj;
                     }
                     else
                     {
-                        obj[14]     = TCT_Lib.bEMV_Connected ? 1 : 0;
-                        obj[15]     = TCT_Lib.iTotalQueue;
-                        obj[11]     = (TCT_Lib.iLastAvcStatus == -99) ? 1 : 0;  // 2022-01-04   For alert OB ON, not OFF
+                        if (obj != null && obj.Length >= 16)
+                        {
+                            obj[14]     = TCT_Lib.bEMV_Connected ? 1 : 0;
+                            obj[15]     = TCT_Lib.iTotalQueue;
+                            obj[11]     = (TCT_Lib.iLastAvcStatus == -99) ? 1 : 0;  // 2022-01-04   For alert OB ON, not OFF
+                        }
                         objParams   = new { values = obj };
                     }
                 }
@@ -163,12 +322,26 @@ namespace TCT_App.LaneSocket
 
                 if (szMethod != "IODO")
                 {
+                    var xServer = laneServer;
+                    if (xServer == null)
+                        return;
                     Console.WriteLine("+ Send LaneMessage to RTO : " + szJsonCmd);
-                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToClient : method={szMethod}, sessions={laneServer?.SessionCount}, len={szJsonCmd.Length}");
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToClient : method={szMethod}, sessions={xServer.SessionCount}, len={szJsonCmd.Length}");
                     if (LogInfo.IsEnabled(LogLevel.TRACE))
                         LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToClient : " + szJsonCmd);
-                    foreach (WebSocketSession session in laneServer.GetAllSessions().ToList())
-                        session.Send(szJsonCmd);
+                    foreach (WebSocketSession session in xServer.GetAllSessions().ToList())
+                    {
+                        //--- v2.0.7: one bad session (send timeout, closing) is closed alone, the server keeps running
+                        try
+                        {
+                            session.Send(szJsonCmd);
+                        }
+                        catch (Exception err)
+                        {
+                            LogInfo.WriteLog($"- Error SendLaneMessage To {SessionIP(session)} : Method={szMethod}, Error={err.Message} -> close this session");
+                            try { session.Close(); } catch (Exception) { }
+                        }
+                    }
                 }
                 else
                     LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToClient : IODO not forwarded");
@@ -178,23 +351,7 @@ namespace TCT_App.LaneSocket
                 Console.WriteLine($"- Error SendLaneMessage To RTO : Method={szMethod}, Error={err.Message}");
                 LogInfo.WriteLog($"- Error SendLaneMessage To RTO : Method={szMethod}, Error={err.Message}");
                 LogInfo.WriteLog(LogLevel.DEBUG, "- LaneSocketServerRTO.SendLaneMessageToClient : stack=" + err.StackTrace);
-                TCT_Lib.bRTO_Connected = false;
-                //----------------------------------------------
-                //Thread.Sleep(2000);
-                LogInfo.WriteLog("+ Restart RTO WebSocket");
-                LogInfo.WriteLog(LogLevel.WARN, $"- LaneSocketServerRTO.SendLaneMessageToClient : restart RTO server port={TCT_Lib.iRTO_SocketPort}, bRTO_Connected=false");
-                laneServer.Stop();
-                laneServer.Dispose();
-                laneServer = null;
-                laneServer = new WebSocketServer();
-
-                if (SetupSocketServer())
-                {
-                    if (laneServer.Start())
-                        LogInfo.WriteLog("+ Successs Start LaneSocketServer - RTO");
-                    else
-                        LogInfo.WriteLog("- Fail Start LaneSocketServer - RTO");
-                }
+                //--- v2.0.7: no server restart from here (EnsureServerRunning checks it every 10 s)
             }
         }
 
@@ -206,9 +363,16 @@ namespace TCT_App.LaneSocket
                 return false;
             }
 
-            if (TCT_Lib.szRTO_IPAddress == "")
+            if (TCT_Lib.szRTO_IPAddress == "" && xRtoSessions.IsEmpty)
             {
                 LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToRTO : skip method={szMethod}, RTO IP not configured");
+                return false;
+            }
+
+            //--- v2.0.7: a null message was "sent" (RTO got params:null) and marked as delivered
+            if (objParams == null)
+            {
+                LogInfo.WriteLog(LogLevel.WARN, $"- LaneSocketServerRTO.SendLaneMessageToRTO : method={szMethod} has no params, not sent");
                 return false;
             }
 
@@ -224,17 +388,29 @@ namespace TCT_App.LaneSocket
             try
             {
                 Console.WriteLine("+ Send LaneMessage to RTO : " + szJsonCmd);
-                foreach (WebSocketSession session in laneServer.GetAllSessions().ToList())
+                var xServer = laneServer;
+                if (xServer == null)
+                    return false;
+                //--- v2.0.7: the RTO session that was active last (RTO polls REQ_STATE, a dead session stays behind),
+                //---         RTO = configured IP (trimmed, IPv4-mapped) or a session that sent an RTO-only method
+                //---         A session from the configured RTO IP always wins (1.5.7 sent only to that IP). Another session
+                //---         is used only when no RTO-IP session is connected and its IP is in RTO.AllowedIPs (RTO 2nd NIC)
+                //---         or no RTO IP is configured - a console polling REQ_STATE must not take the cars away from RTO.
+                var xConnected = xServer.GetAllSessions().Where(x => x.Connected).ToList();
+                var xSession = xConnected.Where(x => IsRtoIP(SessionIP(x)))
+                                    .OrderByDescending(x => x.LastActiveTime)
+                                    .FirstOrDefault()
+                            ?? xConnected.Where(x => xRtoSessions.ContainsKey(x.SessionID) && IsRtoFallbackIP(SessionIP(x)))
+                                    .OrderByDescending(x => x.LastActiveTime)
+                                    .FirstOrDefault();
+                if (xSession != null)
                 {
-                    string szIP = session.RemoteEndPoint.Address.ToString();
-                    if ((szIP == TCT_Lib.szRTO_IPAddress) && session.Connected)
-                    {
-                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToRTO : method={szMethod}, to={szIP}, len={szJsonCmd.Length}");
-                        if (LogInfo.IsEnabled(LogLevel.TRACE))
-                            LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToRTO : " + szJsonCmd);
-                        session.Send(szJsonCmd);
-                        return true;
-                    }
+                    string szIP = SessionIP(xSession);
+                    LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.SendLaneMessageToRTO : method={szMethod}, to={szIP} ({xSession.SessionID}), len={szJsonCmd.Length}");
+                    if (LogInfo.IsEnabled(LogLevel.TRACE))
+                        LogInfo.WriteLog(LogLevel.TRACE, "+ LaneSocketServerRTO.SendLaneMessageToRTO : " + szJsonCmd);
+                    xSession.Send(szJsonCmd);
+                    return true;
                 }
 
                 LogInfo.WriteLog(LogLevel.WARN, $"- LaneSocketServerRTO.SendLaneMessageToRTO : no connected session from RTO IP={TCT_Lib.szRTO_IPAddress}, dropped method={szMethod}");
@@ -297,8 +473,22 @@ namespace TCT_App.LaneSocket
 
         //--------------------------------------------------------------
         //=== Message from RTO
-        void ClassifyServerMessage(string szMsg)
+        //--- v2.0.7: methods that change the lane (accepted only from RTO, see IsAllowedCommandIP)
+        static readonly HashSet<string> CONTROL_METHODS = new HashSet<string>
         {
+            "CURRENT_SUPERVISOR", "CTRL_IO", "REMOTE_LOGIN", "REMOTE_LOGIN_FREE", "REMOTE_LOGOUT", "CHANGE_TYPE", "CLEAR_QUEUE",
+            "ENABLE_SECONDARY_READER", "CTRL_HPMC", "ETC_LANEMODE", "WRDO", "WRTFI", "WRCRS", "EXIT_MAINTENANCE",
+            "REQ_LANETRANSACTION", "REQ_RESEND_LANETRANS_DC", "REQ_RESEND_LANETRANS_SUPADJUST",
+        };
+
+        static string DescribeMethod(string szMethod)
+        {
+            return szMethod == "REMOTE_LOGIN_FREE" ? "Remote Login FREE mode" : szMethod;
+        }
+
+        void ClassifyServerMessage(string szMsg, WebSocketSession xSender)
+        {
+            string szSenderIP = SessionIP(xSender);
             if (TCT_Lib.bMaintenanceMode && !TCT_Lib.bAllowSendRTO)
             {
                 LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneSocketServerRTO.ClassifyServerMessage : ignored, maintenance mode");
@@ -315,6 +505,18 @@ namespace TCT_App.LaneSocket
                 string method       = msg["method"];
                 JObject jParams     = msg["params"];
                 LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : id={id}, method={method ?? "null"}, result={result ?? "null"}");
+
+                string szMethodU = (method ?? "").ToUpper();
+                if ((xSender != null) && (szMethodU == "REQ_STATE" || szMethodU == "CURRENT_SUPERVISOR" || szMethodU == "GET_SUP") &&
+                    IsAllowedCommandIP(szSenderIP))
+                    xRtoSessions[xSender.SessionID] = DateTime.Now;     // this session is RTO (also when its IP is another NIC)
+
+                if ((method != null) && CONTROL_METHODS.Contains(szMethodU) && !IsAllowedCommandIP(szSenderIP))
+                {
+                    //--- v2.0.7: any host on the lane network could open the barrier, log out or change the lane type
+                    LogInfo.WriteLaneEvent($"- Reject {DescribeMethod(szMethodU)} : sender {szSenderIP} is not RTO {TCT_Lib.szRTO_IPAddress}");
+                    return;
+                }
 
                 if (result != null)
                 {
@@ -440,9 +642,9 @@ namespace TCT_App.LaneSocket
                     {
                         //--- v2.0.6: Remote Login เข้าโหมดไม่เก็บค่าผ่านทาง (เปิดวิ่งฟรี) - รับจากเครื่อง RTO ใน config เท่านั้น
                         string szStaffCode = (string)jParams["code"];
-                        LogInfo.WriteLaneEvent($"+ From RTO => Remote Login FREE mode : StaffCode={szStaffCode}, from={szLastSenderIP}");
-                        if ((TCT_Lib.szRTO_IPAddress.Trim() != "") && (szLastSenderIP != TCT_Lib.szRTO_IPAddress.Trim()))
-                            LogInfo.WriteLaneEvent($"- Reject Remote Login FREE mode : sender {szLastSenderIP} is not RTO {TCT_Lib.szRTO_IPAddress}");
+                        LogInfo.WriteLaneEvent($"+ From RTO => Remote Login FREE mode : StaffCode={szStaffCode}, from={szSenderIP}");
+                        if ((TCT_Lib.szRTO_IPAddress.Trim() != "") && (szSenderIP != TCT_Lib.szRTO_IPAddress.Trim()))
+                            LogInfo.WriteLaneEvent($"- Reject Remote Login FREE mode : sender {szSenderIP} is not RTO {TCT_Lib.szRTO_IPAddress}");
                         else
                             TCT_Lib.laneController.RemoteLoginFreeFromRTO(szStaffCode);
                     }
@@ -548,10 +750,19 @@ namespace TCT_App.LaneSocket
                     else if (method.ToUpper() == "WRCRS")
                     {
                         dynamic paramsObj   = JsonConvert.DeserializeObject(jParams.ToString());
-                        string szColumn1    = paramsObj["column1"];
-                        string szColumn2    = paramsObj["column2"];
-                        LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : WRCRS col1={szColumn1}, col2={szColumn2}");
-                        TCT_Lib.webSocketLane.OutIo_WriteCRS(szColumn1, szColumn2);
+                        //--- v2.0.7: RTO clears the CRS with {"clear":1} (was written as null text)
+                        if (((int?)jParams["clear"] ?? 0) == 1)
+                        {
+                            LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneSocketServerRTO.ClassifyServerMessage : WRCRS clear");
+                            TCT_Lib.webSocketLane.OutIo_ClearCRS();
+                        }
+                        else
+                        {
+                            string szColumn1    = (string)paramsObj["column1"] ?? "";
+                            string szColumn2    = (string)paramsObj["column2"] ?? "";
+                            LogInfo.WriteLog(LogLevel.DEBUG, $"+ LaneSocketServerRTO.ClassifyServerMessage : WRCRS col1={szColumn1}, col2={szColumn2}");
+                            TCT_Lib.webSocketLane.OutIo_WriteCRS(szColumn1, szColumn2);
+                        }
                     }
                     else if (method.ToUpper() == "EXIT_MAINTENANCE")
                     {
@@ -569,8 +780,8 @@ namespace TCT_App.LaneSocket
                         Console.WriteLine($"+ From RTO : Request Resend LaneTrans to RTO => Date={szDateReq}, JobNo={iJobNo}, Start_nTrx={iStart_nTrx}, End_nTrx={iEnd_nTrx}");
                         LogInfo.WriteLog($"+ From RTO : Request Resend LaneTrans to RTO => Date={szDateReq}, JobNo={iJobNo}, Start_nTrx={iStart_nTrx}, End_nTrx={iEnd_nTrx}");
 
-                        TCT_Lib.SendFromReqLaneTransactionToRTO(szDateReq, iJobNo, iStart_nTrx, iEnd_nTrx);
-                        //TCT_Lib.SendFromRequestLaneTransactionToSupAdjust(szDateReq, iJobNo, iStart_nTrx, iEnd_nTrx);
+                        //--- v2.0.7: on a worker (it blocked this session thread 100 ms per row, other RTO commands waited)
+                        Task.Run(() => TCT_Lib.SendFromReqLaneTransactionToRTO(szDateReq, iJobNo, iStart_nTrx, iEnd_nTrx));
                     }
                     else if (method.ToUpper() == "REQ_RESEND_LANETRANS_DC")
                     {
@@ -599,6 +810,11 @@ namespace TCT_App.LaneSocket
 
                         //TCT_Lib.SendFromReqLaneTransactionToRTO(szDateReq, iJobNo, iStart_nTrx, iEnd_nTrx);
                         TCT_Lib.SendFromRequestLaneTransactionToSupAdjust(szDateReq, iJobNo, iStart_nTrx, iEnd_nTrx);
+                    }
+                    else if (method.ToUpper() == "GET_SUP")
+                    {
+                        //--- RTO sends it on connect; the supervisor itself comes with CURRENT_SUPERVISOR (nothing to do)
+                        LogInfo.WriteLog(LogLevel.DEBUG, "+ LaneSocketServerRTO.ClassifyServerMessage : GET_SUP (no reply needed)");
                     }
                     else
                         LogInfo.WriteLog(LogLevel.WARN, "- LaneSocketServerRTO.ClassifyServerMessage : unknown method=" + method);
